@@ -33,14 +33,15 @@ Both engines implement the same contract and pass the same conformance suite. Me
 
 ## Where to go next
 
-1. [Getting started](getting-started): install an engine and render a first document.
-2. [Samples](samples): the demo apps on both platforms, with screenshots.
-3. [Philosophy](philosophy): the ideas the design follows.
-4. [Guidelines](guidelines): the recommended app architecture.
-5. [Creating a bridge](bridge): connect Milano to your design system.
-6. [Writing documents](documents): the document format from a producer's view.
-7. [Expressions](expressions): the expression language reference.
-8. [Guardrails](guardrails): errors, policies, limits, and observability.
+1. [Playground](https://get-milano.github.io/playground/): try vocabularies and documents in the browser, nothing to install.
+2. [Getting started](getting-started): install an engine and render a first document.
+3. [Samples](samples): the demo apps on both platforms, with screenshots.
+4. [Philosophy](philosophy): the ideas the design follows.
+5. [Guidelines](guidelines): the recommended app architecture.
+6. [Creating a bridge](bridge): connect Milano to your design system.
+7. [Writing documents](documents): the document format from a producer's view.
+8. [Expressions](expressions): the expression language reference.
+9. [Guardrails](guardrails): errors, policies, limits, and observability.
 
 ## License
 

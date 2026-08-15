@@ -7,6 +7,8 @@ nav_order: 1
 
 Rendering a document takes five pieces: a **vocabulary** (the JSON artifact declaring which component types and actions exist), **renderers** (your code, one per component type), an **engine** (holds vocabulary, registry, policy, and limits), a **builder** (per document, injects context, state data, and the action handler), and a **host** (shows a loading view, then the built view or the failure).
 
+To try vocabularies, documents, and expressions before installing anything, open the [Playground](https://get-milano.github.io/playground/): it validates and renders in the browser against the live specification.
+
 ## Install
 
 ### SwiftUI

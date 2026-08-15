@@ -8,7 +8,9 @@ Milano is **not** server-driven UI (it never talks to a server), **not** a SaaS 
 
 The normative specifications and the conformance suite live in [get-milano/specs](https://github.com/get-milano/specs). **Both engines pass the full conformance suite; that is the definition of correct.**
 
-Consumer documentation lives in [`docs/`](docs/index.md), published at [get-milano.github.io/engine](https://get-milano.github.io/engine): getting started, philosophy, guidelines, creating a bridge, writing documents, expressions, and guardrails.
+Consumer documentation lives in [`docs/`](docs/index.md), published at [get-milano.github.io/sdk](https://get-milano.github.io/sdk/): getting started, philosophy, guidelines, creating a bridge, writing documents, expressions, and guardrails.
+
+Try Milano without installing anything: the [Playground](https://get-milano.github.io/playground/) validates and renders vocabularies and documents in the browser, with live expressions and interactive actions.
 
 Status: `0.1.0`, pre-release. The contract major is `0`: pinning behavior, expecting evolution.
 
