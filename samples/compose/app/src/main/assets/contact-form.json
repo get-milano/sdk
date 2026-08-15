@@ -1,0 +1,210 @@
+{
+  "version": "0.1.0",
+  "context": {
+    "marketingConsentRequired": "bool"
+  },
+  "state": {
+    "name": "string",
+    "surname": "string",
+    "email": "string",
+    "phone": "string?",
+    "consent": "bool",
+    "submitted": "bool",
+    "submitAttempted": "bool"
+  },
+  "actions": {
+    "submitContact": {
+      "parameters": {
+        "name": "string",
+        "surname": "string",
+        "email": "string",
+        "phone": "string?"
+      }
+    }
+  },
+  "root": {
+    "type": "Column",
+    "id": "form",
+    "children": [
+      {
+        "type": "TextField",
+        "id": "name",
+        "properties": {
+          "label": "Name",
+          "value": {
+            "$expr": "state.name"
+          },
+          "required": true,
+          "error": {
+            "$expr": "if(state.submitAttempted && isEmpty(trim(state.name)), 'This field is required.', null)"
+          }
+        },
+        "on": {
+          "change": [
+            {
+              "action": "$set",
+              "key": "name",
+              "value": {
+                "$expr": "event"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "TextField",
+        "id": "surname",
+        "properties": {
+          "label": "Surname",
+          "value": {
+            "$expr": "state.surname"
+          },
+          "required": true,
+          "error": {
+            "$expr": "if(state.submitAttempted && isEmpty(trim(state.surname)), 'This field is required.', null)"
+          }
+        },
+        "on": {
+          "change": [
+            {
+              "action": "$set",
+              "key": "surname",
+              "value": {
+                "$expr": "event"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "TextField",
+        "id": "email",
+        "properties": {
+          "label": "Email",
+          "value": {
+            "$expr": "state.email"
+          },
+          "required": true,
+          "error": {
+            "$expr": "if(state.submitAttempted && !contains(state.email, '@'), 'Enter a valid email address.', null)"
+          }
+        },
+        "on": {
+          "change": [
+            {
+              "action": "$set",
+              "key": "email",
+              "value": {
+                "$expr": "event"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "TextField",
+        "id": "phone",
+        "properties": {
+          "label": "Phone (optional)",
+          "value": {
+            "$expr": "state.phone ?? ''"
+          },
+          "required": false
+        },
+        "on": {
+          "change": [
+            {
+              "action": "$set",
+              "key": "phone",
+              "value": {
+                "$expr": "event"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Checkbox",
+        "id": "consent",
+        "properties": {
+          "label": "I agree to be contacted",
+          "checked": {
+            "$expr": "state.consent"
+          },
+          "visible": {
+            "$expr": "context.marketingConsentRequired"
+          }
+        },
+        "on": {
+          "change": [
+            {
+              "action": "$set",
+              "key": "consent",
+              "value": {
+                "$expr": "event"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Button",
+        "id": "submit",
+        "properties": {
+          "label": "Send",
+          "enabled": {
+            "$expr": "!state.submitted"
+          }
+        },
+        "on": {
+          "tap": [
+            {
+              "action": "$set",
+              "key": "submitAttempted",
+              "value": true
+            },
+            {
+              "action": "$when",
+              "condition": {
+                "$expr": "!isEmpty(trim(state.name)) && !isEmpty(trim(state.surname)) && contains(state.email, '@') && (!context.marketingConsentRequired || state.consent) && !state.submitted"
+              },
+              "then": [
+                {
+                  "action": "submitContact",
+                  "name": {
+                    "$expr": "trim(state.name)"
+                  },
+                  "surname": {
+                    "$expr": "trim(state.surname)"
+                  },
+                  "email": {
+                    "$expr": "trim(state.email)"
+                  },
+                  "phone": {
+                    "$expr": "state.phone"
+                  },
+                  "onSuccess": [
+                    {
+                      "action": "$set",
+                      "key": "submitted",
+                      "value": true
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "type": "Text",
+        "id": "thanks",
+        "properties": {
+          "text": {
+            "$expr": "if(state.submitted, 'Thanks! We will be in touch.', '')"
+          }
+        }
+      }
+    ]
+  }
+}

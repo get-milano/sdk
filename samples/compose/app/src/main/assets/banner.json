@@ -1,0 +1,54 @@
+{
+  "version": "0.1.0",
+  "context": {
+    "userName": "string"
+  },
+  "root": {
+    "type": "Banner",
+    "id": "banner",
+    "properties": {
+      "backgroundImageUrl": "https://picsum.photos/seed/milano/900/500",
+      "layout": "overlay",
+      "height": 260,
+      "contentAlignment": "bottomLeading",
+      "showScrim": true,
+      "cornerRadius": 16
+    },
+    "children": [
+      {
+        "type": "Text",
+        "id": "title",
+        "properties": {
+          "text": {
+            "$expr": "concat('Hello, ', context.userName)"
+          },
+          "role": "title"
+        }
+      },
+      {
+        "type": "Text",
+        "id": "subtitle",
+        "properties": {
+          "text": "A summer of savings starts today.",
+          "role": "subtitle"
+        }
+      },
+      {
+        "type": "Button",
+        "id": "cta",
+        "properties": {
+          "label": "Learn more",
+          "enabled": true
+        },
+        "on": {
+          "tap": [
+            {
+              "action": "openUrl",
+              "url": "https://example.com/promo"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

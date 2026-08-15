@@ -1,0 +1,51 @@
+{
+  "version": "0.1.0",
+  "context": {
+    "userName": "string"
+  },
+  "state": {
+    "saved": "bool"
+  },
+  "root": {
+    "type": "Banner",
+    "id": "strip",
+    "properties": {
+      "layout": "strip",
+      "showScrim": false,
+      "cornerRadius": 12
+    },
+    "children": [
+      {
+        "type": "Text",
+        "id": "message",
+        "properties": {
+          "text": {
+            "$expr": "if(state.saved, 'Saved! Find it in your account.', concat('Flash sale for you, ', context.userName, '.'))"
+          },
+          "role": "body"
+        }
+      },
+      {
+        "type": "Button",
+        "id": "action",
+        "properties": {
+          "label": {
+            "$expr": "if(state.saved, 'Undo', 'Save offer')"
+          },
+          "enabled": true
+        },
+        "on": {
+          "tap": [
+            {
+              "action": "$set",
+              "key": "saved",
+              "value": {
+                "$expr": "!state.saved"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

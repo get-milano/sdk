@@ -1,0 +1,14 @@
+.DS_Store
+
+# Tuist-generated (regenerate with: tuist generate)
+*.xcworkspace
+*.xcodeproj
+**/Derived/
+
+# Swift
+.build/
+
+# Gradle / Kotlin
+build/
+.gradle/
+.kotlin/

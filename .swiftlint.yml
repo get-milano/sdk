@@ -1,0 +1,43 @@
+included:
+  - engine/swiftui/Sources
+  - engine/swiftui/Tests
+  - samples/swiftui/Sources
+excluded:
+  - samples/swiftui/Derived
+
+disabled_rules:
+  - todo
+
+line_length:
+  warning: 130
+  error: 170
+
+identifier_name:
+  min_length: 1
+
+large_tuple:
+  warning: 4
+  error: 5
+
+function_parameter_count:
+  warning: 8
+  error: 12
+
+function_body_length:
+  warning: 100
+  error: 150
+
+type_body_length:
+  warning: 450
+  error: 600
+
+file_length:
+  warning: 700
+  error: 1000
+
+cyclomatic_complexity:
+  warning: 25
+  error: 35
+
+nesting:
+  type_level: 3

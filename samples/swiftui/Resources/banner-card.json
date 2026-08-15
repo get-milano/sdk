@@ -1,0 +1,54 @@
+{
+  "version": "0.1.0",
+  "context": {
+    "userName": "string"
+  },
+  "root": {
+    "type": "Banner",
+    "id": "card",
+    "properties": {
+      "backgroundImageUrl": "https://picsum.photos/seed/varenna/900/500",
+      "layout": "card",
+      "height": 170,
+      "contentAlignment": "topLeading",
+      "showScrim": false,
+      "cornerRadius": 24
+    },
+    "children": [
+      {
+        "type": "Text",
+        "id": "title",
+        "properties": {
+          "text": "Weekend in Varenna",
+          "role": "title"
+        }
+      },
+      {
+        "type": "Text",
+        "id": "body",
+        "properties": {
+          "text": {
+            "$expr": "concat(context.userName, ', your member rate ends Sunday. Two nights on Lake Como, breakfast included.')"
+          },
+          "role": "body"
+        }
+      },
+      {
+        "type": "Button",
+        "id": "cta",
+        "properties": {
+          "label": "View offer",
+          "enabled": true
+        },
+        "on": {
+          "tap": [
+            {
+              "action": "openUrl",
+              "url": "https://example.com/varenna"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

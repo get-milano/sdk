@@ -1,0 +1,70 @@
+{
+  "version": "0.1.0",
+  "context": {
+    "userName": "string",
+    "pokemonName": "string",
+    "pokemonHeight": "double",
+    "pokemonWeight": "double",
+    "pokemonImageUrl": "string"
+  },
+  "root": {
+    "type": "Column",
+    "id": "pokemon",
+    "children": [
+      {
+        "type": "Text",
+        "id": "title",
+        "properties": {
+          "text": {
+            "$expr": "concat('Trainer ', context.userName)"
+          },
+          "role": "title"
+        }
+      },
+      {
+        "type": "Text",
+        "id": "subtitle",
+        "properties": {
+          "text": "One host, two context sources: the app-wide shared context (the trainer) plus values this screen fetched from PokeAPI before building.",
+          "role": "subtitle"
+        }
+      },
+      {
+        "type": "Banner",
+        "id": "card",
+        "properties": {
+          "backgroundImageUrl": {
+            "$expr": "context.pokemonImageUrl"
+          },
+          "layout": "card",
+          "height": 260,
+          "contentAlignment": "bottomLeading",
+          "showScrim": true,
+          "cornerRadius": 24
+        },
+        "children": [
+          {
+            "type": "Text",
+            "id": "name",
+            "properties": {
+              "text": {
+                "$expr": "context.pokemonName"
+              },
+              "role": "title"
+            }
+          },
+          {
+            "type": "Text",
+            "id": "stats",
+            "properties": {
+              "text": {
+                "$expr": "concat('Height: ', str(context.pokemonHeight / 10.0), ' m · Weight: ', str(context.pokemonWeight / 10.0), ' kg')"
+              },
+              "role": "subtitle"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
