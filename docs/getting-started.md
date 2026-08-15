@@ -13,7 +13,15 @@ To try vocabularies, documents, and expressions before installing anything, open
 
 ### SwiftUI
 
-Source, from the main branch:
+A tagged release resolves to a prebuilt, signed `MilanoSDK.xcframework`, integrity-pinned by the checksum in the tag's manifest:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/get-milano/sdk.git", from: "0.1.0")
+]
+```
+
+To build from source instead, depend on the main branch:
 
 ```swift
 dependencies: [
@@ -21,25 +29,32 @@ dependencies: [
 ]
 ```
 
-Then depend on the `MilanoSDK` product. Tagged releases ship a prebuilt XCFramework through the same package coordinates.
+Either way, depend on the `MilanoSDK` product.
 
 ### Compose
 
-Source, as a composite build in `settings.gradle.kts`:
-
-```kotlin
-includeBuild("path/to/sdk/engine/compose")
-```
-
-Or the binary from GitHub Packages (tagged releases; requires a GitHub token with `read:packages`):
+The binary from GitHub Packages (GitHub's Maven registry requires a token with `read:packages`, even for public packages):
 
 ```kotlin
 repositories {
-    maven("https://maven.pkg.github.com/get-milano/sdk")
+    maven("https://maven.pkg.github.com/get-milano/sdk") {
+        credentials {
+            username = providers.gradleProperty("gpr.user").get()
+            password = providers.gradleProperty("gpr.token").get()
+        }
+    }
 }
 dependencies {
     implementation("dev.get-milano:engine-compose:0.1.0")
 }
+```
+
+Without a token, download `engine-compose-<version>.aar` (Android) or `engine-compose-jvm-<version>.jar` (JVM) from the [releases](https://github.com/get-milano/sdk/releases), drop it into `libs/`, and depend on it with `files(...)`; declare `kotlinx-serialization-json`, `kotlinx-coroutines-core`, and the Compose runtime yourself, since a loose artifact carries no POM.
+
+Or build from source, as a composite build in `settings.gradle.kts`:
+
+```kotlin
+includeBuild("path/to/sdk/engine/compose")
 ```
 
 ## Render a first document

@@ -3,10 +3,12 @@ plugins {
     kotlin("plugin.serialization") version "2.3.20"
     kotlin("plugin.compose") version "2.3.20"
     id("com.android.library") version "8.13.0"
+    id("maven-publish")
 }
 
 group = "dev.get-milano"
-version = "0.1.0"
+// The release workflow passes -PmilanoVersion=<x.y.z>; local builds default.
+version = (findProperty("milanoVersion") as? String) ?: "0.1.0"
 
 repositories {
     mavenCentral()
@@ -20,7 +22,9 @@ kotlin {
     // construction. The jvm target carries the conformance harness and covers
     // desktop; androidTarget keeps the Android library buildable from M1 on.
     jvm()
-    androidTarget()
+    androidTarget {
+        publishLibraryVariants("release")
+    }
 
     sourceSets {
         commonMain.dependencies {
@@ -41,5 +45,18 @@ android {
     compileSdk = 36
     defaultConfig {
         minSdk = 26
+    }
+}
+
+publishing {
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/get-milano/sdk")
+            credentials {
+                username = System.getenv("GITHUB_ACTOR")
+                password = System.getenv("GITHUB_TOKEN")
+            }
+        }
     }
 }
