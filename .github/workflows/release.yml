@@ -1,10 +1,12 @@
-name: Release Swift
+name: Release
 
-# Manual release of the signed XCFramework. Builds all platform slices from
-# the Tuist framework project, signs with the Apple Distribution identity
-# from repo secrets, rewrites Package.swift to a binaryTarget, and tags that
-# commit: the tag resolves to the prebuilt binary, main stays source.
-# See RELEASING.md for the certificate and secret setup.
+# Manual release of both engines under one tag. The kotlin job gates on the
+# conformance suite, publishes the Maven publication to GitHub Packages, and
+# hands its AAR/JAR to the release job. The release job builds and signs the
+# XCFramework, rewrites Package.swift to a binaryTarget, and only then
+# creates the v<version> tag (on the rewritten-manifest commit) and the
+# GitHub release carrying all artifacts. Nothing is tagged unless every
+# build succeeded. See RELEASE-SETUP.md (private) for the secret setup.
 
 on:
   workflow_dispatch:
@@ -15,12 +17,14 @@ on:
 
 permissions:
   contents: write
+  packages: write
+
+env:
+  VERSION: ${{ inputs.version }}
 
 jobs:
-  xcframework:
-    runs-on: macos-latest
-    env:
-      VERSION: ${{ inputs.version }}
+  preflight:
+    runs-on: ubuntu-latest
     steps:
       - name: Validate version
         run: |
@@ -29,6 +33,88 @@ jobs:
             exit 1
           fi
 
+      - name: Check signing secrets exist
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          missing=0
+          for name in APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_KEYCHAIN_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "missing repository secret: $name (see RELEASE-SETUP notes)" >&2
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Check certificate decodes and holds an identity
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12" \
+            || { echo "APPLE_CERTIFICATE_BASE64 is not valid base64" >&2; exit 1; }
+          openssl pkcs12 -in "$RUNNER_TEMP/certificate.p12" -passin env:APPLE_CERTIFICATE_PASSWORD \
+            -nokeys -legacy 2>/dev/null | grep -q "BEGIN CERTIFICATE" \
+            || openssl pkcs12 -in "$RUNNER_TEMP/certificate.p12" -passin env:APPLE_CERTIFICATE_PASSWORD \
+                 -nokeys 2>/dev/null | grep -q "BEGIN CERTIFICATE" \
+            || { echo "the .p12 does not decrypt with APPLE_CERTIFICATE_PASSWORD (or holds no certificate)" >&2; exit 1; }
+          rm -f "$RUNNER_TEMP/certificate.p12"
+
+      - name: Check the tag is free
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" > /dev/null 2>&1; then
+            echo "tag v$VERSION already exists; bump the version or delete the tag and release first" >&2
+            exit 1
+          fi
+
+  kotlin:
+    needs: preflight
+    runs-on: ubuntu-latest
+    env:
+      MILANO_SPECS_DIR: ${{ github.workspace }}/.specs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: get-milano/specs
+          path: .specs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Conformance suite (release gate)
+        working-directory: engine/compose
+        run: ./gradlew -PmilanoVersion="$VERSION" jvmTest
+
+      - name: Build and publish to GitHub Packages
+        working-directory: engine/compose
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./gradlew -PmilanoVersion="$VERSION" assembleRelease jvmJar publish
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p release-artifacts
+          cp "$(find engine/compose/build/outputs/aar -name '*-release.aar' | head -1)" \
+             "release-artifacts/engine-compose-$VERSION.aar"
+          cp "$(find engine/compose/build/libs -name "*jvm-$VERSION.jar" | head -1)" \
+             "release-artifacts/engine-compose-jvm-$VERSION.jar"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kotlin-artifacts
+          path: release-artifacts/
+          retention-days: 1
+
+  release:
+    needs: kotlin
+    runs-on: macos-latest
+    steps:
       - uses: actions/checkout@v4
 
       - name: Import signing certificate
@@ -117,6 +203,11 @@ jobs:
           )
           EOF
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: kotlin-artifacts
+          path: release-artifacts/
+
       - name: Tag and publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -127,10 +218,11 @@ jobs:
           git commit -m "Release v$VERSION: binary Package.swift"
           git tag "v$VERSION"
           git push origin "v$VERSION"
-          gh release create "v$VERSION" "$RUNNER_TEMP/MilanoSDK.xcframework.zip" \
+          gh release create "v$VERSION" \
+            "$RUNNER_TEMP/MilanoSDK.xcframework.zip" \
+            release-artifacts/* \
             --title "v$VERSION" \
-            --notes "Signed MilanoSDK.xcframework (iOS, iOS Simulator, macOS, watchOS, watchOS Simulator). SwiftPM: pin the \`v$VERSION\` tag to resolve the prebuilt binary." \
-            || gh release upload "v$VERSION" "$RUNNER_TEMP/MilanoSDK.xcframework.zip" --clobber
+            --notes "Milano $VERSION. Signed MilanoSDK.xcframework (iOS, iOS Simulator, macOS, watchOS, watchOS Simulator); Compose engine AAR and JVM JAR (also on GitHub Packages as dev.get-milano:engine-compose:$VERSION). SwiftPM: pin \`from: \"$VERSION\"\` to resolve the prebuilt binary."
 
       - name: Clean up keychain
         if: always()
