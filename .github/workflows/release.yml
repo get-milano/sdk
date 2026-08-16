@@ -141,7 +141,7 @@ jobs:
         run: |
           mkdir -p release-artifacts
           cp "$(find engine/compose/build/outputs/aar -name '*-release.aar' | head -1)" \
-             "release-artifacts/engine-compose-$VERSION.aar"
+             "release-artifacts/engine-compose-android-$VERSION.aar"
           cp "$(find engine/compose/build/libs -name "*jvm-$VERSION.jar" | head -1)" \
              "release-artifacts/engine-compose-jvm-$VERSION.jar"
 
