@@ -87,6 +87,12 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Stamp the engine version
+        run: |
+          FILE=engine/compose/src/commonMain/kotlin/dev/getmilano/core/MilanoInfo.kt
+          sed -i -E "s/(const val VERSION: String = )\"[^\"]*\"/\1\"$VERSION\"/" "$FILE"
+          grep -q "\"$VERSION\"" "$FILE" || { echo "version stamp failed; MilanoInfo.kt changed shape" >&2; exit 1; }
+
       - name: Conformance suite (release gate)
         working-directory: engine/compose
         run: ./gradlew -PmilanoVersion="$VERSION" jvmTest
@@ -133,6 +139,12 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: \
             -k "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
           security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+
+      - name: Stamp the engine version
+        run: |
+          FILE=engine/swiftui/Sources/MilanoSDK/Core/MilanoInfo.swift
+          sed -i '' -E "s/(public static let version = )\"[^\"]*\"/\1\"$VERSION\"/" "$FILE"
+          grep -q "\"$VERSION\"" "$FILE" || { echo "version stamp failed; MilanoInfo.swift changed shape" >&2; exit 1; }
 
       - name: Generate the framework project
         working-directory: engine/swiftui
@@ -214,8 +226,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Package.swift
-          git commit -m "Release v$VERSION: binary Package.swift"
+          git add Package.swift engine/swiftui/Sources/MilanoSDK/Core/MilanoInfo.swift
+          git commit -m "Release v$VERSION: binary Package.swift, stamped version"
           git tag "v$VERSION"
           git push origin "v$VERSION"
           gh release create "v$VERSION" \

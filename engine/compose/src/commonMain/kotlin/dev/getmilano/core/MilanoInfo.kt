@@ -11,5 +11,5 @@ object MilanoInfo {
      * The engine implementation version. The Milano contract version this engine
      * supports is declared by the gate.
      */
-    const val VERSION: String = "0.1.0"
+    const val VERSION: String = "0.0.0-dev"
 }

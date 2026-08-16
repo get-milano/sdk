@@ -8,7 +8,7 @@ plugins {
 
 group = "dev.get-milano"
 // The release workflow passes -PmilanoVersion=<x.y.z>; local builds default.
-version = (findProperty("milanoVersion") as? String) ?: "0.1.0"
+version = (findProperty("milanoVersion") as? String) ?: "0.0.0-dev"
 
 repositories {
     mavenCentral()
