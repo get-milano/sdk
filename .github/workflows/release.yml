@@ -1,39 +1,79 @@
 name: Release
 
-# Manual release of both engines under one tag. The kotlin job gates on the
-# conformance suite, publishes the Maven publication to GitHub Packages, and
-# hands its AAR/JAR to the release job. The release job builds and signs the
-# XCFramework, rewrites Package.swift to a binaryTarget, and only then
-# creates the v<version> tag (on the rewritten-manifest commit) and the
-# GitHub release carrying all artifacts. Nothing is tagged unless every
-# build succeeded. See RELEASE-SETUP.md (private) for the secret setup.
+# Releases both engines under one tag, two ways in:
+#
+# - Automatically on push to main: the version comes from the VERSION file,
+#   so merging a release PR (develop -> main, containing the VERSION bump)
+#   is the release action. If the tag for the file's version already exists,
+#   the run skips gracefully: merges that do not bump VERSION release
+#   nothing.
+# - Manually (workflow_dispatch) for development builds: run from any
+#   branch with an explicit version, normally a prerelease like 0.3.0-rc.1;
+#   prerelease versions are marked as such on the GitHub release.
+#
+# Pipeline: preflight resolves the version and checks prerequisites, the
+# kotlin job gates on the conformance suite and publishes to GitHub
+# Packages, and the release job builds and signs the XCFramework, rewrites
+# Package.swift to a binaryTarget, stamps versions, and only then creates
+# the v<version> tag (on the rewritten-manifest commit, tag-only, never on
+# main) and the GitHub release carrying all artifacts. Nothing is tagged
+# unless every build succeeded. See RELEASE-SETUP (private) for secrets.
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g. 0.1.0); the tag becomes v<version>"
-        required: true
+        description: "Version to build (e.g. 0.3.0-rc.1); defaults to the VERSION file"
+        required: false
 
 permissions:
   contents: write
   packages: write
 
-env:
-  VERSION: ${{ inputs.version }}
-
 jobs:
   preflight:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      proceed: ${{ steps.tagcheck.outputs.proceed }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
     steps:
-      - name: Validate version
+      - uses: actions/checkout@v4
+
+      - name: Resolve and validate the version
+        id: resolve
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "version must be semantic (e.g. 0.1.0), got: $VERSION" >&2
+          VERSION="${INPUT_VERSION:-$(cat VERSION | tr -d '[:space:]')}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "version must be semantic with optional prerelease (e.g. 0.1.0 or 0.3.0-rc.1), got: $VERSION" >&2
             exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check whether the tag is free
+        id: tagcheck
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" > /dev/null 2>&1; then
+            echo "tag v$VERSION already exists; nothing to release." >&2
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Check signing secrets exist
+        if: steps.tagcheck.outputs.proceed == 'true'
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -49,6 +89,7 @@ jobs:
           exit $missing
 
       - name: Check certificate decodes and holds an identity
+        if: steps.tagcheck.outputs.proceed == 'true'
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -62,19 +103,12 @@ jobs:
             || { echo "the .p12 does not decrypt with APPLE_CERTIFICATE_PASSWORD (or holds no certificate)" >&2; exit 1; }
           rm -f "$RUNNER_TEMP/certificate.p12"
 
-      - name: Check the tag is free
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" > /dev/null 2>&1; then
-            echo "tag v$VERSION already exists; bump the version or delete the tag and release first" >&2
-            exit 1
-          fi
-
   kotlin:
     needs: preflight
+    if: needs.preflight.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     env:
+      VERSION: ${{ needs.preflight.outputs.version }}
       MILANO_SPECS_DIR: ${{ github.workspace }}/.specs
     steps:
       - uses: actions/checkout@v4
@@ -118,8 +152,11 @@ jobs:
           retention-days: 1
 
   release:
-    needs: kotlin
+    needs: [preflight, kotlin]
+    if: needs.preflight.outputs.proceed == 'true'
     runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -223,6 +260,7 @@ jobs:
       - name: Tag and publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -230,9 +268,12 @@ jobs:
           git commit -m "Release v$VERSION: binary Package.swift, stamped version"
           git tag "v$VERSION"
           git push origin "v$VERSION"
+          flags=()
+          [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
           gh release create "v$VERSION" \
             "$RUNNER_TEMP/MilanoSDK.xcframework.zip" \
             release-artifacts/* \
+            "${flags[@]}" \
             --title "v$VERSION" \
             --notes "Milano $VERSION. Signed MilanoSDK.xcframework (iOS, iOS Simulator, macOS, watchOS, watchOS Simulator); Compose engine AAR and JVM JAR (also on GitHub Packages as dev.get-milano:engine-compose:$VERSION). SwiftPM: pin \`from: \"$VERSION\"\` to resolve the prebuilt binary."
 
