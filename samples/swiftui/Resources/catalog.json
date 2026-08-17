@@ -1,0 +1,254 @@
+{
+  "version": "1.0.0",
+  "vocabulary": {
+    "name": "examples",
+    "min": "1.1.0"
+  },
+  "root": {
+    "type": "Column",
+    "id": "catalog",
+    "children": [
+      {
+        "type": "Text",
+        "properties": {
+          "text": "Starter catalog",
+          "role": "title"
+        }
+      },
+      {
+        "type": "Text",
+        "properties": {
+          "text": "Tap an item to open its page.",
+          "role": "subtitle"
+        }
+      },
+      {
+        "type": "Card",
+        "id": "item-bulbasaur",
+        "properties": {
+          "cornerRadius": 16,
+          "padding": 12,
+          "accessibilityLabel": "Bulbasaur",
+          "accessibilityHint": "Opens the Pokedex page."
+        },
+        "on": {
+          "tap": [
+            {
+              "action": "openUrl",
+              "url": "https://www.pokemon.com/us/pokedex/bulbasaur"
+            }
+          ]
+        },
+        "children": [
+          {
+            "type": "Row",
+            "properties": {
+              "spacing": 12
+            },
+            "children": [
+              {
+                "type": "Image",
+                "properties": {
+                  "url": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/1.png",
+                  "width": 64,
+                  "height": 64,
+                  "cornerRadius": 12,
+                  "decorative": true
+                }
+              },
+              {
+                "type": "Column",
+                "children": [
+                  {
+                    "type": "Text",
+                    "properties": {
+                      "text": "Bulbasaur",
+                      "role": "subtitle"
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "properties": {
+                      "text": "Grass and poison. Loves the sun."
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Card",
+        "id": "item-charmander",
+        "properties": {
+          "cornerRadius": 16,
+          "padding": 12,
+          "accessibilityLabel": "Charmander",
+          "accessibilityHint": "Opens the Pokedex page."
+        },
+        "on": {
+          "tap": [
+            {
+              "action": "openUrl",
+              "url": "https://www.pokemon.com/us/pokedex/charmander"
+            }
+          ]
+        },
+        "children": [
+          {
+            "type": "Row",
+            "properties": {
+              "spacing": 12
+            },
+            "children": [
+              {
+                "type": "Image",
+                "properties": {
+                  "url": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/4.png",
+                  "width": 64,
+                  "height": 64,
+                  "cornerRadius": 12,
+                  "decorative": true
+                }
+              },
+              {
+                "type": "Column",
+                "children": [
+                  {
+                    "type": "Text",
+                    "properties": {
+                      "text": "Charmander",
+                      "role": "subtitle"
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "properties": {
+                      "text": "Fire type. Keep it dry."
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Card",
+        "id": "item-squirtle",
+        "properties": {
+          "cornerRadius": 16,
+          "padding": 12,
+          "accessibilityLabel": "Squirtle",
+          "accessibilityHint": "Opens the Pokedex page."
+        },
+        "on": {
+          "tap": [
+            {
+              "action": "openUrl",
+              "url": "https://www.pokemon.com/us/pokedex/squirtle"
+            }
+          ]
+        },
+        "children": [
+          {
+            "type": "Row",
+            "properties": {
+              "spacing": 12
+            },
+            "children": [
+              {
+                "type": "Image",
+                "properties": {
+                  "url": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/7.png",
+                  "width": 64,
+                  "height": 64,
+                  "cornerRadius": 12,
+                  "decorative": true
+                }
+              },
+              {
+                "type": "Column",
+                "children": [
+                  {
+                    "type": "Text",
+                    "properties": {
+                      "text": "Squirtle",
+                      "role": "subtitle"
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "properties": {
+                      "text": "Water type. Shell first."
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Card",
+        "id": "item-pikachu",
+        "properties": {
+          "cornerRadius": 16,
+          "padding": 12,
+          "accessibilityLabel": "Pikachu",
+          "accessibilityHint": "Opens the Pokedex page."
+        },
+        "on": {
+          "tap": [
+            {
+              "action": "openUrl",
+              "url": "https://www.pokemon.com/us/pokedex/pikachu"
+            }
+          ]
+        },
+        "children": [
+          {
+            "type": "Row",
+            "properties": {
+              "spacing": 12
+            },
+            "children": [
+              {
+                "type": "Image",
+                "properties": {
+                  "url": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png",
+                  "width": 64,
+                  "height": 64,
+                  "cornerRadius": 12,
+                  "decorative": true
+                }
+              },
+              {
+                "type": "Column",
+                "children": [
+                  {
+                    "type": "Text",
+                    "properties": {
+                      "text": "Pikachu",
+                      "role": "subtitle"
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "properties": {
+                      "text": "Electric type. The famous one."
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "metadata": {
+    "screen": "catalog"
+  }
+}

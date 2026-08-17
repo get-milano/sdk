@@ -20,6 +20,11 @@ struct VectorRunnerTests {
         func occurrence(_ occurrence: MilanoOccurrence) { collected.append(occurrence) }
     }
 
+    private final class InteractionCollector: MilanoUserInteractionObserver, @unchecked Sendable {
+        var collected: [MilanoUserInteraction] = []
+        func interaction(_ interaction: MilanoUserInteraction) { collected.append(interaction) }
+    }
+
     /// The harness serialization seam: work queues until pumped, so every
     /// step is deterministic.
     private final class PumpDispatcher: MilanoDispatcher, @unchecked Sendable {
@@ -46,8 +51,9 @@ struct VectorRunnerTests {
     /// Completions are scripted by steps, never by the handler: it suspends
     /// forever, and the runner drives the completion path directly.
     private struct NeverCompletingHandler: MilanoActionHandler {
-        func handle(_ action: MilanoAction) async throws {
+        func handle(_ action: MilanoAction) async throws -> MilanoValue? {
             await withUnsafeContinuation { (_: UnsafeContinuation<Void, Never>) in }
+            return nil
         }
     }
 
@@ -115,7 +121,7 @@ struct VectorRunnerTests {
         }
         registry.registerPlaceholder(StubPlaceholder())
 
-        var policy = MilanoUnknownTypePolicy.skip
+        var policy = MilanoUnknownTypePolicy.fail
         if case .record(let config)? = vector["config"],
             case .string(let configured)? = config["unknownTypePolicy"],
             let parsed = MilanoUnknownTypePolicy(rawValue: configured) {
@@ -123,9 +129,11 @@ struct VectorRunnerTests {
         }
 
         let collector = OccurrenceCollector()
+        let interactions = InteractionCollector()
         let engine = try MilanoEngine(
             vocabularyJSON: vocabularyJSON, registry: registry,
-            defaultUnknownTypePolicy: policy, observer: collector)
+            defaultUnknownTypePolicy: policy, observer: collector,
+            userInteractionObserver: interactions)
 
         let builder: MilanoViewBuilder
         if case .string(let text)? = vector["documentText"] {
@@ -137,6 +145,33 @@ struct VectorRunnerTests {
         }
         let pump = PumpDispatcher()
         builder.label(name)
+
+        // The surface's action grants, per the vector's config.
+        if case .record(let config)? = vector["config"],
+            case .record(let actionsConfig)? = config["actions"] {
+            if case .array(let allowed)? = actionsConfig["allow"] {
+                builder.allowActions(allowed.compactMap { $0.stringValue })
+            }
+            if case .record(let declared)? = actionsConfig["declare"] {
+                for (actionName, declaration) in declared {
+                    var parameters: [String: MilanoType] = [:]
+                    var result: MilanoType?
+                    if case .record(let fields) = declaration {
+                        if case .record(let descriptors)? = fields["parameters"] {
+                            for (parameter, descriptor) in descriptors {
+                                parameters[parameter] = MilanoType(descriptor: descriptor)
+                            }
+                        }
+                        if let descriptor = fields["result"] {
+                            result = MilanoType(descriptor: descriptor)
+                        }
+                    }
+                    builder.action(
+                        actionName, parameters: parameters.compactMapValues { $0 },
+                        result: result)
+                }
+            }
+        }
         builder.dispatcher(pump)
         builder.actionHandler(NeverCompletingHandler())
 
@@ -185,8 +220,11 @@ struct VectorRunnerTests {
                         guard case .int(let index)? = completion["dispatch"],
                             case .string(let outcome)? = completion["outcome"]
                         else { continue }
+                        let payload = completion["payload"]
                         pump.dispatch {
-                            view.complete(dispatchIndex: Int(index), success: outcome == "success")
+                            view.complete(
+                                dispatchIndex: Int(index), success: outcome == "success",
+                                payload: payload)
                         }
                         pump.pump()
                     }
@@ -215,6 +253,25 @@ struct VectorRunnerTests {
                     #expect(
                         matches(produced, expected: fields),
                         "\(name): dispatch \(index) mismatch: \(produced) vs \(fields)")
+                }
+            }
+            if case .array(let expectedInteractions)? = expect["interactions"] {
+                #expect(
+                    interactions.collected.count == expectedInteractions.count,
+                    "\(name): interaction count, got \(interactions.collected.map(\.kind))")
+                for (index, expected) in expectedInteractions.enumerated()
+                where index < interactions.collected.count {
+                    guard case .record(let fields) = expected else { continue }
+                    let produced = interactions.collected[index]
+                    var snapshot: [String: MilanoValue] = [
+                        "kind": .string(produced.kind.rawValue)
+                    ]
+                    if let node = produced.node { snapshot["node"] = .string(node) }
+                    if let name = produced.name { snapshot["name"] = .string(name) }
+                    if let value = produced.value { snapshot["value"] = value }
+                    #expect(
+                        matches(snapshot, expected: fields),
+                        "\(name): interaction \(index) mismatch, got \(snapshot)")
                 }
             }
             if case .array(let expectedOccurrences)? = expect["occurrences"] {

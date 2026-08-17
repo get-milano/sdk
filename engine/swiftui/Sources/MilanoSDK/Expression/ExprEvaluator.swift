@@ -6,8 +6,18 @@ struct ExprEvaluator {
     let state: [String: MilanoValue]
     let context: [String: MilanoValue]
     let event: MilanoValue?
+    var result: MilanoValue?
     let node: String?
     let report: (MilanoOccurrence.Kind) -> Void
+
+    /// Only `event` and `result` reach evaluation as bare roots.
+    private func rootValue(_ name: String) -> MilanoValue {
+        switch name {
+        case "event": return event ?? .null
+        case "result": return result ?? .null
+        default: return .null
+        }
+    }
 
     func evaluate(_ expr: Expr) -> MilanoValue {
         switch expr {
@@ -18,8 +28,7 @@ struct ExprEvaluator {
         case .stringLiteral(let v): return .string(v)
 
         case .root(let name):
-            // Only `event` reaches evaluation as a bare root.
-            return name == "event" ? (event ?? .null) : .null
+            return rootValue(name)
 
         case .member(let base, let field):
             if case .root(let rootName) = base, rootName == "state" {
@@ -32,6 +41,12 @@ struct ExprEvaluator {
             return fields[field] ?? .null
 
         case .call(let name, let arguments):
+            if name == "if" {
+                // Lazy conditional: only the taken branch evaluates, like
+                // && || and ??, so guards suppress the reports they guard.
+                let taken = evaluate(arguments[0]).boolValue == true ? 1 : 2
+                return evaluate(arguments[taken])
+            }
             return call(name, arguments.map(evaluate))
 
         case .unary(let op, let operand):
@@ -199,8 +214,6 @@ struct ExprEvaluator {
             var result = ""
             result.unicodeScalars.append(contentsOf: scalars[start..<end])
             return .string(result)
-        case "if":
-            return arguments[0].boolValue == true ? arguments[1] : arguments[2]
         default:
             return .null
         }

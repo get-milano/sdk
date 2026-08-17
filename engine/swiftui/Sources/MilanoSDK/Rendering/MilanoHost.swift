@@ -12,7 +12,7 @@ public struct MilanoHost<Loading: View, Failure: View>: View {
         case failed(any Error)
     }
 
-    private let builder: MilanoViewBuilder
+    private let builderResult: Result<MilanoViewBuilder, any Error>
     private let loading: () -> Loading
     private let failure: (any Error) -> Failure
     @State private var phase: Phase = .loading
@@ -23,7 +23,32 @@ public struct MilanoHost<Loading: View, Failure: View>: View {
         @ViewBuilder loading: @escaping () -> Loading,
         @ViewBuilder failure: @escaping (any Error) -> Failure
     ) {
-        self.builder = builder
+        builderResult = .success(builder)
+        self.loading = loading
+        self.failure = failure
+    }
+
+    /// The quick path: one view from raw document and vocabulary bytes.
+    /// Engine, registry, and builder are created inside; declared state is
+    /// synthesized as zero-values (overridable via `state`); engine and
+    /// build failures both land in the failure content. Ideal for a first
+    /// integration or a simple embed; real apps share one engine and use
+    /// the builder path.
+    public init(
+        document: Data,
+        vocabulary: Data,
+        renderers: [String: any MilanoRenderer],
+        context: [String: MilanoValue] = [:],
+        state: [String: MilanoValue] = [:],
+        onAction: (@Sendable (MilanoAction) async throws -> MilanoValue?)? = nil,
+        @ViewBuilder loading: @escaping () -> Loading,
+        @ViewBuilder failure: @escaping (any Error) -> Failure
+    ) {
+        builderResult = Result {
+            try MilanoQuickStart.builder(
+                document: document, vocabulary: vocabulary, renderers: renderers,
+                context: context, state: state, onAction: onAction)
+        }
         self.loading = loading
         self.failure = failure
     }
@@ -32,10 +57,15 @@ public struct MilanoHost<Loading: View, Failure: View>: View {
         content.task {
             guard !started else { return }
             started = true
-            do {
-                phase = .ready(try await builder.build())
-            } catch {
+            switch builderResult {
+            case .failure(let error):
                 phase = .failed(error)
+            case .success(let builder):
+                do {
+                    phase = .ready(try await builder.build())
+                } catch {
+                    phase = .failed(error)
+                }
             }
         }
     }

@@ -195,9 +195,15 @@ class ExpressionTest {
     }
 
     @Test
-    fun ifEvaluatesBothBranches() {
+    fun ifEvaluatesOnlyTheTakenBranch() {
         val reports = ArrayList<MilanoOccurrence.Kind>()
         assertEquals(MilanoValue.IntValue(1), evaluate("if(true, 1, 1 / 0)", reports = reports))
+        assertEquals(emptyList(), reports)
+        // The guard idiom: the untaken division never runs.
+        assertEquals(MilanoValue.IntValue(2), evaluate("if(false, 1 / 0, 2)", reports = reports))
+        assertEquals(emptyList(), reports)
+        // The taken branch does evaluate, reports included.
+        assertEquals(MilanoValue.IntValue(0), evaluate("if(true, 1 / 0, 2)", reports = reports))
         assertEquals(listOf(MilanoOccurrence.Kind.DIVISION_BY_ZERO), reports)
     }
 

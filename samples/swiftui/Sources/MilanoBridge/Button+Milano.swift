@@ -2,17 +2,18 @@ import MilanoSDK
 import SwiftUI
 
 extension ButtonModel {
-    init(node: MilanoNode) {
+    init(_ button: SampleButtonNode) {
         self.init(
-            label: node.property("label").stringValue ?? "",
-            isEnabled: node.property("enabled").boolValue ?? true,
-            onTap: { node.emit("tap") })
+            label: button.label,
+            isEnabled: button.enabled,
+            onTap: { button.emitTap() })
     }
 }
 
 final class ButtonRenderer: MilanoRenderer {
     func render(_ node: MilanoNode) -> AnyView {
-        guard node.isVisible else { return AnyView(EmptyView()) }
-        return AnyView(PrimaryButton(model: ButtonModel(node: node)))
+        let button = SampleButtonNode(node)
+        guard button.visible ?? true else { return AnyView(EmptyView()) }
+        return AnyView(PrimaryButton(model: ButtonModel(button)))
     }
 }

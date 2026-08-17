@@ -9,10 +9,11 @@ Milano is a client-only, design-system-agnostic **Document-Driven UI (DDUI)** fr
 
 This site documents the engines and how to consume them. The normative contract lives in the [specification](https://github.com/get-milano/specs): the document model, the vocabulary schema, the expression language, the runtime semantics, and the conformance suite both engines are green against.
 
-## What v1 does
+## What v1.0 does
 
 - **Banners and interstitials.** Documents describing promotional or informational surfaces, rendered with your components, with expressions binding text and visibility to injected context.
 - **Simple forms.** Documents defining fields, required markers, validation errors, conditional visibility, and a submit action, with all values flowing through state the host provides.
+- **Whole screens beyond those targets.** The same mechanics carry user profile screens, and intermediate screens like a catalog, whose structure changes more often than their components. The sample apps ship both: a profile screen driven by context and state, and a catalog of tappable item cards whose taps open each item's page through `openUrl`.
 
 ## What Milano is not
 
@@ -29,11 +30,11 @@ This site documents the engines and how to consume them. The normative contract 
 | Package | `import MilanoSDK` | `dev.getmilano` |
 | Runs on | iPhone, iPad, macOS, watchOS | Android, JVM |
 
-Both engines implement the same contract and pass the same conformance suite. Mechanics are identical to the bit: expression results, error taxonomy, dispatch ordering, and reporting behave the same on both platforms.
+From 1.0.0 the SDK follows semantic versioning: within a major version, releases are additive. Both engines implement the same contract (v1.0 of the specs) and pass the same conformance suite. Mechanics are identical to the bit: expression results, error taxonomy, dispatch ordering, and reporting behave the same on both platforms.
 
 ## Where to go next
 
-1. [Playground](https://get-milano.github.io/playground/): try vocabularies and documents in the browser, nothing to install.
+1. [Playground](https://get-milano.dev/playground/): try vocabularies and documents in the browser, nothing to install.
 2. [Getting started](getting-started): install an engine and render a first document.
 3. [Samples](samples): the demo apps on both platforms, with screenshots.
 4. [Philosophy](philosophy): the ideas the design follows.
@@ -42,7 +43,10 @@ Both engines implement the same contract and pass the same conformance suite. Me
 7. [Writing documents](documents): the document format from a producer's view.
 8. [Expressions](expressions): the expression language reference.
 9. [Guardrails](guardrails): errors, policies, limits, and observability.
+10. [Performance](performance): measured baselines, threading model, and working budgets.
+11. [Accessibility](accessibility): assistive-technology semantics as vocabulary design, with the sample mappings for both platforms.
+12. [User interaction analytics](analytics): the engine-captured interaction stream (impressions, taps, dispatches, outcomes) plus renderer-reported widget signals, delivered to one host sink.
 
 ## License
 
-The engines are licensed under Apache-2.0. Redistributions must preserve the attribution in the NOTICE file. Milano, the Milano logo, and get-milano.dev are trademarks of Ezequiel Aceto. The specification is licensed under CC BY 4.0.
+The engines are licensed under Apache-2.0. Redistributions must preserve the attribution in the NOTICE file. Milano, the Milano logo, and get-milano.dev are owned by Ezequiel (Kimi) Aceto. The specification is licensed under CC BY 4.0.
