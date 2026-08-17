@@ -11,16 +11,20 @@ name: Release
 #   branch with an explicit version, normally a prerelease like 0.3.0-rc.1;
 #   prerelease versions are marked as such on the GitHub release.
 #
-# Pipeline: preflight resolves the version and checks prerequisites, the
-# kotlin job gates on the conformance suite and publishes to GitHub
-# Packages, and the release job runs the Swift conformance gate, builds
-# and signs the XCFramework, rewrites Package.swift to a binaryTarget,
-# stamps versions, uploads everything to a draft release, and publishes it;
-# publishing is the step that creates the v<version> tag (on the
-# rewritten-manifest commit, tag-only, never on main), so a failed upload
-# leaves no tag and reruns recover by replacing the draft. Nothing is
-# tagged unless every build and upload succeeded. See RELEASE-SETUP
-# (private) for secrets.
+# Pipeline, in order, each gating the next: preflight resolves the version
+# and checks prerequisites; the kotlin job gates on the conformance suite
+# and builds the AAR and JAR, publishing nothing; the release job runs the
+# Swift conformance gate, builds and signs the XCFramework, rewrites
+# Package.swift to a binaryTarget, stamps versions, uploads everything to
+# a draft release and publishes it, which is the step that creates the
+# v<version> tag (on the rewritten-manifest commit, tag-only, never on
+# main); and only then the maven job publishes to GitHub Packages.
+#
+# Nothing leaves the pipeline until every lane is green: a failing Swift
+# lane leaves no tag, no release, and no published Maven version, so a
+# rerun is clean. A failed upload leaves no tag and reruns replace the
+# draft; a failed Maven publish is recovered by re-running that job alone.
+# See RELEASE-SETUP (private) for secrets.
 
 on:
   workflow_run:
@@ -114,6 +118,9 @@ jobs:
           rm -f "$RUNNER_TEMP/certificate.p12"
 
   kotlin:
+    # Builds and gates only: publishing happens after every lane is green,
+    # in the maven job below, so a failing Swift lane can never leave a
+    # published Maven version behind a release that does not exist.
     needs: preflight
     if: needs.preflight.outputs.proceed == 'true'
     runs-on: ubuntu-latest
@@ -143,11 +150,9 @@ jobs:
         working-directory: engine/compose
         run: ./gradlew -PmilanoVersion="$VERSION" jvmTest
 
-      - name: Build and publish to GitHub Packages
+      - name: Build the artifacts
         working-directory: engine/compose
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: ./gradlew -PmilanoVersion="$VERSION" assembleRelease jvmJar publish
+        run: ./gradlew -PmilanoVersion="$VERSION" assembleRelease jvmJar
 
       - name: Collect artifacts
         run: |
@@ -332,3 +337,41 @@ jobs:
       - name: Clean up keychain
         if: always()
         run: security delete-keychain "$RUNNER_TEMP/release.keychain-db" || true
+
+  maven:
+    # The last step of a successful release: the tag, the GitHub release,
+    # and its assets already exist, so publishing here can only ever be
+    # the final missing piece. Re-running just this job (the tag check in
+    # preflight is not re-evaluated) recovers a failed publish without
+    # touching anything else.
+    needs: [preflight, kotlin, release]
+    if: needs.preflight.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+      MILANO_SPECS_DIR: ${{ github.workspace }}/.specs
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/checkout@v4
+        with:
+          repository: get-milano/specs
+          path: .specs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Stamp the engine version
+        run: |
+          FILE=engine/compose/src/commonMain/kotlin/dev/getmilano/core/MilanoInfo.kt
+          sed -i -E "s/(const val VERSION: String = )\"[^\"]*\"/\1\"$VERSION\"/" "$FILE"
+          grep -q "\"$VERSION\"" "$FILE" || { echo "version stamp failed; MilanoInfo.kt changed shape" >&2; exit 1; }
+
+      - name: Publish to GitHub Packages
+        working-directory: engine/compose
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./gradlew -PmilanoVersion="$VERSION" publish
