@@ -1,8 +1,9 @@
 // swift-tools-version:6.0
 import PackageDescription
 
-// The repository root is the Swift package, so SwiftPM consumers can depend
-// on the repo URL directly. Sources live under engine/swiftui.
+// Release manifest: this tag resolves to the prebuilt, signed
+// XCFramework attached to the GitHub release. The source package
+// lives on main.
 let package = Package(
     name: "milano-sdk",
     platforms: [
@@ -14,14 +15,10 @@ let package = Package(
         .library(name: "MilanoSDK", targets: ["MilanoSDK"])
     ],
     targets: [
-        .target(
+        .binaryTarget(
             name: "MilanoSDK",
-            path: "engine/swiftui/Sources/MilanoSDK"
-        ),
-        .testTarget(
-            name: "MilanoSDKTests",
-            dependencies: ["MilanoSDK"],
-            path: "engine/swiftui/Tests/MilanoSDKTests"
+            url: "https://github.com/get-milano/sdk/releases/download/v1.0.0/MilanoSDK.xcframework.zip",
+            checksum: "f7322e7596b6551d0bdf959e4637797cae71f34c70ff706ad3d59f71f71ce81a"
         )
     ]
 )
