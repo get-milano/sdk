@@ -49,6 +49,30 @@ android {
 }
 
 publishing {
+    publications.withType<MavenPublication>().configureEach {
+        pom {
+            name = "Milano SDK (Compose engine)"
+            description = "Document-Driven UI for Compose: documents in, native UI out, validated by a strict gate."
+            url = "https://get-milano.dev"
+            licenses {
+                license {
+                    name = "Apache License, Version 2.0"
+                    url = "https://www.apache.org/licenses/LICENSE-2.0"
+                }
+            }
+            developers {
+                developer {
+                    name = "Ezequiel (kimi) Aceto"
+                    email = "ezequiel.aceto@gmail.com"
+                    url = "https://kimi.blog"
+                }
+            }
+            scm {
+                url = "https://github.com/get-milano/sdk"
+                connection = "scm:git:https://github.com/get-milano/sdk.git"
+            }
+        }
+    }
     repositories {
         maven {
             name = "GitHubPackages"

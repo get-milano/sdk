@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
+  "version": "1.0.0",
   "context": {
     "marketingConsentRequired": "bool"
   },
@@ -10,17 +10,8 @@
     "phone": "string?",
     "consent": "bool",
     "submitted": "bool",
-    "submitAttempted": "bool"
-  },
-  "actions": {
-    "submitContact": {
-      "parameters": {
-        "name": "string",
-        "surname": "string",
-        "email": "string",
-        "phone": "string?"
-      }
-    }
+    "submitAttempted": "bool",
+    "confirmation": "string?"
   },
   "root": {
     "type": "Column",
@@ -186,6 +177,13 @@
                   "onSuccess": [
                     {
                       "action": "$set",
+                      "key": "confirmation",
+                      "value": {
+                        "$expr": "result"
+                      }
+                    },
+                    {
+                      "action": "$set",
                       "key": "submitted",
                       "value": true
                     }
@@ -201,8 +199,9 @@
         "id": "thanks",
         "properties": {
           "text": {
-            "$expr": "if(state.submitted, 'Thanks! We will be in touch.', '')"
-          }
+            "$expr": "if(state.submitted, concat('Thanks! We will be in touch. Your confirmation number is ', state.confirmation ?? '?', '.'), '')"
+          },
+          "liveRegion": "polite"
         }
       }
     ]

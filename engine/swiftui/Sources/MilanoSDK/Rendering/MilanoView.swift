@@ -26,6 +26,10 @@ public struct MilanoView: View {
 
     /// The view ceases to participate: completions arriving afterwards drop
     /// their follow-ups and report.
+    /// The document's `metadata` section, verbatim and untyped: producer
+    /// annotations reach host code without a side channel.
+    public nonisolated var metadata: MilanoValue? { core.document.metadata }
+
     public nonisolated func teardown() {
         core.teardown()
     }
@@ -34,7 +38,7 @@ public struct MilanoView: View {
     nonisolated var state: [String: MilanoValue] { core.state }
     nonisolated var resolvedRoot: ResolvedNode { core.resolvedRoot }
     nonisolated var dispatched: [MilanoViewCore.DispatchRecord] { core.dispatched }
-    nonisolated func complete(dispatchIndex: Int, success: Bool) {
-        core.complete(dispatchIndex: dispatchIndex, success: success)
+    nonisolated func complete(dispatchIndex: Int, success: Bool, payload: MilanoValue? = nil) {
+        core.complete(dispatchIndex: dispatchIndex, success: success, payload: payload)
     }
 }

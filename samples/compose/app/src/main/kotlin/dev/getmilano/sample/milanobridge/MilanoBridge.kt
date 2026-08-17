@@ -1,11 +1,10 @@
 package dev.getmilano.sample.milanobridge
 
-import dev.getmilano.MilanoNode
 import dev.getmilano.MilanoRegistry
 
 /**
- * The one doorway between Milano and the design system: model factories
- * map nodes to component models, renderers register them.
+ * The one doorway between Milano and the design system: generated typed
+ * bindings map nodes to component models, renderers register them.
  */
 fun milanoRegistry(): MilanoRegistry {
     val registry = MilanoRegistry()
@@ -16,12 +15,8 @@ fun milanoRegistry(): MilanoRegistry {
     registry.register("TextField", TextFieldRenderer)
     registry.register("NumberField", NumberFieldRenderer)
     registry.register("Checkbox", CheckboxRenderer)
+    registry.register("Row", RowRenderer)
+    registry.register("Card", CardRenderer)
+    registry.register("Image", ImageRenderer)
     return registry
 }
-
-/**
- * Conditional visibility: an ordinary vocabulary property, honored by
- * every renderer in this bridge. Absent means visible.
- */
-internal val MilanoNode.isVisible: Boolean
-    get() = property("visible").boolOrNull ?: true

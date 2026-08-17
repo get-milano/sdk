@@ -2,19 +2,25 @@ import MilanoSDK
 import SwiftUI
 
 extension TextFieldModel {
-    init(node: MilanoNode) {
+    init(_ field: SampleTextFieldNode) {
         self.init(
-            label: node.property("label").stringValue ?? "",
-            value: node.property("value").stringValue ?? "",
-            isRequired: node.property("required").boolValue ?? false,
-            error: node.property("error").stringValue,
-            onChange: { node.emit("change", payload: .string($0)) })
+            label: field.label,
+            value: field.value,
+            isRequired: field.required ?? false,
+            error: field.error,
+            onChange: { field.emitChange($0) },
+            // Focus is analytics-only: not a document event, so it flows
+            // through the user-interaction stream, never through dispatch.
+            onFocusChange: { focused in
+                field.node.userInteraction(focused ? .focusGained : .focusLost)
+            })
     }
 }
 
 final class TextFieldRenderer: MilanoRenderer {
     func render(_ node: MilanoNode) -> AnyView {
-        guard node.isVisible else { return AnyView(EmptyView()) }
-        return AnyView(LabeledTextField(model: TextFieldModel(node: node)))
+        let field = SampleTextFieldNode(node)
+        guard field.visible ?? true else { return AnyView(EmptyView()) }
+        return AnyView(LabeledTextField(model: TextFieldModel(field)))
     }
 }

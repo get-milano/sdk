@@ -39,6 +39,12 @@ struct MenuScreen: View {
             InterstitialScreen(onDismiss: {})
         case "pokemon":
             PokemonScreen()
+        case "quickstart":
+            QuickStartScreen()
+        case "profile":
+            ProfileScreen()
+        case "catalog":
+            CatalogScreen()
         default:
             if let demo = Demo(screenKey: autoScreen) {
                 DemoScreen(demo: demo)
@@ -62,8 +68,15 @@ struct MenuScreen: View {
                 NavigationLink(Demo.tipCalculator.title) { DemoScreen(demo: .tipCalculator) }
                 NavigationLink(Demo.checkboxGate.title) { DemoScreen(demo: .checkboxGate) }
             }
+            Section("Quick start") {
+                NavigationLink("One view, no architecture") { QuickStartScreen() }
+            }
             Section("Context") {
                 NavigationLink("Pokemon · Screen context") { PokemonScreen() }
+            }
+            Section("Whole screens") {
+                NavigationLink("Profile") { ProfileScreen() }
+                NavigationLink("Catalog · Tap to open") { CatalogScreen() }
             }
             Section("Integration") {
                 NavigationLink("Embedded in native UI") { EmbeddedScreen() }

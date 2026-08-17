@@ -7,10 +7,12 @@ struct TextFieldModel {
     var isRequired = false
     var error: String?
     var onChange: (String) -> Void = { _ in }
+    var onFocusChange: (Bool) -> Void = { _ in }
 }
 
 struct LabeledTextField: View {
     let model: TextFieldModel
+    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -19,6 +21,8 @@ struct LabeledTextField: View {
                 text: Binding(get: { model.value }, set: model.onChange)
             )
             .textFieldStyle(.roundedBorder)
+            .focused($focused)
+            .onChange(of: focused) { model.onFocusChange($0) }
             if let error = model.error {
                 Text(error)
                     .font(.caption)

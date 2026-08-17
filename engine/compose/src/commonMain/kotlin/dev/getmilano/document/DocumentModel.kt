@@ -43,6 +43,8 @@ internal sealed class ActionSpec {
         val parameters: Map<String, DocValue>,
         val onSuccess: List<ActionSpec>,
         val onFailure: List<ActionSpec>,
+        /** Declared success result type, resolved by the gate; null until then. */
+        val result: MilanoType? = null,
     ) : ActionSpec()
 }
 
@@ -57,14 +59,35 @@ internal class RawNode(
     val raw: MilanoValue,
 )
 
+/** Parses "major.minor.patch" into a comparable triple; null when malformed. */
+internal fun parseSemver(text: String): Triple<Int, Int, Int>? {
+    val parts = text.split(".")
+    if (parts.size != 3) return null
+    val numbers = parts.map { it.toIntOrNull() ?: return null }
+    if (numbers.any { it < 0 }) return null
+    return Triple(numbers[0], numbers[1], numbers[2])
+}
+
+internal operator fun Triple<Int, Int, Int>.compareTo(other: Triple<Int, Int, Int>): Int =
+    compareValuesBy(this, other, { it.first }, { it.second }, { it.third })
+
+/**
+ * The document's optional vocabulary requirement, checked at the gate
+ * against the engine's vocabulary (name equality, version at least min).
+ */
+internal class VocabularyRequirement(
+    val name: String,
+    val min: String?,
+)
+
 /** A parsed document: structure and declarations only, never data values. */
 internal class ParsedDocument(
     val versionString: String,
     val major: Int,
     val minor: Int,
+    val vocabularyRequirement: VocabularyRequirement?,
     val contextDeclarations: Map<String, MilanoType>,
     val stateDeclarations: Map<String, MilanoType>,
-    val localActions: Map<String, MilanoVocabulary.Action>,
     val root: RawNode,
     val metadata: MilanoValue?,
 )

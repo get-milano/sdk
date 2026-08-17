@@ -13,9 +13,9 @@ The vocabulary is a JSON artifact listing every component type and action your a
 
 ```json
 {
-  "milano": "0.1.0",
+  "milano": "1.0.0",
   "name": "myapp",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "components": {
     "Banner": {
       "properties": { "backgroundImageUrl": "string", "visible": "bool" },
@@ -28,7 +28,11 @@ The vocabulary is a JSON artifact listing every component type and action your a
     }
   },
   "actions": {
-    "openUrl": { "parameters": { "url": "string" } }
+    "openUrl": { "parameters": { "url": "string" } },
+    "submitContact": {
+      "parameters": { "email": "string" },
+      "result": "string"
+    }
   }
 }
 ```
@@ -36,8 +40,11 @@ The vocabulary is a JSON artifact listing every component type and action your a
 Rules of thumb:
 
 - Name properties for meaning (`backgroundImageUrl`), not for appearance (`blueHeader`). Appearance belongs to your renderers.
+- Declare a variant-valued property as an enum, never as a free string: `"layout": {"enum": ["overlay", "card", "strip"], "optional": true}`. The gate then rejects non-members at validation time, and the bindings generator gives your renderer an exhaustive `switch`/`when` instead of string matching with a silent `default`. The sample vocabulary's `Banner.layout`, `Banner.contentAlignment`, and `Text.role` are all enums.
 - Give an event a payload type only when the interaction produces a value (`"change": "string"` for a text field); use `null` for plain triggers.
-- Declare shared actions here. Actions used by a single document can be declared inside that document instead; a local declaration colliding with a global name is rejected at the gate.
+- Declare shared actions here. Documents never declare actions; a surface that needs an extra action, or the same name with a different shape, declares it on its builder (`.action(name, parameters:, result:)`).
+- Declare optional accessibility properties (a label, a decorative flag, a live-region politeness) alongside the visual ones, and map them in your renderers; see [Accessibility](accessibility) for the pattern and the sample's worked set.
+- Declare a `result` type when the handler answers with a value documents need back: a confirmation number, a created id, a server-assigned URL. Your handler returns that value on success, and the document reads it as `result` inside `onSuccess`. Actions without a `result` complete as plain signals; the handler returns `nil`/`null`.
 
 ## 2. Keep the design system pure
 
@@ -66,7 +73,7 @@ import MilanoSDK
 extension BannerModel {
     init(node: MilanoNode) {
         self.init(
-            backgroundImageUrl: node.property("backgroundImageUrl").stringValue.flatMap(URL.init),
+            backgroundImageUrl: node.property("backgroundImageUrl").stringValue.flatMap(URL.init(string:)),
             isVisible: node.property("visible").boolValue ?? true
         )
     }
@@ -114,7 +121,7 @@ class BannerRenderer : MilanoRenderer {
         val model = bannerModel(node)
         if (!model.isVisible) return
         BannerView(model) {
-            node.children.forEach { it.Render() }
+            node.children.forEach { key(it.key) { it.Render() } }
         }
     }
 }
@@ -150,6 +157,53 @@ Engine creation verifies the registry covers the whole vocabulary and throws `In
 ## 6. Placeholders, if you want them
 
 Under the `placeholder` unknown-type policy, unknown component types route to a placeholder renderer, which receives the type name, the node reference, and the raw subtree as data (never as live children). Register it with `registerPlaceholder`; creating an engine with the `placeholder` policy and no placeholder renderer is an `IncompleteRegistry` error.
+
+## 7. Generated typed bindings
+
+The vocabulary is machine-readable, so the bridge does not have to be stringly-typed. `tools/generate_bindings.py` in the [specs repository](https://github.com/get-milano/specs) turns the artifact into compiler-checked API for both platforms: node wrappers whose accessors carry the gate's guarantees in the type system (a declared non-optional property is a non-optional Swift/Kotlin property, no `?? ""` fallbacks), typed event emitters, an exhaustive action type with an `unrecognized` case for forward compatibility, and a vocabulary identity helper that refuses to run against a mismatched engine.
+
+```sh
+python3 tools/generate_bindings.py vocabulary.json \
+    --swift-prefix Shop  --swift-out  Sources/MilanoBridge/GeneratedBindings.swift \
+    --kotlin-package com.acme.shop.milano --kotlin-out app/src/main/kotlin/.../GeneratedBindings.kt
+```
+
+`--swift-prefix` namespaces the Swift types (`ShopButtonNode`, `ShopAction`) since Swift has no packages; `--kotlin-package` places the Kotlin file, with an optional `--kotlin-prefix` for teams that prefer prefixed class names over import aliases. Output is deterministic: same artifact, same bytes.
+
+A bridge model then reads `button.label` instead of `node.property("label").stringValue ?? ""`, and the action funnel becomes an exhaustive `switch` over a sealed type: a typo is a compile error, and a vocabulary change turns into a compiler-guided migration instead of a grep.
+
+### As a build step
+
+Commit the generated file and let the build refresh it, so it can never drift from the vocabulary. Both sample apps wire it this way (the samples resolve the specs checkout at `../../../specs` because of the repository layout; adjust the path to where your checkout lives).
+
+Gradle (`app/build.gradle.kts`), running before every compile with input/output tracking so it is cached when nothing changed:
+
+```kotlin
+val generateMilanoBindings by tasks.registering(Exec::class) {
+    val specsDir = System.getenv("MILANO_SPECS_DIR") ?: rootDir.resolve("../specs").canonicalPath
+    inputs.file("src/main/assets/vocabulary.json")
+    inputs.file("$specsDir/tools/generate_bindings.py")
+    outputs.file("src/main/kotlin/com/acme/shop/milano/GeneratedBindings.kt")
+    commandLine(
+        "python3", "$specsDir/tools/generate_bindings.py", "src/main/assets/vocabulary.json",
+        "--kotlin-package", "com.acme.shop.milano",
+        "--kotlin-out", "src/main/kotlin/com/acme/shop/milano/GeneratedBindings.kt",
+    )
+}
+
+tasks.named("preBuild") { dependsOn(generateMilanoBindings) }
+```
+
+Xcode, as a pre-build script phase (via Tuist's `scripts: [.pre(...)]`, or Build Phases in a plain project; script sandboxing must be off for phases that write into the source tree: `ENABLE_USER_SCRIPT_SANDBOXING = NO`):
+
+```sh
+SPECS_DIR="${MILANO_SPECS_DIR:-$SRCROOT/../specs}"
+python3 "$SPECS_DIR/tools/generate_bindings.py" "$SRCROOT/Resources/vocabulary.json" \
+    --swift-prefix Shop \
+    --swift-out "$SRCROOT/Sources/MilanoBridge/GeneratedBindings.swift"
+```
+
+For CI honesty, add a check that the committed file matches the vocabulary: regenerate and `git diff --exit-code`.
 
 ## Growing the vocabulary
 
