@@ -3,8 +3,8 @@ package dev.getmilano
 // Type checking
 
 /**
- * What the event root means where an expression appears: unavailable
- * (property expressions), or available with a payload type.
+ * What a scoped scalar root (event, result) means where an expression
+ * appears: unavailable, or available with a declared type.
  */
 internal sealed class EventScope {
     data object Unavailable : EventScope()
@@ -18,12 +18,16 @@ internal class ExprChecker(
     private val state: Map<String, MilanoType>,
     private val context: Map<String, MilanoType>,
     private val eventScope: EventScope,
+    private val resultScope: EventScope = EventScope.Unavailable,
 ) {
     /**
      * Infers the static type. Null means the null literal: typeless until
      * an expected type or an operator gives it one.
      */
-    fun infer(expr: Expr): MilanoType? =
+    fun infer(
+        expr: Expr,
+        expecting: MilanoType? = null,
+    ): MilanoType? =
         when (expr) {
             is Expr.NullLiteral -> {
                 null
@@ -42,7 +46,15 @@ internal class ExprChecker(
             }
 
             is Expr.StringLiteral -> {
-                MilanoType(MilanoType.Kind.Text)
+                val expectedKind = expecting?.kind
+                if (expectedKind is MilanoType.Kind.Enum) {
+                    if (expr.value !in expectedKind.members) {
+                        throw ExprException("'${expr.value}' is not a member of the declared enum")
+                    }
+                    MilanoType(expectedKind)
+                } else {
+                    MilanoType(MilanoType.Kind.Text)
+                }
             }
 
             is Expr.Root -> {
@@ -50,6 +62,11 @@ internal class ExprChecker(
                     "event" -> {
                         (eventScope as? EventScope.Payload)?.type
                             ?: throw ExprException("event is not available here")
+                    }
+
+                    "result" -> {
+                        (resultScope as? EventScope.Payload)?.type
+                            ?: throw ExprException("result is not available here")
                     }
 
                     else -> {
@@ -79,7 +96,7 @@ internal class ExprChecker(
             }
 
             is Expr.Call -> {
-                inferCall(expr.name, expr.arguments)
+                inferCall(expr.name, expr.arguments, expecting)
             }
 
             is Expr.Unary -> {
@@ -101,14 +118,15 @@ internal class ExprChecker(
             }
 
             is Expr.Binary -> {
-                inferBinary(expr.op, expr.left, expr.right)
+                inferBinary(expr.op, expr.left, expr.right, expecting)
             }
         }
 
     /**
-     * Whether [actual] is accepted where [expected] is declared: same kind,
-     * T where T? is expected, int where double is expected, and the null
-     * literal where any optional is expected.
+     * Whether [actual] is accepted where [expected] is declared: same kind
+     * (member-set equality for enums), T where T? is expected, int where
+     * double is expected, an enum where string is expected (widening), and
+     * the null literal where any optional is expected.
      */
     fun accepts(
         expected: MilanoType,
@@ -118,12 +136,16 @@ internal class ExprChecker(
         if (actual.optional && !expected.optional) return false
         if (actual.kind == expected.kind) return true
         if (actual.kind is MilanoType.Kind.Int && expected.kind is MilanoType.Kind.Double) return true
+        if (actual.kind is MilanoType.Kind.Enum && expected.kind is MilanoType.Kind.Text) return true
         return false
     }
+
+    private fun isStringLike(kind: MilanoType.Kind) = kind is MilanoType.Kind.Text || kind is MilanoType.Kind.Enum
 
     private fun inferCall(
         name: String,
         arguments: List<Expr>,
+        expecting: MilanoType? = null,
     ): MilanoType? {
         fun requireCount(count: Int) {
             if (arguments.size != count) throw ExprException("$name takes $count argument(s)")
@@ -144,6 +166,7 @@ internal class ExprChecker(
                 when (nonOptional(0, "scalar").kind) {
                     is MilanoType.Kind.Bool, is MilanoType.Kind.Int,
                     is MilanoType.Kind.Double, is MilanoType.Kind.Text,
+                    is MilanoType.Kind.Enum,
                     -> MilanoType(MilanoType.Kind.Text)
 
                     else -> throw ExprException("str needs a scalar")
@@ -169,7 +192,7 @@ internal class ExprChecker(
             "concat" -> {
                 if (arguments.size < 2) throw ExprException("concat takes 2 or more arguments")
                 for (index in arguments.indices) {
-                    if (nonOptional(index, "string").kind !is MilanoType.Kind.Text) {
+                    if (!isStringLike(nonOptional(index, "string").kind)) {
                         throw ExprException("concat needs strings")
                     }
                 }
@@ -179,7 +202,7 @@ internal class ExprChecker(
             "length", "isEmpty" -> {
                 requireCount(1)
                 when (nonOptional(0, "string or array").kind) {
-                    is MilanoType.Kind.Text, is MilanoType.Kind.Array -> {
+                    is MilanoType.Kind.Text, is MilanoType.Kind.Enum, is MilanoType.Kind.Array -> {
                         MilanoType(if (name == "length") MilanoType.Kind.Int else MilanoType.Kind.Bool)
                     }
 
@@ -191,8 +214,8 @@ internal class ExprChecker(
 
             "contains", "startsWith", "endsWith" -> {
                 requireCount(2)
-                if (nonOptional(0, "string").kind !is MilanoType.Kind.Text ||
-                    nonOptional(1, "string").kind !is MilanoType.Kind.Text
+                if (!isStringLike(nonOptional(0, "string").kind) ||
+                    !isStringLike(nonOptional(1, "string").kind)
                 ) {
                     throw ExprException("$name needs strings")
                 }
@@ -201,7 +224,7 @@ internal class ExprChecker(
 
             "trim" -> {
                 requireCount(1)
-                if (nonOptional(0, "string").kind !is MilanoType.Kind.Text) {
+                if (!isStringLike(nonOptional(0, "string").kind)) {
                     throw ExprException("trim needs a string")
                 }
                 MilanoType(MilanoType.Kind.Text)
@@ -212,8 +235,8 @@ internal class ExprChecker(
                 if (nonOptional(0, "bool").kind !is MilanoType.Kind.Bool) {
                     throw ExprException("if needs a bool condition")
                 }
-                val thenType = infer(arguments[1])
-                val elseType = infer(arguments[2])
+                val thenType = infer(arguments[1], expecting)
+                val elseType = infer(arguments[2], expecting)
                 when {
                     thenType == null && elseType == null -> {
                         throw ExprException("if branches cannot both be null")
@@ -247,6 +270,7 @@ internal class ExprChecker(
         op: BinaryOp,
         left: Expr,
         right: Expr,
+        expecting: MilanoType? = null,
     ): MilanoType? {
         fun isNumeric(kind: MilanoType.Kind) = kind is MilanoType.Kind.Int || kind is MilanoType.Kind.Double
 
@@ -254,6 +278,7 @@ internal class ExprChecker(
             when (kind) {
                 is MilanoType.Kind.Bool, is MilanoType.Kind.Int,
                 is MilanoType.Kind.Double, is MilanoType.Kind.Text,
+                is MilanoType.Kind.Enum,
                 -> true
 
                 else -> false
@@ -261,8 +286,8 @@ internal class ExprChecker(
 
         return when (op) {
             BinaryOp.COALESCE -> {
-                val leftType = infer(left)
-                val rightType = infer(right)
+                val leftType = infer(left, expecting)
+                val rightType = infer(right, expecting)
                 if (rightType == null || rightType.optional) {
                     throw ExprException("?? right side must be non-optional")
                 }
@@ -297,7 +322,10 @@ internal class ExprChecker(
                 if (!isScalar(l.kind) || !isScalar(r.kind)) {
                     throw ExprException("arrays and records are not comparable")
                 }
-                if (l.kind != r.kind && !(isNumeric(l.kind) && isNumeric(r.kind))) {
+                checkEnumComparison(l, r, left, right)
+                if (l.kind != r.kind && !(isNumeric(l.kind) && isNumeric(r.kind)) &&
+                    !isEnumStringPair(l.kind, r.kind)
+                ) {
                     throw ExprException("equality needs matching scalar types")
                 }
                 if (l.optional || r.optional) {
@@ -321,7 +349,7 @@ internal class ExprChecker(
                 val l = infer(left)
                 val r = infer(right)
                 if (op == BinaryOp.ADD && l != null && r != null && !l.optional && !r.optional &&
-                    l.kind is MilanoType.Kind.Text && r.kind is MilanoType.Kind.Text
+                    isStringLike(l.kind) && isStringLike(r.kind)
                 ) {
                     return MilanoType(MilanoType.Kind.Text)
                 }
@@ -338,4 +366,36 @@ internal class ExprChecker(
             }
         }
     }
+
+    /**
+     * Enum comparison rules: a string-literal operand must be a member;
+     * two enums must be the same enum; a non-literal string compares as a
+     * string (the enum widens).
+     */
+    private fun checkEnumComparison(
+        l: MilanoType,
+        r: MilanoType,
+        left: Expr,
+        right: Expr,
+    ) {
+        val lKind = l.kind
+        if (lKind !is MilanoType.Kind.Enum) {
+            if (r.kind is MilanoType.Kind.Enum) checkEnumComparison(r, l, right, left)
+            return
+        }
+        if (r.kind is MilanoType.Kind.Enum) {
+            if (l.kind != r.kind) throw ExprException("distinct enum types are not comparable")
+            return
+        }
+        if (right is Expr.StringLiteral && right.value !in lKind.members) {
+            throw ExprException("'${right.value}' is not a member of the declared enum")
+        }
+    }
+
+    private fun isEnumStringPair(
+        a: MilanoType.Kind,
+        b: MilanoType.Kind,
+    ): Boolean =
+        (a is MilanoType.Kind.Enum && b is MilanoType.Kind.Text) ||
+            (a is MilanoType.Kind.Text && b is MilanoType.Kind.Enum)
 }

@@ -62,7 +62,7 @@ struct RenderPipelineTests {
 
         let view = try await engine.viewBuilder(document: document)
             .context(["userName": .string("Ada")])
-            .actionHandler { _ in }
+            .actionHandler { _ in nil }
             .dispatcher(InlineDispatcher())
             .label("render-smoke")
             .build()

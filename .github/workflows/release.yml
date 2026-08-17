@@ -2,25 +2,30 @@ name: Release
 
 # Releases both engines under one tag, two ways in:
 #
-# - Automatically on push to main: the version comes from the VERSION file,
-#   so merging a release PR (develop -> main, containing the VERSION bump)
-#   is the release action. If the tag for the file's version already exists,
-#   the run skips gracefully: merges that do not bump VERSION release
-#   nothing.
+# - Automatically when CI succeeds on main: the version comes from the
+#   VERSION file, so merging a release PR (develop -> main, containing the
+#   VERSION bump) is the release action; a red CI can never tag. If the tag
+#   for the file's version already exists, the run skips gracefully: merges
+#   that do not bump VERSION release nothing.
 # - Manually (workflow_dispatch) for development builds: run from any
 #   branch with an explicit version, normally a prerelease like 0.3.0-rc.1;
 #   prerelease versions are marked as such on the GitHub release.
 #
 # Pipeline: preflight resolves the version and checks prerequisites, the
 # kotlin job gates on the conformance suite and publishes to GitHub
-# Packages, and the release job builds and signs the XCFramework, rewrites
-# Package.swift to a binaryTarget, stamps versions, and only then creates
-# the v<version> tag (on the rewritten-manifest commit, tag-only, never on
-# main) and the GitHub release carrying all artifacts. Nothing is tagged
-# unless every build succeeded. See RELEASE-SETUP (private) for secrets.
+# Packages, and the release job runs the Swift conformance gate, builds
+# and signs the XCFramework, rewrites Package.swift to a binaryTarget,
+# stamps versions, uploads everything to a draft release, and publishes it;
+# publishing is the step that creates the v<version> tag (on the
+# rewritten-manifest commit, tag-only, never on main), so a failed upload
+# leaves no tag and reruns recover by replacing the draft. Nothing is
+# tagged unless every build and upload succeeded. See RELEASE-SETUP
+# (private) for secrets.
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -34,6 +39,9 @@ permissions:
 
 jobs:
   preflight:
+    # On the automatic path, run only when CI for that commit succeeded:
+    # a red main can never tag a release.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.resolve.outputs.version }}
@@ -41,6 +49,8 @@ jobs:
       prerelease: ${{ steps.resolve.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Resolve and validate the version
         id: resolve
@@ -112,6 +122,8 @@ jobs:
       MILANO_SPECS_DIR: ${{ github.workspace }}/.specs
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/checkout@v4
         with:
           repository: get-milano/specs
@@ -141,7 +153,7 @@ jobs:
         run: |
           mkdir -p release-artifacts
           cp "$(find engine/compose/build/outputs/aar -name '*-release.aar' | head -1)" \
-             "release-artifacts/engine-compose-$VERSION.aar"
+             "release-artifacts/engine-compose-android-$VERSION.aar"
           cp "$(find engine/compose/build/libs -name "*jvm-$VERSION.jar" | head -1)" \
              "release-artifacts/engine-compose-jvm-$VERSION.jar"
 
@@ -157,8 +169,15 @@ jobs:
     runs-on: macos-latest
     env:
       VERSION: ${{ needs.preflight.outputs.version }}
+      MILANO_SPECS_DIR: ${{ github.workspace }}/.specs
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/checkout@v4
+        with:
+          repository: get-milano/specs
+          path: .specs
 
       - name: Import signing certificate
         env:
@@ -182,6 +201,12 @@ jobs:
           FILE=engine/swiftui/Sources/MilanoSDK/Core/MilanoInfo.swift
           sed -i '' -E "s/(public static let version = )\"[^\"]*\"/\1\"$VERSION\"/" "$FILE"
           grep -q "\"$VERSION\"" "$FILE" || { echo "version stamp failed; MilanoInfo.swift changed shape" >&2; exit 1; }
+          KT=engine/compose/src/commonMain/kotlin/dev/getmilano/core/MilanoInfo.kt
+          sed -i '' -E "s/(const val VERSION: String = )\"[^\"]*\"/\1\"$VERSION\"/" "$KT"
+          grep -q "\"$VERSION\"" "$KT" || { echo "version stamp failed; MilanoInfo.kt changed shape" >&2; exit 1; }
+
+      - name: Conformance suite (release gate)
+        run: swift test
 
       - name: Generate the framework project
         working-directory: engine/swiftui
@@ -264,18 +289,45 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Package.swift engine/swiftui/Sources/MilanoSDK/Core/MilanoInfo.swift
-          git commit -m "Release v$VERSION: binary Package.swift, stamped version"
-          git tag "v$VERSION"
-          git push origin "v$VERSION"
+          git add Package.swift \
+            engine/swiftui/Sources/MilanoSDK/Core/MilanoInfo.swift \
+            engine/compose/src/commonMain/kotlin/dev/getmilano/core/MilanoInfo.kt
+          git commit -m "Release v$VERSION: binary Package.swift, stamped versions"
+          RELEASE_SHA="$(git rev-parse HEAD)"
+
+          # Provenance: the exact specs revision the conformance gate ran
+          # against, and the tuist that produced the framework project.
+          SPECS_SHA="$(git -C "$MILANO_SPECS_DIR" rev-parse HEAD)"
+          TUIST_VERSION="$(tuist version 2>/dev/null || echo unknown)"
+
+          # The release commit must be reachable on the remote for the
+          # draft's target; a scratch branch carries it until publish.
+          git push origin "HEAD:refs/heads/release-v$VERSION"
+
+          # A stale draft from a failed earlier run is replaced, so reruns
+          # are self-recovering (the tag only exists once a draft was
+          # published, and then preflight skips).
+          gh release delete "v$VERSION" --yes 2>/dev/null || true
+
+          # Draft first: assets upload while no tag exists yet. Publishing
+          # is the atomic step that creates the tag at the release commit,
+          # so a failed upload can never leave a tag pointing at a release
+          # without its binaries.
           flags=()
           [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
           gh release create "v$VERSION" \
             "$RUNNER_TEMP/MilanoSDK.xcframework.zip" \
             release-artifacts/* \
             "${flags[@]}" \
+            --draft \
+            --target "$RELEASE_SHA" \
             --title "v$VERSION" \
-            --notes "Milano $VERSION. Signed MilanoSDK.xcframework (iOS, iOS Simulator, macOS, watchOS, watchOS Simulator); Compose engine AAR and JVM JAR (also on GitHub Packages as dev.get-milano:engine-compose:$VERSION). SwiftPM: pin \`from: \"$VERSION\"\` to resolve the prebuilt binary."
+            --notes "Milano $VERSION. Signed MilanoSDK.xcframework (iOS, iOS Simulator, macOS, watchOS, watchOS Simulator); Compose engine AAR and JVM JAR (also on GitHub Packages as dev.get-milano:engine-compose:$VERSION). SwiftPM: pin \`from: \"$VERSION\"\` to resolve the prebuilt binary. Conformance gate: specs@$SPECS_SHA; built with tuist $TUIST_VERSION."
+          gh release edit "v$VERSION" --draft=false
+
+          # The tag now exists at the release commit; the scratch branch
+          # has served its purpose.
+          git push origin ":refs/heads/release-v$VERSION" || true
 
       - name: Clean up keychain
         if: always()

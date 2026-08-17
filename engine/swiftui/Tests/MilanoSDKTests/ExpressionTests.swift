@@ -163,9 +163,15 @@ struct ExpressionTests {
         #expect(reports.kinds == [.divisionByZero])
     }
 
-    @Test func ifEvaluatesBothBranches() throws {
+    @Test func ifEvaluatesOnlyTheTakenBranch() throws {
         let reports = Reports()
         #expect(try evaluate("if(true, 1, 1 / 0)", reports: reports) == .int(1))
+        #expect(reports.kinds.isEmpty)
+        // The guard idiom: the untaken division never runs.
+        #expect(try evaluate("if(false, 1 / 0, 2)", reports: reports) == .int(2))
+        #expect(reports.kinds.isEmpty)
+        // The taken branch does evaluate, reports included.
+        #expect(try evaluate("if(true, 1 / 0, 2)", reports: reports) == .int(0))
         #expect(reports.kinds == [.divisionByZero])
     }
 

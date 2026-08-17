@@ -23,6 +23,19 @@ class VectorRunnerTest {
         override fun Render(unknown: MilanoUnknownNode) {}
     }
 
+    private class InteractionCollector : MilanoUserInteractionObserver {
+        val collected = ArrayList<MilanoUserInteraction>()
+
+        override fun interaction(interaction: MilanoUserInteraction) {
+            collected.add(interaction)
+        }
+    }
+
+    private fun interactionWireName(kind: MilanoUserInteraction.Kind): String {
+        val parts = kind.name.lowercase().split("_")
+        return parts[0] + parts.drop(1).joinToString("") { part -> part.replaceFirstChar { it.uppercase() } }
+    }
+
     private class OccurrenceCollector : MilanoObserver {
         val collected = ArrayList<MilanoOccurrence>()
 
@@ -55,8 +68,9 @@ class VectorRunnerTest {
      * forever, and the runner drives the completion path directly.
      */
     private object NeverCompletingHandler : MilanoActionHandler {
-        override suspend fun handle(action: MilanoAction) {
+        override suspend fun handle(action: MilanoAction): MilanoValue? {
             kotlinx.coroutines.suspendCancellableCoroutine<Unit> { }
+            return null
         }
     }
 
@@ -76,10 +90,10 @@ class VectorRunnerTest {
             MilanoOccurrence.Kind.UNDECLARED_PROPERTY -> "undeclaredProperty"
             MilanoOccurrence.Kind.DROPPED_EVENT -> "droppedEvent"
             MilanoOccurrence.Kind.INVALID_EMISSION -> "invalidEmission"
+            MilanoOccurrence.Kind.INVALID_COMPLETION -> "invalidCompletion"
             MilanoOccurrence.Kind.DUPLICATE_COMPLETION -> "duplicateCompletion"
             MilanoOccurrence.Kind.COMPLETION_AFTER_TEARDOWN -> "completionAfterTeardown"
             MilanoOccurrence.Kind.REJECTED_CONTEXT_UPDATE -> "rejectedContextUpdate"
-            MilanoOccurrence.Kind.OVER_LIMIT_REJECTED -> "overLimitRejected"
             MilanoOccurrence.Kind.DIVISION_BY_ZERO -> "divisionByZero"
             MilanoOccurrence.Kind.SATURATION -> "saturation"
         }
@@ -191,10 +205,18 @@ class VectorRunnerTest {
                     ?.values
                     ?.get("unknownTypePolicy") as? MilanoValue.StringValue
             )?.let { MilanoUnknownTypePolicy.valueOf(it.value.uppercase()) }
-                ?: MilanoUnknownTypePolicy.SKIP
+                ?: MilanoUnknownTypePolicy.FAIL
 
         val collector = OccurrenceCollector()
-        val engine = MilanoEngine(vocabularyJson, registry, policy, observer = collector)
+        val interactions = InteractionCollector()
+        val engine =
+            MilanoEngine(
+                vocabularyJson,
+                registry,
+                policy,
+                observer = collector,
+                userInteractionObserver = interactions,
+            )
 
         val documentText =
             (vector["documentText"] as? MilanoValue.StringValue)?.value
@@ -202,6 +224,29 @@ class VectorRunnerTest {
 
         val pump = PumpDispatcher()
         val builder = engine.viewBuilder(documentText).label(name)
+
+        // The surface's action grants, per the vector's config.
+        val actionsConfig =
+            ((vector["config"] as? MilanoValue.RecordValue)?.values?.get("actions") as? MilanoValue.RecordValue)?.values
+        (actionsConfig?.get("allow") as? MilanoValue.ArrayValue)?.let { allowed ->
+            builder.allowActions(allowed.values.mapNotNull { it.stringOrNull })
+        }
+        (actionsConfig?.get("declare") as? MilanoValue.RecordValue)?.values?.forEach { (actionName, declaration) ->
+            val descriptors =
+                ((declaration as? MilanoValue.RecordValue)?.values?.get("parameters") as? MilanoValue.RecordValue)
+                    ?.values
+                    .orEmpty()
+            val parameters = LinkedHashMap<String, MilanoType>()
+            for ((parameter, descriptor) in descriptors) {
+                MilanoType.fromDescriptor(descriptor)?.let { parameters[parameter] = it }
+            }
+            val result =
+                (declaration as? MilanoValue.RecordValue)
+                    ?.values
+                    ?.get("result")
+                    ?.let { MilanoType.fromDescriptor(it) }
+            builder.action(actionName, parameters, result)
+        }
         builder.dispatcher(pump)
         builder.actionHandler(NeverCompletingHandler)
 
@@ -245,7 +290,8 @@ class VectorRunnerTest {
                         val index = (completion["dispatch"] as MilanoValue.IntValue).value.toInt()
                         val success =
                             (completion["outcome"] as MilanoValue.StringValue).value == "success"
-                        pump.dispatch { view.complete(index, success) }
+                        val payload = completion["payload"]
+                        pump.dispatch { view.complete(index, success, payload) }
                         pump.pump()
                     }
                 }
@@ -270,6 +316,28 @@ class VectorRunnerTest {
                     assertTrue(
                         matches(produced, fields),
                         "$name: dispatch $index mismatch: $produced vs $fields",
+                    )
+                }
+            }
+            (expect["interactions"] as? MilanoValue.ArrayValue)?.let { expectedInteractions ->
+                assertEquals(
+                    expectedInteractions.values.size,
+                    interactions.collected.size,
+                    "$name: interaction count, got ${interactions.collected.map { it.kind }}",
+                )
+                for ((index, expected) in expectedInteractions.values.withIndex()) {
+                    val fields = (expected as MilanoValue.RecordValue).values
+                    val produced = interactions.collected[index]
+                    val producedFields =
+                        buildMap {
+                            put("kind", MilanoValue.StringValue(interactionWireName(produced.kind)))
+                            produced.node?.let { put("node", MilanoValue.StringValue(it)) }
+                            produced.name?.let { put("name", MilanoValue.StringValue(it)) }
+                            produced.value?.let { put("value", it) }
+                        }
+                    assertTrue(
+                        matches(producedFields, fields),
+                        "$name: interaction $index mismatch, got $producedFields",
                     )
                 }
             }

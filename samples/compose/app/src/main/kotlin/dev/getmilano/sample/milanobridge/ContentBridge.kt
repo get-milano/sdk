@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import dev.getmilano.MilanoNode
 import dev.getmilano.MilanoRenderer
-import dev.getmilano.MilanoValue
+import dev.getmilano.MilanoUserInteraction
 import dev.getmilano.sample.designsystem.ButtonModel
 import dev.getmilano.sample.designsystem.CheckboxModel
 import dev.getmilano.sample.designsystem.ColumnContainer
@@ -17,84 +17,106 @@ import dev.getmilano.sample.designsystem.StyledText
 import dev.getmilano.sample.designsystem.TextFieldModel
 import dev.getmilano.sample.designsystem.TextModel
 
-internal fun TextModel(node: MilanoNode): TextModel =
+internal fun TextModel(text: TextNode): TextModel =
     TextModel(
-        text = node.property("text").stringOrNull ?: "",
+        text = text.text,
         role =
-            when (node.property("role").stringOrNull) {
-                "title" -> TextModel.Role.TITLE
-                "subtitle" -> TextModel.Role.SUBTITLE
-                else -> TextModel.Role.BODY
+            when (text.role) {
+                TextRole.Title -> TextModel.Role.TITLE
+                TextRole.Subtitle -> TextModel.Role.SUBTITLE
+                TextRole.Body, null -> TextModel.Role.BODY
+            },
+        liveRegion =
+            when (text.liveRegion) {
+                TextLiveRegion.Polite -> TextModel.LiveRegion.POLITE
+                TextLiveRegion.Assertive -> TextModel.LiveRegion.ASSERTIVE
+                null -> null
             },
     )
 
-internal fun ButtonModel(node: MilanoNode): ButtonModel =
+internal fun ButtonModel(button: ButtonNode): ButtonModel =
     ButtonModel(
-        label = node.property("label").stringOrNull ?: "",
-        isEnabled = node.property("enabled").boolOrNull ?: true,
-        onTap = { node.emit("tap") },
+        label = button.label,
+        isEnabled = button.enabled,
+        onTap = { button.emitTap() },
     )
 
-internal fun TextFieldModel(node: MilanoNode): TextFieldModel =
+internal fun TextFieldModel(field: TextFieldNode): TextFieldModel =
     TextFieldModel(
-        label = node.property("label").stringOrNull ?: "",
-        value = node.property("value").stringOrNull ?: "",
-        isRequired = node.property("required").boolOrNull ?: false,
-        error = node.property("error").stringOrNull,
-        onChange = { node.emit("change", MilanoValue.StringValue(it)) },
+        label = field.label,
+        value = field.value,
+        isRequired = field.required ?: false,
+        error = field.error,
+        onChange = { field.emitChange(it) },
+        // Focus is analytics-only: not a document event, so it flows
+        // through the user-interaction stream, never through dispatch.
+        onFocusChange = { focused ->
+            field.node.userInteraction(
+                if (focused) {
+                    MilanoUserInteraction.Kind.FOCUS_GAINED
+                } else {
+                    MilanoUserInteraction.Kind.FOCUS_LOST
+                },
+            )
+        },
     )
 
-internal fun NumberFieldModel(node: MilanoNode): NumberFieldModel =
+internal fun NumberFieldModel(field: NumberFieldNode): NumberFieldModel =
     NumberFieldModel(
-        label = node.property("label").stringOrNull ?: "",
-        value = node.property("value").doubleOrNull ?: 0.0,
-        onChange = { node.emit("change", MilanoValue.DoubleValue(it)) },
+        label = field.label,
+        value = field.value,
+        onChange = { field.emitChange(it) },
     )
 
-internal fun CheckboxModel(node: MilanoNode): CheckboxModel =
+internal fun CheckboxModel(checkbox: CheckboxNode): CheckboxModel =
     CheckboxModel(
-        label = node.property("label").stringOrNull ?: "",
-        isChecked = node.property("checked").boolOrNull ?: false,
-        onChange = { node.emit("change", MilanoValue.BoolValue(it)) },
+        label = checkbox.label,
+        isChecked = checkbox.checked,
+        onChange = { checkbox.emitChange(it) },
     )
 
 internal object TextRenderer : MilanoRenderer {
     @Composable
     override fun Render(node: MilanoNode) {
-        if (!node.isVisible) return
-        StyledText(TextModel(node))
+        val text = TextNode(node)
+        if (text.visible == false) return
+        StyledText(TextModel(text))
     }
 }
 
 internal object ButtonRenderer : MilanoRenderer {
     @Composable
     override fun Render(node: MilanoNode) {
-        if (!node.isVisible) return
-        PrimaryButton(ButtonModel(node))
+        val button = ButtonNode(node)
+        if (button.visible == false) return
+        PrimaryButton(ButtonModel(button))
     }
 }
 
 internal object TextFieldRenderer : MilanoRenderer {
     @Composable
     override fun Render(node: MilanoNode) {
-        if (!node.isVisible) return
-        LabeledTextField(TextFieldModel(node))
+        val field = TextFieldNode(node)
+        if (field.visible == false) return
+        LabeledTextField(TextFieldModel(field))
     }
 }
 
 internal object NumberFieldRenderer : MilanoRenderer {
     @Composable
     override fun Render(node: MilanoNode) {
-        if (!node.isVisible) return
-        LabeledNumberField(NumberFieldModel(node))
+        val field = NumberFieldNode(node)
+        if (field.visible == false) return
+        LabeledNumberField(NumberFieldModel(field))
     }
 }
 
 internal object CheckboxRenderer : MilanoRenderer {
     @Composable
     override fun Render(node: MilanoNode) {
-        if (!node.isVisible) return
-        LabeledCheckbox(CheckboxModel(node))
+        val checkbox = CheckboxNode(node)
+        if (checkbox.visible == false) return
+        LabeledCheckbox(CheckboxModel(checkbox))
     }
 }
 

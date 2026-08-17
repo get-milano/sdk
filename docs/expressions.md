@@ -25,7 +25,7 @@ Three reserved roots, and only these:
 - `context.key` reads a declared context key.
 - `event` reads the payload of the event being handled, only inside `on` bindings of events that declare a payload type.
 
-Record fields are read with a dot. Field access requires a non-optional record; resolve optionals with `??` first. This rule is checked at the gate, which is what makes null dereference impossible at runtime. There is no array indexing in v1.
+Record fields are read with a dot. Field access requires a non-optional record; resolve optionals with `??` first. This rule is checked at the gate, which is what makes null dereference impossible at runtime. There is no array indexing in v1.0.
 
 ## Literals
 
@@ -55,7 +55,7 @@ Tightest first; parentheses group. Binary operators associate left except `??`, 
 
 ## Functions
 
-The complete v1 set. All functions are pure, and all arguments are evaluated.
+The complete v1.0 set. All functions are pure. Arguments are evaluated eagerly, except `if`, which evaluates only the taken branch, like `&&`, `||`, and `??`.
 
 | Function | Signature | Notes |
 |---|---|---|
@@ -69,9 +69,9 @@ The complete v1 set. All functions are pure, and all arguments are evaluated.
 | `startsWith(s, p)` | string, string to bool | |
 | `endsWith(s, p)` | string, string to bool | |
 | `trim(s)` | string to string | Removes Unicode White_Space characters at both ends, from a fixed shared table |
-| `if(c, a, b)` | bool, T, T to T | Both branches type-check to the same T; both are evaluated |
+| `if(c, a, b)` | bool, T, T to T | Both branches type-check to the same T; only the taken branch is evaluated |
 
-There are no regular expressions and no case-mapping functions in v1. Validation beyond these functions belongs to the producer or the host; case rules are locale matters and belong to renderers.
+There are no regular expressions and no case-mapping functions in v1.0. Validation beyond these functions belongs to the producer or the host; case rules are locale matters and belong to renderers.
 
 ## Typing and totality
 

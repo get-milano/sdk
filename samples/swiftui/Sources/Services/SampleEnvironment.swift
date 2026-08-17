@@ -14,15 +14,19 @@ final class SampleEnvironment {
     static let shared = SampleEnvironment()
 
     private let observer = ConsoleObserver()
+    private let analytics = ConsoleAnalytics()
     private let engine: MilanoEngine
 
     private init() {
         do {
+            // The engine keeps the contract default: unknown types fail the
+            // build. Surfaces that can degrade gracefully opt into skip below.
             engine = try MilanoEngine(
                 vocabularyJSON: Self.resource("vocabulary"),
                 registry: MilanoBridge.registry(),
-                defaultUnknownTypePolicy: .skip,
-                observer: observer)
+                observer: observer,
+                userInteractionObserver: analytics)
+            SampleVocabulary.assertMatches(engine)
         } catch {
             fatalError("Milano engine setup failed: \(error)")
         }
@@ -42,7 +46,14 @@ final class SampleEnvironment {
     func documentBuilder(
         resource: String, screenContext: [String: MilanoValue] = [:]
     ) -> MilanoViewBuilder {
-        engine.viewBuilder(document: Self.resource(resource))
+        // Banners are optional, promotional surfaces: an unknown component
+        // degrades to a gap instead of failing the build. The form and the
+        // interstitial keep the fail default; their content is load-bearing.
+        let builder = engine.viewBuilder(document: Self.resource(resource))
+        if resource.hasPrefix("banner") {
+            builder.unknownTypePolicy(.skip)
+        }
+        return builder
             .context(Self.sharedContext.merging(screenContext) { _, screen in screen })
             .stateData { declarations in Self.defaults(for: declarations) }
             .actionHandler(Self.handle(_:))
@@ -55,11 +66,11 @@ final class SampleEnvironment {
         engine.viewBuilder(document: Self.resource("interstitial"))
             .context(Self.sharedContext)
             .actionHandler { action in
-                if action.name == "dismiss" {
+                if case .dismiss = SampleAction(action) {
                     await MainActor.run { onDismiss() }
-                } else {
-                    try await Self.handle(action)
+                    return nil
                 }
+                return try await Self.handle(action)
             }
             .label("interstitial")
     }
@@ -94,24 +105,33 @@ final class SampleEnvironment {
     // MARK: - Action funnel
 
     /// The single async funnel: navigation and submission live in the host.
-    @Sendable private static func handle(_ action: MilanoAction) async throws {
-        switch action.name {
-        case "openUrl":
-            if let urlString = action.parameters["url"]?.stringValue,
-                let url = URL(string: urlString) {
+    /// Generated bindings make the switch typed and exhaustive. The returned
+    /// value is the completion result: submitContact declares `result:
+    /// "string"`, so its confirmation number flows back into the document's
+    /// onSuccess actions as the `result` root.
+    @Sendable private static func handle(_ action: MilanoAction) async throws -> MilanoValue? {
+        switch SampleAction(action) {
+        case .openUrl(let urlString):
+            if let url = URL(string: urlString) {
                 #if canImport(UIKit)
                     await MainActor.run { UIApplication.shared.open(url) }
                 #elseif canImport(AppKit)
                     await MainActor.run { NSWorkspace.shared.open(url) }
                 #endif
             }
-        case "submitContact":
-            // Simulated network call; returning normally completes with
-            // success, which runs the document's onSuccess actions.
-            print("[sample] submitting \(action.parameters)")
+            return nil
+        case .submitContact(let name, let surname, let email, let phone):
+            // Simulated network call; the returned confirmation number is
+            // what a real backend would answer with.
+            print("[sample] submitting \(name) \(surname) <\(email)> \(phone ?? "-")")
             try await Task.sleep(nanoseconds: 1_000_000_000)
-        default:
+            return .string("MC-\(UUID().uuidString.prefix(6))")
+        case .dismiss:
+            // Interpreted by the presenting screen's handler; inert here.
+            return nil
+        case .unrecognized(let action):
             print("[sample] unhandled action \(action.name)")
+            return nil
         }
     }
 

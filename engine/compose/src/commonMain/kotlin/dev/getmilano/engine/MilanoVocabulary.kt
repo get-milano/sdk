@@ -36,6 +36,11 @@ internal data class MilanoVocabulary(
     data class Action(
         /** Parameter name to type. */
         val parameters: Map<String, MilanoType>,
+        /**
+         * The success completion's value type; null means completions carry
+         * no data (vocabulary schema spec, completion results).
+         */
+        val result: MilanoType? = null,
     )
 
     companion object {
@@ -66,6 +71,14 @@ internal data class MilanoVocabulary(
             ) {
                 throw MilanoEngineException.InvalidVocabulary("milano", "expected major.minor.patch, found $milano")
             }
+            // Same versioning rule as documents: an artifact targeting an
+            // unsupported contract major fails fast at engine creation.
+            if (major !in MilanoGate.SUPPORTED_MAJORS) {
+                throw MilanoEngineException.InvalidVocabulary(
+                    "milano-version",
+                    "unsupported contract major $major; supported: ${MilanoGate.SUPPORTED_MAJORS}",
+                )
+            }
 
             val name =
                 (rootRecord["name"] as? MilanoValue.StringValue)
@@ -75,8 +88,11 @@ internal data class MilanoVocabulary(
             val vocabularyVersion =
                 (rootRecord["version"] as? MilanoValue.StringValue)
                     ?.value
-                    ?.takeIf { it.isNotEmpty() }
-                    ?: throw MilanoEngineException.InvalidVocabulary("version", "missing vocabulary version")
+                    ?.takeIf { parseSemver(it) != null }
+                    ?: throw MilanoEngineException.InvalidVocabulary(
+                        "version",
+                        "vocabulary version must be major.minor.patch",
+                    )
 
             val componentsJson =
                 (rootRecord["components"] as? MilanoValue.RecordValue)?.values
@@ -139,7 +155,13 @@ internal data class MilanoVocabulary(
                     throw MilanoEngineException.InvalidVocabulary("action-parameters", path)
                 }
             }
-            return Action(parameters)
+            var result: MilanoType? = null
+            val resultEntry = record["result"]
+            if (resultEntry != null) {
+                result = MilanoType.fromDescriptor(resultEntry)
+                    ?: throw MilanoEngineException.InvalidVocabulary("action-result", path)
+            }
+            return Action(parameters, result)
         }
 
         private fun component(

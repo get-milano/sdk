@@ -8,11 +8,11 @@ Milano is **not** server-driven UI (it never talks to a server), **not** a SaaS 
 
 The normative specifications and the conformance suite live in [get-milano/specs](https://github.com/get-milano/specs). **Both engines pass the full conformance suite; that is the definition of correct.**
 
-Consumer documentation lives in [`docs/`](docs/index.md), published at [get-milano.github.io/sdk](https://get-milano.github.io/sdk/): getting started, philosophy, guidelines, creating a bridge, writing documents, expressions, and guardrails.
+Consumer documentation lives in [`docs/`](docs/index.md), published at [get-milano.dev/sdk](https://get-milano.dev/sdk/): getting started, philosophy, guidelines, creating a bridge, writing documents, expressions, and guardrails.
 
-Try Milano without installing anything: the [Playground](https://get-milano.github.io/playground/) validates and renders vocabularies and documents in the browser, with live expressions and interactive actions.
+Try Milano without installing anything: the [Playground](https://get-milano.dev/playground/) validates and renders vocabularies and documents in the browser, with live expressions and interactive actions.
 
-Status: `0.1.0`, pre-release. The contract major is `0`: pinning behavior, expecting evolution.
+Status: stable. From 1.0.0 the SDK follows semantic versioning: within a major version, releases are additive and documents, vocabularies, and integrations keep working. The SDK implements contract v1.0 of the [Milano specs](https://github.com/get-milano/specs).
 
 ## iOS (SwiftUI)
 
@@ -26,7 +26,7 @@ let engine = try MilanoEngine(
 
 MilanoHost(builder: engine.viewBuilder(document: documentData)
         .context(["userName": .string("Ada")])
-        .actionHandler { action in /* route it */ }) {
+        .actionHandler { action in nil /* route it; return a declared result */ }) {
     ProgressView()
 } failure: { error in
     Text(String(describing: error))
@@ -41,7 +41,7 @@ From source (works on any ref, no credentials), in `settings.gradle.kts`:
 includeBuild("path/to/sdk/engine/compose")
 ```
 
-then depend on `dev.get-milano:engine-compose:0.1.0`; the composite build substitutes it. On tagged releases the same coordinate is published to GitHub Packages Maven (note: GitHub Packages requires an authenticated Gradle repository even for public packages).
+then depend on `dev.get-milano:engine-compose:1.0.0`; the composite build substitutes it. On tagged releases the same coordinate is published to GitHub Packages Maven (note: GitHub Packages requires an authenticated Gradle repository even for public packages).
 
 ```kotlin
 val engine = MilanoEngine(
@@ -52,8 +52,7 @@ val engine = MilanoEngine(
 MilanoHost(
     builder = engine.viewBuilder(documentJson)
         .context(mapOf("userName" to MilanoValue.StringValue("Ada")))
-        .actionHandler { action -> /* route it */ }
-        .dispatcher(MilanoMainDispatcher()),
+        .actionHandler { action -> null /* route it; return a declared result */ },
     loading = { CircularProgressIndicator() },
     failure = { error -> Text(error.toString()) })
 ```
@@ -67,13 +66,13 @@ MilanoHost(
 | `samples/swiftui` | iOS sample app (Tuist; run `tuist generate` there) |
 | `samples/compose` | Android sample app (consumes the engine from source via the composite build) |
 
-The samples demonstrate every v1 capability: three banner layouts, an interstitial, a Milano fragment embedded between native components, and a form with document-driven validation, all through a pure design system bridged to Milano in a single `MilanoBridge` package. That split, design system with zero Milano imports plus one bridging package, is the recommended integration architecture.
+The samples demonstrate every v1.0 capability and beyond: three banner layouts, an interstitial, a Milano fragment embedded between native components, a form with document-driven validation, a whole user-profile screen, and a catalog of tappable item cards, all through a pure design system bridged to Milano in a single `MilanoBridge` package. That split, design system with zero Milano imports plus one bridging package, is the recommended integration architecture.
 
 ## Development
 
 - **Spec-first.** Nothing here invents behavior. When implementation reveals a gap, the spec is fixed and a conformance vector added before the code changes. A behavioral divergence between the engines always produces a reproducing vector before its fix.
 - **Lockstep.** Both engines advance one milestone at a time; the shared vectors are the finish line.
-- **Conformance.** Drivers read `MILANO_SPECS_DIR` (or default to a sibling `spec` checkout). Run `swift test` at the repo root and `./gradlew jvmTest` in `engine/compose`.
+- **Conformance.** Drivers read `MILANO_SPECS_DIR` (or default to a sibling `specs` checkout). Run `swift test` at the repo root and `./gradlew jvmTest` in `engine/compose`.
 - **Lint gate.** SwiftLint and ktlint (`ktlint_official`) must pass with zero violations on engines and samples.
 - **Distribution.** Tags carry binaries (XCFramework on the GitHub release for SPM `binaryTarget`; AAR/KMP artifacts to GitHub Packages). `main` and every other ref are source-only: SPM consumes the root package, Gradle consumes the composite build, exactly as `samples/compose` does.
 
@@ -81,4 +80,4 @@ The samples demonstrate every v1 capability: three banner layouts, an interstiti
 
 Code is licensed under [Apache-2.0](LICENSE). Redistributions must retain the attribution in [NOTICE](NOTICE), per section 4(d) of the license.
 
-The **Milano name and logo are trademarks of Ezequiel Aceto**: use them to refer to this project, not to brand forks or derivatives.
+The **Milano name and logo are owened by Ezequiel (Kimi) Aceto**: use them to refer to this project, not to brand forks or derivatives.

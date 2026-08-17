@@ -96,6 +96,33 @@ struct MilanoTypeTests {
         #expect(type.validated(.array([.string("x")])) == nil)
     }
 
+    @Test func enumDescriptorsParse() throws {
+        let tone = try type(#"{"enum": ["info", "warning"]}"#)
+        #expect(tone == MilanoType(.enumeration(["info", "warning"])))
+        // Structural identity: member order in the descriptor is irrelevant.
+        #expect(tone == (try type(#"{"enum": ["warning", "info"]}"#)))
+        let optional = try type(#"{"enum": ["a"], "optional": true}"#)
+        #expect(optional.optional)
+
+        // Empty, duplicate, non-identifier, non-string, and stray keys are
+        // invalid declarations.
+        #expect(MilanoType(descriptor: try jsonValue(#"{"enum": []}"#)) == nil)
+        #expect(MilanoType(descriptor: try jsonValue(#"{"enum": ["a", "a"]}"#)) == nil)
+        #expect(MilanoType(descriptor: try jsonValue(#"{"enum": ["with-dash"]}"#)) == nil)
+        #expect(MilanoType(descriptor: try jsonValue(#"{"enum": [1]}"#)) == nil)
+        #expect(MilanoType(descriptor: try jsonValue(#"{"enum": ["a"], "extra": 1}"#)) == nil)
+    }
+
+    @Test func enumsValidateMembership() throws {
+        let tone = MilanoType(.enumeration(["info", "warning"]))
+        #expect(tone.validated(.string("info")) == .string("info"))
+        #expect(tone.validated(.string("loud")) == nil)
+        #expect(tone.validated(.int(1)) == nil)
+        #expect(tone.validated(.null) == nil)
+        let optional = MilanoType(.enumeration(["info"]), optional: true)
+        #expect(optional.validated(.null) == .null)
+    }
+
     @Test func identifierGrammar() {
         #expect(MilanoIdentifier.isValid("Banner"))
         #expect(MilanoIdentifier.isValid("a_1"))

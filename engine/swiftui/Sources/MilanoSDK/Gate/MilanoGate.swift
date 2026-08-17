@@ -18,11 +18,15 @@ struct BuiltNode: Sendable {
 /// builder awaits the state data provider and completes the cross-checks.
 struct MilanoGate {
     /// The contract majors this runtime supports.
-    static let supportedMajors: [Int] = [0]
+    static let supportedMajors: [Int] = [1]
 
     let engine: MilanoEngine
     let policy: MilanoUnknownTypePolicy
     let viewIdentity: String
+    /// The surface's granted custom actions: the vocabulary's declarations,
+    /// overridden and narrowed by the builder. Built-in $ actions are
+    /// contract, not capabilities.
+    let grantedActions: [String: MilanoVocabulary.Action]
     let report: (MilanoOccurrence) -> Void
 
     /// Set during the vocabulary walk when any custom action is bound:
@@ -49,6 +53,23 @@ struct MilanoGate {
                 declared: document.versionString, supported: Self.supportedMajors)
         }
 
+        // Step 3: vocabulary requirement, when the document declares one.
+        if let requirement = document.vocabularyRequirement {
+            guard requirement.name == engine.vocabulary.name else {
+                throw MilanoBuildError.schemaViolation(
+                    rule: "vocabulary-requirement", node: nil,
+                    expected: requirement.name, found: engine.vocabulary.name)
+            }
+            if let minimum = requirement.min,
+                let required = parseSemver(minimum),
+                let held = parseSemver(engine.vocabulary.version),
+                held < required {
+                throw MilanoBuildError.schemaViolation(
+                    rule: "vocabulary-requirement", node: nil,
+                    expected: ">=\(minimum)", found: engine.vocabulary.version)
+            }
+        }
+
         // Gate limits: depth and node count over the document as written.
         let (depth, count) = measure(document.root, depth: 1)
         if depth > engine.limits.maxTreeDepth {
@@ -58,12 +79,6 @@ struct MilanoGate {
         if count > engine.limits.maxNodeCount {
             throw MilanoBuildError.limitExceeded(
                 limit: "maxNodeCount", value: engine.limits.maxNodeCount, actual: count)
-        }
-
-        // Local action names must not collide with vocabulary actions.
-        for name in document.localActions.keys where engine.vocabulary.actions[name] != nil {
-            throw MilanoBuildError.schemaViolation(
-                rule: "action-declaration", node: nil, expected: "unique action name", found: name)
         }
 
         // Steps 3 and 4: vocabulary walk and expression typing
@@ -130,7 +145,7 @@ struct MilanoGate {
         if let id = node.id {
             guard seenIds.insert(id).inserted else {
                 throw MilanoBuildError.schemaViolation(
-                    rule: "id", node: reference, expected: "unique id", found: id)
+                    rule: "id-uniqueness", node: reference, expected: "unique id", found: id)
             }
         }
 
@@ -165,7 +180,7 @@ struct MilanoGate {
             guard let declaredType = component.properties[name] else {
                 if component.strict {
                     throw MilanoBuildError.schemaViolation(
-                        rule: "property-undeclared", node: reference, expected: nil, found: name)
+                        rule: "undeclared-property", node: reference, expected: nil, found: name)
                 }
                 report(MilanoOccurrence(
                     kind: .undeclaredProperty, viewIdentity: viewIdentity, node: reference))
@@ -192,7 +207,9 @@ struct MilanoGate {
             }
             let scope: EventScope = payload.map { .payload($0) } ?? .unavailable
             events[event] = try actions.map {
-                try validateAction($0, in: document, node: reference, eventScope: scope)
+                try validateAction(
+                    $0, in: document, node: reference, eventScope: scope,
+                    resultScope: .unavailable)
             }
         }
 
@@ -210,7 +227,8 @@ struct MilanoGate {
     }
 
     private func validateAction(
-        _ action: ActionSpec, in document: ParsedDocument, node: String, eventScope: EventScope
+        _ action: ActionSpec, in document: ParsedDocument, node: String,
+        eventScope: EventScope, resultScope: EventScope
     ) throws -> ActionSpec {
         switch action {
         case .set(let key, let value):
@@ -222,32 +240,39 @@ struct MilanoGate {
                 key: key,
                 value: try checked(
                     value, against: stateType, rule: "action-encoding",
-                    node: node, in: document, eventScope: eventScope))
+                    node: node, in: document, eventScope: eventScope,
+                    resultScope: resultScope))
 
         case .sequence(let actions):
             return .sequence(
                 try actions.map {
-                    try validateAction($0, in: document, node: node, eventScope: eventScope)
+                    try validateAction(
+                        $0, in: document, node: node, eventScope: eventScope,
+                        resultScope: resultScope)
                 })
 
         case .when(let condition, let then, let otherwise):
             let checkedCondition = try checked(
                 condition, against: MilanoType(.bool), rule: "action-encoding",
-                node: node, in: document, eventScope: eventScope)
+                node: node, in: document, eventScope: eventScope, resultScope: resultScope)
             return .when(
                 condition: checkedCondition,
                 then: try then.map {
-                    try validateAction($0, in: document, node: node, eventScope: eventScope)
+                    try validateAction(
+                        $0, in: document, node: node, eventScope: eventScope,
+                        resultScope: resultScope)
                 },
                 otherwise: try otherwise.map {
-                    try validateAction($0, in: document, node: node, eventScope: eventScope)
+                    try validateAction(
+                        $0, in: document, node: node, eventScope: eventScope,
+                        resultScope: resultScope)
                 })
 
-        case .custom(let name, let parameters, let onSuccess, let onFailure):
+        case .custom(let name, let parameters, let onSuccess, let onFailure, _):
             flags.usesCustomActions = true
-            guard let declaration = document.localActions[name] ?? engine.vocabulary.actions[name] else {
+            guard let declaration = grantedActions[name] else {
                 throw MilanoBuildError.schemaViolation(
-                    rule: "action-declaration", node: node, expected: "declared action", found: name)
+                    rule: "action-capability", node: node, expected: "granted action", found: name)
             }
             var checkedParameters: [String: DocValue] = [:]
             for (parameter, value) in parameters {
@@ -258,7 +283,8 @@ struct MilanoGate {
                 }
                 checkedParameters[parameter] = try checked(
                     value, against: parameterType, rule: "action-encoding",
-                    node: node, in: document, eventScope: eventScope)
+                    node: node, in: document, eventScope: eventScope,
+                    resultScope: resultScope)
             }
             for (parameter, parameterType) in declaration.parameters
             where checkedParameters[parameter] == nil {
@@ -269,15 +295,24 @@ struct MilanoGate {
                 checkedParameters[parameter] = .literal(.null)
             }
             // Event bindings inside onSuccess/onFailure evaluate against the
-            // payload captured at dispatch: same static scope.
+            // payload captured at dispatch: same static scope. The result
+            // root rebinds to this action's declared result inside
+            // onSuccess, and is never available inside onFailure.
+            let successScope: EventScope =
+                declaration.result.map { EventScope.payload($0) } ?? .unavailable
             return .custom(
                 name: name, parameters: checkedParameters,
                 onSuccess: try onSuccess.map {
-                    try validateAction($0, in: document, node: node, eventScope: eventScope)
+                    try validateAction(
+                        $0, in: document, node: node, eventScope: eventScope,
+                        resultScope: successScope)
                 },
                 onFailure: try onFailure.map {
-                    try validateAction($0, in: document, node: node, eventScope: eventScope)
-                })
+                    try validateAction(
+                        $0, in: document, node: node, eventScope: eventScope,
+                        resultScope: .unavailable)
+                },
+                result: declaration.result)
         }
     }
 
@@ -285,7 +320,8 @@ struct MilanoGate {
     /// Expressions are parsed and statically typed here: step 4 of the gate.
     private func checked(
         _ value: DocValue, against type: MilanoType, rule: String, node: String,
-        in document: ParsedDocument, eventScope: EventScope = .unavailable
+        in document: ParsedDocument, eventScope: EventScope = .unavailable,
+        resultScope: EventScope = .unavailable
     ) throws -> DocValue {
         switch value {
         case .literal(let literal):
@@ -297,10 +333,12 @@ struct MilanoGate {
             return .literal(validated)
 
         case .expression(let source):
-            if source.count > engine.limits.maxExpressionLength {
+            // Counted in Unicode scalars, per the document model's limits.
+            if source.unicodeScalars.count > engine.limits.maxExpressionLength {
                 throw MilanoBuildError.limitExceeded(
                     limit: "maxExpressionLength",
-                    value: engine.limits.maxExpressionLength, actual: source.count)
+                    value: engine.limits.maxExpressionLength,
+                    actual: source.unicodeScalars.count)
             }
             let expr: Expr
             let inferred: MilanoType?
@@ -309,8 +347,8 @@ struct MilanoGate {
                 let checker = ExprChecker(
                     state: document.stateDeclarations,
                     context: document.contextDeclarations,
-                    eventScope: eventScope)
-                inferred = try checker.infer(expr)
+                    eventScope: eventScope, resultScope: resultScope)
+                inferred = try checker.infer(expr, expecting: type)
                 guard checker.accepts(type, actual: inferred) else {
                     throw ExprError(detail: "type mismatch")
                 }
@@ -346,6 +384,7 @@ struct MilanoGate {
         case .int: base = "int"
         case .double: base = "double"
         case .string: base = "string"
+        case .enumeration: base = "enum"
         case .array: base = "array"
         case .record: base = "record"
         }
