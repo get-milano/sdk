@@ -40,6 +40,19 @@ class MilanoNode internal constructor(
     ) {
         view.emit(resolved.reference, event, payload)
     }
+
+    /**
+     * Reports a widget interaction to the engine's user-interaction
+     * stream, for signals the document does not model as events (focus,
+     * visibility, selection). Never touches dispatch or state; a no-op
+     * when the engine carries no user-interaction observer.
+     */
+    fun userInteraction(
+        kind: MilanoUserInteraction.Kind,
+        value: MilanoValue? = null,
+    ) {
+        view.record(kind, resolved.reference, null, value)
+    }
 }
 
 /** One materialized child, ready to place in a layout. */

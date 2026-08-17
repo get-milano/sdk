@@ -43,10 +43,15 @@ class EngineCreationTest {
     @Test
     fun examplesVocabularyParses() {
         val vocabulary = MilanoVocabulary.parse(examplesVocabularyJson())
-        assertEquals(0, vocabulary.contractMajor)
-        assertEquals(1, vocabulary.contractMinor)
+        assertEquals(1, vocabulary.contractMajor)
+        assertEquals(0, vocabulary.contractMinor)
         assertEquals("examples", vocabulary.name)
-        assertEquals(7, vocabulary.components.size)
+        assertEquals(9, vocabulary.components.size)
+
+        val badge = assertNotNull(vocabulary.components["Badge"])
+        val tone = MilanoType(MilanoType.Kind.Enum(setOf("info", "warning", "danger")))
+        assertEquals(tone, badge.properties["tone"])
+        assertEquals(tone, badge.events["select"])
 
         val button = assertNotNull(vocabulary.components["Button"])
         assertTrue("tap" in button.events) // declared
@@ -113,6 +118,15 @@ class EngineCreationTest {
     }
 
     @Test
+    fun unknownTypePolicyDefaultsToFail() {
+        val registry = MilanoRegistry()
+        val vocabulary = MilanoVocabulary.parse(examplesVocabularyJson())
+        for (type in vocabulary.components.keys) registry.register(type, StubRenderer)
+        val engine = MilanoEngine(examplesVocabularyJson(), registry)
+        assertEquals(MilanoUnknownTypePolicy.FAIL, engine.defaultUnknownTypePolicy)
+    }
+
+    @Test
     fun invalidVocabulariesAreRejected() {
         fun creationError(json: String): MilanoEngineException.InvalidVocabulary =
             assertFailsWith { MilanoVocabulary.parse(json) }
@@ -124,21 +138,28 @@ class EngineCreationTest {
             assertEquals("milano", it.rule)
             assertEquals("expected major.minor.patch, found 1", it.detail)
         }
+        creationError("""{"milano": "0.1.0", "name": "x", "version": "1.0.0", "components": {}}""").let {
+            assertEquals("milano-version", it.rule)
+        }
+        creationError("""{"milano": "1.0.0", "name": "x", "version": "1", "components": {}}""").let {
+            assertEquals("version", it.rule)
+            assertEquals("vocabulary version must be major.minor.patch", it.detail)
+        }
         creationError(
-            """{"milano": "0.1.0", "name": "x", "version": "1", "components": {"${'$'}Bad": {}}}""",
+            """{"milano": "1.0.0", "name": "x", "version": "1.0.0", "components": {"${'$'}Bad": {}}}""",
         ).let {
             assertEquals("component-name", it.rule)
             assertEquals("\$Bad", it.detail)
         }
         creationError(
-            """{"milano": "0.1.0", "name": "x", "version": "1",
+            """{"milano": "1.0.0", "name": "x", "version": "1.0.0",
                 "components": {"Text": {"properties": {"text": "varchar"}}}}""",
         ).let {
             assertEquals("component-property", it.rule)
             assertEquals("Text.text", it.detail)
         }
         creationError(
-            """{"milano": "0.1.0", "name": "x", "version": "1",
+            """{"milano": "1.0.0", "name": "x", "version": "1.0.0",
                 "components": {"Button": {"events": {"tap": 5}}}}""",
         ).let {
             assertEquals("component-event", it.rule)

@@ -29,10 +29,15 @@ struct EngineCreationTests {
 
     @Test func examplesVocabularyParses() throws {
         let vocabulary = try MilanoVocabulary(artifactJSON: examplesVocabularyJSON())
-        #expect(vocabulary.contractMajor == 0)
-        #expect(vocabulary.contractMinor == 1)
+        #expect(vocabulary.contractMajor == 1)
+        #expect(vocabulary.contractMinor == 0)
         #expect(vocabulary.name == "examples")
-        #expect(vocabulary.components.count == 7)
+        #expect(vocabulary.components.count == 9)
+
+        let badge = try #require(vocabulary.components["Badge"])
+        let tone = MilanoType(.enumeration(["info", "warning", "danger"]))
+        #expect(badge.properties["tone"] == tone)
+        #expect(badge.events["select"] == tone)
 
         let button = try #require(vocabulary.components["Button"])
         #expect(button.events["tap"] == MilanoType?.none)  // declared, payload-less
@@ -97,6 +102,14 @@ struct EngineCreationTests {
             defaultUnknownTypePolicy: .placeholder)
     }
 
+    @Test func unknownTypePolicyDefaultsToFail() throws {
+        let vocabulary = try MilanoVocabulary(artifactJSON: examplesVocabularyJSON())
+        let engine = try MilanoEngine(
+            vocabularyJSON: examplesVocabularyJSON(),
+            registry: fullRegistry(for: vocabulary))
+        #expect(engine.defaultUnknownTypePolicy == .fail)
+    }
+
     @Test func invalidVocabulariesAreRejected() throws {
         func creation(_ json: String) -> MilanoEngineError? {
             do {
@@ -117,20 +130,32 @@ struct EngineCreationTests {
             creation(#"{"milano": "1", "name": "x", "version": "1", "components": {}}"#)
                 == .invalidVocabulary(rule: "milano", detail: "expected major.minor.patch, found 1"))
 
+        // Contract major outside the supported set.
+        #expect(
+            creation(#"{"milano": "0.1.0", "name": "x", "version": "1.0.0", "components": {}}"#)
+                == .invalidVocabulary(
+                    rule: "milano-version",
+                    detail: "unsupported contract major 0; supported: [1]"))
+
+        // Vocabulary version must be semantic.
+        #expect(
+            creation(#"{"milano": "1.0.0", "name": "x", "version": "1", "components": {}}"#)
+                == .invalidVocabulary(rule: "version", detail: "vocabulary version must be major.minor.patch"))
+
         // Component name violating the identifier grammar.
-        let badName = #"{"milano": "0.1.0", "name": "x", "version": "1", "components": {"$Bad": {}}}"#
+        let badName = #"{"milano": "1.0.0", "name": "x", "version": "1.0.0", "components": {"$Bad": {}}}"#
         #expect(creation(badName) == .invalidVocabulary(rule: "component-name", detail: "$Bad"))
 
         // Property with an unknown type descriptor.
         let badType = #"""
-            {"milano": "0.1.0", "name": "x", "version": "1",
+            {"milano": "1.0.0", "name": "x", "version": "1.0.0",
              "components": {"Text": {"properties": {"text": "varchar"}}}}
             """#
         #expect(creation(badType) == .invalidVocabulary(rule: "component-property", detail: "Text.text"))
 
         // Event with an invalid payload descriptor.
         let badEvent = #"""
-            {"milano": "0.1.0", "name": "x", "version": "1",
+            {"milano": "1.0.0", "name": "x", "version": "1.0.0",
              "components": {"Button": {"events": {"tap": 5}}}}
             """#
         #expect(creation(badEvent) == .invalidVocabulary(rule: "component-event", detail: "Button.tap"))

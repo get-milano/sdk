@@ -14,10 +14,34 @@ public final class MilanoViewBuilder: @unchecked Sendable {
     private var dispatcher: any MilanoDispatcher = MilanoMainDispatcher()
     private var policyOverride: MilanoUnknownTypePolicy?
     private var label: String?
+    private var allowedActions: [String]?
+    private var declaredActions: [String: MilanoVocabulary.Action] = [:]
 
     init(engine: MilanoEngine, documentData: Data) {
         self.engine = engine
         self.documentData = documentData
+    }
+
+    /// Grants only the listed custom actions to this surface: a document
+    /// binding any other custom action fails at the gate with a
+    /// `SchemaViolation` (rule `action-capability`). Built-in `$` actions
+    /// are contract, not capabilities, and are always available.
+    @discardableResult
+    public func allowActions(_ names: [String]) -> Self {
+        allowedActions = names
+        return self
+    }
+
+    /// Declares (or overrides) a custom action for this surface: the name,
+    /// parameter shape, and optional success result type join the granted
+    /// set for this builder only. Declarations type the payload; meaning is
+    /// assigned by this surface's action handler.
+    @discardableResult
+    public func action(
+        _ name: String, parameters: [String: MilanoType] = [:], result: MilanoType? = nil
+    ) -> Self {
+        declaredActions[name] = MilanoVocabulary.Action(parameters: parameters, result: result)
+        return self
     }
 
     /// Supplies fixed context values for the keys the document declares.
@@ -58,7 +82,7 @@ public final class MilanoViewBuilder: @unchecked Sendable {
 
     @discardableResult
     public func actionHandler(
-        _ closure: @escaping @Sendable (MilanoAction) async throws -> Void
+        _ closure: @escaping @Sendable (MilanoAction) async throws -> MilanoValue?
     ) -> Self {
         handler = MilanoClosureActionHandler(closure)
         return self
@@ -98,9 +122,17 @@ public final class MilanoViewBuilder: @unchecked Sendable {
             throw MilanoEngineError.incompleteRegistry(missing: ["(placeholder renderer)"])
         }
 
+        // The surface's granted action set: vocabulary declarations,
+        // overridden by builder declarations, narrowed by the allowlist.
+        var granted = engine.vocabulary.actions.merging(declaredActions) { _, builder in builder }
+        if let allowedActions {
+            granted = granted.filter { allowedActions.contains($0.key) }
+        }
+
         var pending: [MilanoOccurrence] = []
         let gate = MilanoGate(
             engine: engine, policy: policy, viewIdentity: identity,
+            grantedActions: granted,
             report: { pending.append($0) })
 
         // Steps 1 to 4.
@@ -141,6 +173,13 @@ public final class MilanoViewBuilder: @unchecked Sendable {
             engine.observer?.occurrence(occurrence)
         }
 
+        // The impression: the analytics stream opens with the built view,
+        // carrying the document's metadata for attribution.
+        engine.userInteractionObserver?.interaction(
+            MilanoUserInteraction(
+                kind: .viewBuilt, viewIdentity: identity,
+                value: document.metadata))
+
         let core = MilanoViewCore(
             identity: identity, engine: engine, document: document,
             root: root, resolvedRoot: resolvedRoot,
@@ -152,7 +191,7 @@ public final class MilanoViewBuilder: @unchecked Sendable {
         // validated atomically there.
         if let contextSource {
             let dispatcher = self.dispatcher
-            contextSource.subscribe { [weak core] values in
+            core.cancelContextSubscription = contextSource.subscribe { [weak core] values in
                 guard let core else { return }
                 dispatcher.dispatch { core.applyContextUpdate(values) }
             }

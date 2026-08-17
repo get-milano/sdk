@@ -2,9 +2,13 @@ import Foundation
 
 /// Supplies and updates context values. Milano validates each change
 /// atomically; an invalid update is rejected whole and reported.
+/// `subscribe` returns a cancellation, invoked by the runtime at teardown
+/// so a source never retains callbacks for views that are gone.
 public protocol MilanoContextSource: AnyObject, Sendable {
     var current: [String: MilanoValue] { get }
-    func subscribe(_ onUpdate: @escaping @Sendable ([String: MilanoValue]) -> Void)
+    func subscribe(
+        _ onUpdate: @escaping @Sendable ([String: MilanoValue]) -> Void
+    ) -> @Sendable () -> Void
 }
 
 /// The standard context source: create it with initial values, push updates
@@ -12,7 +16,7 @@ public protocol MilanoContextSource: AnyObject, Sendable {
 public final class MilanoContextHandle: MilanoContextSource, @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String: MilanoValue]
-    private var subscribers: [@Sendable ([String: MilanoValue]) -> Void] = []
+    private var subscribers: [UUID: @Sendable ([String: MilanoValue]) -> Void] = [:]
 
     public init(_ values: [String: MilanoValue]) {
         self.values = values
@@ -24,10 +28,19 @@ public final class MilanoContextHandle: MilanoContextSource, @unchecked Sendable
         return values
     }
 
-    public func subscribe(_ onUpdate: @escaping @Sendable ([String: MilanoValue]) -> Void) {
+    public func subscribe(
+        _ onUpdate: @escaping @Sendable ([String: MilanoValue]) -> Void
+    ) -> @Sendable () -> Void {
+        let token = UUID()
         lock.lock()
-        subscribers.append(onUpdate)
+        subscribers[token] = onUpdate
         lock.unlock()
+        return { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            self.subscribers[token] = nil
+            self.lock.unlock()
+        }
     }
 
     /// Merges the given values over the current ones and notifies views.
@@ -39,7 +52,7 @@ public final class MilanoContextHandle: MilanoContextSource, @unchecked Sendable
         let snapshot = values
         let subs = subscribers
         lock.unlock()
-        for subscriber in subs {
+        for subscriber in subs.values {
             subscriber(snapshot)
         }
     }
@@ -53,5 +66,7 @@ final class StaticContextSource: MilanoContextSource, @unchecked Sendable {
         self.current = values
     }
 
-    func subscribe(_ onUpdate: @escaping @Sendable ([String: MilanoValue]) -> Void) {}
+    func subscribe(
+        _ onUpdate: @escaping @Sendable ([String: MilanoValue]) -> Void
+    ) -> @Sendable () -> Void { {} }
 }

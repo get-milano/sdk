@@ -12,12 +12,14 @@ import dev.getmilano.sample.ui.screens.EmbeddedScreen
 import dev.getmilano.sample.ui.screens.InterstitialScreen
 import dev.getmilano.sample.ui.screens.MenuScreen
 import dev.getmilano.sample.ui.screens.PokemonScreen
+import dev.getmilano.sample.ui.screens.QuickStartScreen
 
 enum class Screen(
     val key: String,
     val title: String,
 ) {
     MENU("menu", "Milano"),
+    QUICKSTART("quickstart", "Quick start · One composable"),
     BANNER_OVERLAY("banner", "Banner · Overlay"),
     BANNER_CARD("banner-card", "Banner · Card"),
     BANNER_STRIP("banner-strip", "Banner · Strip"),
@@ -25,6 +27,8 @@ enum class Screen(
     TIP_CALCULATOR("tip-calculator", "Tip calculator"),
     CHECKBOX_GATE("checkbox-gate", "Checkbox gate"),
     POKEMON("pokemon", "Pokemon · Screen context"),
+    PROFILE("profile", "Profile · Whole screen"),
+    CATALOG("catalog", "Catalog · Tap to open"),
     EMBEDDED("embedded", "Embedded in native UI"),
     INTERSTITIAL("interstitial", "Interstitial"),
     ;
@@ -51,7 +55,9 @@ fun SampleApp(
 
     when (screen) {
         Screen.MENU -> MenuScreen(onOpen = { screen = it })
+        Screen.QUICKSTART -> QuickStartScreen()
         Screen.POKEMON -> PokemonScreen(environment)
+        Screen.PROFILE -> DemoScreen(builder = environment.profileBuilder())
         Screen.EMBEDDED -> EmbeddedScreen(environment)
         Screen.INTERSTITIAL -> InterstitialScreen(environment, onDismiss = { screen = Screen.MENU })
         else -> DemoScreen(builder = environment.builder(screen))

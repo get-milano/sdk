@@ -2,20 +2,27 @@ import MilanoSDK
 import SwiftUI
 
 extension TextModel {
-    init(node: MilanoNode) {
+    init(_ text: SampleTextNode) {
         let role: Role
-        switch node.property("role").stringValue {
-        case "title": role = .title
-        case "subtitle": role = .subtitle
-        default: role = .body
+        switch text.role {
+        case .title: role = .title
+        case .subtitle: role = .subtitle
+        case .body, nil: role = .body
         }
-        self.init(text: node.property("text").stringValue ?? "", role: role)
+        let liveRegion: LiveRegion?
+        switch text.liveRegion {
+        case .polite: liveRegion = .polite
+        case .assertive: liveRegion = .assertive
+        case nil: liveRegion = nil
+        }
+        self.init(text: text.text, role: role, liveRegion: liveRegion)
     }
 }
 
 final class TextRenderer: MilanoRenderer {
     func render(_ node: MilanoNode) -> AnyView {
-        guard node.isVisible else { return AnyView(EmptyView()) }
-        return AnyView(StyledText(model: TextModel(node: node)))
+        let text = SampleTextNode(node)
+        guard text.visible ?? true else { return AnyView(EmptyView()) }
+        return AnyView(StyledText(model: TextModel(text)))
     }
 }

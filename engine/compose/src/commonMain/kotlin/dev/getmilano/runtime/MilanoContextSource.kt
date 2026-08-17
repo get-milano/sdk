@@ -3,11 +3,13 @@ package dev.getmilano
 /**
  * Supplies and updates context values. Milano validates each change
  * atomically; an invalid update is rejected whole and reported.
+ * [subscribe] returns a cancellation, invoked by the runtime at teardown
+ * so a source never retains callbacks for views that are gone.
  */
 interface MilanoContextSource {
     val current: Map<String, MilanoValue>
 
-    fun subscribe(onUpdate: (Map<String, MilanoValue>) -> Unit)
+    fun subscribe(onUpdate: (Map<String, MilanoValue>) -> Unit): () -> Unit
 }
 
 /**
@@ -18,14 +20,27 @@ class MilanoContextHandle(
     initial: Map<String, MilanoValue>,
 ) : MilanoContextSource {
     private var values: Map<String, MilanoValue> = initial
-    private val subscribers = ArrayList<(Map<String, MilanoValue>) -> Unit>()
+    private val subscribers = LinkedHashMap<Int, (Map<String, MilanoValue>) -> Unit>()
+    private var nextToken = 0
 
     override val current: Map<String, MilanoValue>
         @Synchronized get() = values
 
+    override fun subscribe(onUpdate: (Map<String, MilanoValue>) -> Unit): () -> Unit {
+        val token = register(onUpdate)
+        return { unregister(token) }
+    }
+
     @Synchronized
-    override fun subscribe(onUpdate: (Map<String, MilanoValue>) -> Unit) {
-        subscribers.add(onUpdate)
+    private fun register(onUpdate: (Map<String, MilanoValue>) -> Unit): Int {
+        val token = nextToken++
+        subscribers[token] = onUpdate
+        return token
+    }
+
+    @Synchronized
+    private fun unregister(token: Int) {
+        subscribers.remove(token)
     }
 
     /**
@@ -43,7 +58,7 @@ class MilanoContextHandle(
         newValues: Map<String, MilanoValue>,
     ): Pair<Map<String, MilanoValue>, List<(Map<String, MilanoValue>) -> Unit>> {
         values = values + newValues
-        return values to subscribers.toList()
+        return values to subscribers.values.toList()
     }
 }
 
@@ -51,5 +66,5 @@ class MilanoContextHandle(
 internal class StaticContextSource(
     override val current: Map<String, MilanoValue>,
 ) : MilanoContextSource {
-    override fun subscribe(onUpdate: (Map<String, MilanoValue>) -> Unit) {}
+    override fun subscribe(onUpdate: (Map<String, MilanoValue>) -> Unit): () -> Unit = {}
 }

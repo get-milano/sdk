@@ -9,8 +9,18 @@ public final class MilanoEngine: @unchecked Sendable {
     let vocabulary: MilanoVocabulary
     let registry: MilanoRegistry
     public let defaultUnknownTypePolicy: MilanoUnknownTypePolicy
+
+    /// The held vocabulary's identity, for tooling such as generated
+    /// bindings that assert they were generated from this vocabulary.
+    public var vocabularyName: String { vocabulary.name }
+    public var vocabularyVersion: String { vocabulary.version }
     public let limits: MilanoLimits
-    weak var observer: MilanoObserver?
+    // Retained for the engine's lifetime: a host may pass a freshly created
+    // observer inline and still receive every occurrence.
+    let observer: MilanoObserver?
+    /// The product-analytics stream, retained like the observer; nil means
+    /// interactions are not captured at all.
+    let userInteractionObserver: MilanoUserInteractionObserver?
 
     /// Creates an engine, validating everything and failing fast on
     /// developer mistakes:
@@ -22,9 +32,10 @@ public final class MilanoEngine: @unchecked Sendable {
     public init(
         vocabularyJSON: Data,
         registry: MilanoRegistry,
-        defaultUnknownTypePolicy: MilanoUnknownTypePolicy,
+        defaultUnknownTypePolicy: MilanoUnknownTypePolicy = .fail,
         limits: MilanoLimits = MilanoLimits(),
-        observer: MilanoObserver? = nil
+        observer: MilanoObserver? = nil,
+        userInteractionObserver: MilanoUserInteractionObserver? = nil
     ) throws {
         let vocabulary = try MilanoVocabulary(artifactJSON: vocabularyJSON)
 
@@ -43,5 +54,6 @@ public final class MilanoEngine: @unchecked Sendable {
         self.defaultUnknownTypePolicy = defaultUnknownTypePolicy
         self.limits = limits
         self.observer = observer
+        self.userInteractionObserver = userInteractionObserver
     }
 }

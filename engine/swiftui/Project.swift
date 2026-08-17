@@ -33,8 +33,8 @@ let project = Project(
             product: .unitTests,
             bundleId: "dev.getmilano.sdk.tests",
             deploymentTargets: .multiplatform(
-                iOS: "15.0",
-                macOS: "12.0"
+                iOS: "16.0",
+                macOS: "26.0"
             ),
             infoPlist: .default,
             sources: ["Tests/MilanoSDKTests/**"],

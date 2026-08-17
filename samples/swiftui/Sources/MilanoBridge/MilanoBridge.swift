@@ -1,7 +1,7 @@
 import MilanoSDK
 
-/// The one doorway between Milano and the design system: model
-/// initializers map nodes to component models, renderers register them.
+/// The one doorway between Milano and the design system: generated typed
+/// bindings map nodes to component models, renderers register them.
 enum MilanoBridge {
     static func registry() -> MilanoRegistry {
         var registry = MilanoRegistry()
@@ -12,14 +12,9 @@ enum MilanoBridge {
         registry.register(TextFieldRenderer(), for: "TextField")
         registry.register(NumberFieldRenderer(), for: "NumberField")
         registry.register(CheckboxRenderer(), for: "Checkbox")
+        registry.register(RowRenderer(), for: "Row")
+        registry.register(CardRenderer(), for: "Card")
+        registry.register(ImageRenderer(), for: "Image")
         return registry
-    }
-}
-
-extension MilanoNode {
-    /// Conditional visibility: an ordinary vocabulary property, honored by
-    /// every renderer in this bridge. Absent means visible.
-    var isVisible: Bool {
-        property("visible").boolValue ?? true
     }
 }

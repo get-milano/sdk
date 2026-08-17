@@ -48,7 +48,7 @@ DesignSystem
 
 - **Visibility.** A `visible` bool property on components, evaluated from context or state, with the renderer returning nothing when false. Conditional UI stays in the document, appearance stays in the renderer.
 - **Required markers and errors.** Fields carry `required` and `error` properties; the error text is an expression, so validation messages react to state without host code.
-- **Dismissal.** Interstitials declare a document-local `dismiss` action; the host routes it to navigation.
+- **Dismissal.** The vocabulary declares a `dismiss` action; the interstitial's builder installs the handler that routes it to navigation. Meaning is surface-owned: the same action name can do something else on another screen, and its signature can be overridden per builder.
 
 ## Quality gates
 

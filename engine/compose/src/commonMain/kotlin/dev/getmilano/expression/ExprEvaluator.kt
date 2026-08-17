@@ -10,6 +10,7 @@ internal class ExprEvaluator(
     private val state: Map<String, MilanoValue>,
     private val context: Map<String, MilanoValue>,
     private val event: MilanoValue?,
+    private val result: MilanoValue? = null,
     private val report: (MilanoOccurrence.Kind) -> Unit,
 ) {
     fun evaluate(expr: Expr): MilanoValue =
@@ -35,7 +36,11 @@ internal class ExprEvaluator(
             }
 
             is Expr.Root -> {
-                if (expr.name == "event") event ?: MilanoValue.Null else MilanoValue.Null
+                when (expr.name) {
+                    "event" -> event ?: MilanoValue.Null
+                    "result" -> result ?: MilanoValue.Null
+                    else -> MilanoValue.Null
+                }
             }
 
             is Expr.Member -> {
@@ -58,7 +63,14 @@ internal class ExprEvaluator(
             }
 
             is Expr.Call -> {
-                call(expr.name, expr.arguments.map { evaluate(it) })
+                if (expr.name == "if") {
+                    // Lazy conditional: only the taken branch evaluates, like
+                    // && || and ??, so guards suppress the reports they guard.
+                    val taken = if (evaluate(expr.arguments[0]).boolOrNull == true) 1 else 2
+                    evaluate(expr.arguments[taken])
+                } else {
+                    call(expr.name, expr.arguments.map { evaluate(it) })
+                }
             }
 
             is Expr.Unary -> {
@@ -290,7 +302,7 @@ internal class ExprEvaluator(
             "length" -> {
                 when (val v = arguments[0]) {
                     is MilanoValue.StringValue -> {
-                        MilanoValue.IntValue(v.value.codePointCount(0, v.value.length).toLong())
+                        MilanoValue.IntValue(v.value.unicodeScalarCount().toLong())
                     }
 
                     is MilanoValue.ArrayValue -> {
@@ -338,10 +350,6 @@ internal class ExprEvaluator(
                     while (end > start && MilanoWhitespace.contains(v[end - 1].code)) end -= 1
                     MilanoValue.StringValue(v.substring(start, end))
                 }
-            }
-
-            "if" -> {
-                if (arguments[0].boolOrNull == true) arguments[1] else arguments[2]
             }
 
             else -> {

@@ -10,10 +10,10 @@ public struct MilanoOccurrence: Equatable, Sendable {
         case undeclaredProperty
         case droppedEvent
         case invalidEmission
+        case invalidCompletion
         case duplicateCompletion
         case completionAfterTeardown
         case rejectedContextUpdate
-        case overLimitRejected
         case divisionByZero
         case saturation
     }

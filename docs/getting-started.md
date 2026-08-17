@@ -7,7 +7,7 @@ nav_order: 1
 
 Rendering a document takes five pieces: a **vocabulary** (the JSON artifact declaring which component types and actions exist), **renderers** (your code, one per component type), an **engine** (holds vocabulary, registry, policy, and limits), a **builder** (per document, injects context, state data, and the action handler), and a **host** (shows a loading view, then the built view or the failure).
 
-To try vocabularies, documents, and expressions before installing anything, open the [Playground](https://get-milano.github.io/playground/): it validates and renders in the browser against the live specification.
+To try vocabularies, documents, and expressions before installing anything, open the [Playground](https://get-milano.dev/playground/): it validates and renders in the browser against the live specification.
 
 ## Install
 
@@ -17,7 +17,7 @@ A tagged release resolves to a prebuilt, signed `MilanoSDK.xcframework`, integri
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/get-milano/sdk.git", from: "0.1.0")
+    .package(url: "https://github.com/get-milano/sdk.git", from: "1.0.0")
 ]
 ```
 
@@ -45,11 +45,11 @@ repositories {
     }
 }
 dependencies {
-    implementation("dev.get-milano:engine-compose:0.1.0")
+    implementation("dev.get-milano:engine-compose:1.0.0")
 }
 ```
 
-Without a token, download `engine-compose-<version>.aar` (Android) or `engine-compose-jvm-<version>.jar` (JVM) from the [releases](https://github.com/get-milano/sdk/releases), drop it into `libs/`, and depend on it with `files(...)`; declare `kotlinx-serialization-json`, `kotlinx-coroutines-core`, and the Compose runtime yourself, since a loose artifact carries no POM.
+Without a token, download `engine-compose-android-<version>.aar` (Android) or `engine-compose-jvm-<version>.jar` (JVM) from the [releases](https://github.com/get-milano/sdk/releases), drop it into `libs/`, and depend on it with `files(...)`; declare `kotlinx-serialization-json`, `kotlinx-coroutines-core`, and the Compose runtime yourself, since a loose artifact carries no POM.
 
 Or build from source, as a composite build in `settings.gradle.kts`:
 
@@ -57,15 +57,53 @@ Or build from source, as a composite build in `settings.gradle.kts`:
 includeBuild("path/to/sdk/engine/compose")
 ```
 
+## One view first: the quick path
+
+Before wiring the full architecture, render something with a single view. `MilanoHost` has a quick overload that takes the raw document and vocabulary (bytes on Swift, strings on Kotlin) plus a renderer map, and creates the engine, registry, and builder inside; declared state is synthesized as zero-values, and both engine and build failures land in your failure content:
+
+```swift
+MilanoHost(
+    document: documentData,
+    vocabulary: vocabularyData,
+    renderers: ["Greeting": GreetingRenderer()],
+    context: ["userName": .string("Ada")],
+    onAction: { action in
+        print("dispatched \(action.name)")
+        return nil  // the completion result, for actions that declare one
+    }
+) {
+    ProgressView()
+} failure: { error in
+    Text(String(describing: error))
+}
+```
+
+```kotlin
+MilanoHost(
+    documentText = documentText,
+    vocabularyJson = vocabularyJson,
+    renderers = mapOf("Greeting" to GreetingRenderer()),
+    context = mapOf("userName" to MilanoValue.StringValue("Ada")),
+    onAction = { action ->
+        Log.d("app", "dispatched ${action.name}")
+        null // the completion result, for actions that declare one
+    },
+    loading = { CircularProgressIndicator() },
+    failure = { error -> Text(error.toString()) },
+)
+```
+
+Both sample apps ship a **Quick start** screen built exactly this way: inline vocabulary, inline document, one renderer, zero setup. Use the quick path for a first integration or a simple embed; for real apps, share one engine across screens and use the builder, which is everything below.
+
 ## Render a first document
 
 The vocabulary declares one component and one action:
 
 ```json
 {
-  "milano": "0.1.0",
+  "milano": "1.0.0",
   "name": "starter",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "components": {
     "Greeting": { "properties": { "text": "string" }, "events": { "tap": null } }
   },
@@ -79,7 +117,7 @@ The document uses it:
 
 ```json
 {
-  "version": "0.1.0",
+  "version": "1.0.0",
   "context": { "userName": "string" },
   "root": {
     "type": "Greeting",
@@ -110,14 +148,14 @@ registry.register(GreetingRenderer(), for: "Greeting")
 
 let engine = try MilanoEngine(
     vocabularyJSON: vocabularyData,
-    registry: registry,
-    defaultUnknownTypePolicy: .skip
+    registry: registry
 )
 
 let builder = engine.viewBuilder(document: documentData)
     .context(["userName": .string("Ada")])
     .actionHandler { action in
         if action.name == "openUrl" { /* route to your URL opener */ }
+        return nil
     }
 
 struct PromoScreen: View {
@@ -153,14 +191,13 @@ val registry = MilanoRegistry().apply {
 val engine = MilanoEngine(
     vocabularyJson = vocabularyJson,
     registry = registry,
-    defaultUnknownTypePolicy = MilanoUnknownTypePolicy.SKIP,
 )
 
 val builder = engine.viewBuilder(documentText)
     .context(mapOf("userName" to MilanoValue.StringValue("Ada")))
-    .dispatcher(MilanoMainDispatcher())
     .actionHandler { action ->
         if (action.name == "openUrl") { /* route to your URL opener */ }
+        null
     }
 
 @Composable
@@ -173,7 +210,11 @@ fun PromoScreen() {
 }
 ```
 
-On Android, pass `MilanoMainDispatcher()` so events and view updates serialize on the main thread. On SwiftUI the main dispatcher is the default.
+The dispatcher defaults to the platform main thread on both engines (Android's default is `MilanoMainDispatcher()`), so events and view updates serialize on the main thread without configuration; pass a dispatcher only to override the seam.
+
+The action handler's return value is the **completion result**. Returning normally completes the action with success; throwing completes it with failure. If the action's declaration includes a `result` type, return the value the document should get back (it binds the `result` expression root inside the action's `onSuccess` list); for every other action, return `nil`/`null`. The [contact form sample](samples) returns a confirmation number from `submitContact`, and the document shows it in the thank-you line, all without host UI code.
+
+Unknown component types **fail the build by default**: a document using a type your vocabulary does not declare throws a typed error instead of rendering incompletely. Optional surfaces (promotional banners and the like) can opt into graceful degradation per engine or per builder with `unknownTypePolicy(.skip)` or `.placeholder`; keep the fail default for any surface whose meaning changes when content is missing.
 
 ## What happens at build
 
@@ -181,4 +222,4 @@ On Android, pass `MilanoMainDispatcher()` so events and view updates serialize o
 
 ## Working samples
 
-The repository contains two complete sample apps, `samples/swiftui` (Tuist project) and `samples/compose`, demonstrating banners with three layouts, an interstitial, a Milano view embedded between native components, a form with conditional visibility, required markers, and expression-driven errors, and a screen that merges app-wide and per-screen context from a live API. See them side by side, with screenshots from both platforms, in [Samples](samples); they follow the architecture described in [Guidelines](guidelines).
+The repository contains two complete sample apps, `samples/swiftui` (Tuist project) and `samples/compose`, demonstrating banners with three layouts, an interstitial, a Milano view embedded between native components, a form with conditional visibility, required markers, and expression-driven errors, a screen that merges app-wide and per-screen context from a live API, a whole user-profile screen, and a catalog of tappable item cards. See them side by side, with screenshots from both platforms, in [Samples](samples); they follow the architecture described in [Guidelines](guidelines).

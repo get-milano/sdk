@@ -1,0 +1,146 @@
+{
+  "version": "1.0.0",
+  "vocabulary": {
+    "name": "examples",
+    "min": "1.1.0"
+  },
+  "context": {
+    "userName": "string",
+    "memberSince": "string",
+    "avatarUrl": "string"
+  },
+  "state": {
+    "emailNotifications": "bool",
+    "pushNotifications": "bool"
+  },
+  "root": {
+    "type": "Column",
+    "id": "profile",
+    "children": [
+      {
+        "type": "Row",
+        "id": "header",
+        "properties": {
+          "spacing": 16
+        },
+        "children": [
+          {
+            "type": "Image",
+            "id": "avatar",
+            "properties": {
+              "url": {
+                "$expr": "context.avatarUrl"
+              },
+              "width": 72,
+              "height": 72,
+              "cornerRadius": 36,
+              "contentDescription": "Profile picture"
+            }
+          },
+          {
+            "type": "Column",
+            "children": [
+              {
+                "type": "Text",
+                "properties": {
+                  "text": {
+                    "$expr": "context.userName"
+                  },
+                  "role": "title"
+                }
+              },
+              {
+                "type": "Text",
+                "properties": {
+                  "text": {
+                    "$expr": "concat('Member since ', context.memberSince)"
+                  },
+                  "role": "subtitle"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Text",
+        "id": "settings",
+        "properties": {
+          "text": "Notifications",
+          "role": "subtitle"
+        }
+      },
+      {
+        "type": "Checkbox",
+        "id": "email",
+        "properties": {
+          "label": "Email updates",
+          "checked": {
+            "$expr": "state.emailNotifications"
+          }
+        },
+        "on": {
+          "change": [
+            {
+              "action": "$set",
+              "key": "emailNotifications",
+              "value": {
+                "$expr": "event"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Checkbox",
+        "id": "push",
+        "properties": {
+          "label": "Push notifications",
+          "checked": {
+            "$expr": "state.pushNotifications"
+          }
+        },
+        "on": {
+          "change": [
+            {
+              "action": "$set",
+              "key": "pushNotifications",
+              "value": {
+                "$expr": "event"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Text",
+        "id": "summary",
+        "properties": {
+          "text": {
+            "$expr": "if(state.emailNotifications || state.pushNotifications, 'You will hear from us.', 'All quiet: no notifications.')"
+          },
+          "liveRegion": "polite"
+        }
+      },
+      {
+        "type": "Button",
+        "id": "edit",
+        "properties": {
+          "label": "Edit profile on the web",
+          "enabled": true
+        },
+        "on": {
+          "tap": [
+            {
+              "action": "openUrl",
+              "url": "https://get-milano.dev"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "metadata": {
+    "screen": "profile"
+  }
+}

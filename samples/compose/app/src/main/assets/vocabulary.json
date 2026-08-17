@@ -1,14 +1,30 @@
 {
-  "milano": "0.1.0",
+  "milano": "1.0.0",
   "name": "examples",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "components": {
     "Banner": {
       "properties": {
         "backgroundImageUrl": "string?",
-        "layout": "string?",
+        "layout": {
+          "enum": [
+            "overlay",
+            "card",
+            "strip"
+          ],
+          "optional": true
+        },
         "height": "int?",
-        "contentAlignment": "string?",
+        "contentAlignment": {
+          "enum": [
+            "topLeading",
+            "topTrailing",
+            "center",
+            "bottomLeading",
+            "bottomTrailing"
+          ],
+          "optional": true
+        },
         "showScrim": "bool?",
         "cornerRadius": "int?",
         "visible": "bool?"
@@ -21,8 +37,22 @@
     "Text": {
       "properties": {
         "text": "string",
-        "role": "string?",
-        "visible": "bool?"
+        "role": {
+          "enum": [
+            "title",
+            "subtitle",
+            "body"
+          ],
+          "optional": true
+        },
+        "visible": "bool?",
+        "liveRegion": {
+          "enum": [
+            "polite",
+            "assertive"
+          ],
+          "optional": true
+        }
       }
     },
     "Button": {
@@ -66,6 +96,34 @@
       "events": {
         "change": "bool"
       }
+    },
+    "Row": {
+      "properties": {
+        "spacing": "int?"
+      },
+      "children": true
+    },
+    "Card": {
+      "properties": {
+        "cornerRadius": "int?",
+        "padding": "int?",
+        "accessibilityLabel": "string?",
+        "accessibilityHint": "string?"
+      },
+      "children": true,
+      "events": {
+        "tap": null
+      }
+    },
+    "Image": {
+      "properties": {
+        "url": "string",
+        "height": "int?",
+        "width": "int?",
+        "cornerRadius": "int?",
+        "contentDescription": "string?",
+        "decorative": "bool?"
+      }
     }
   },
   "actions": {
@@ -74,6 +132,15 @@
         "url": "string"
       }
     },
-    "dismiss": {}
+    "dismiss": {},
+    "submitContact": {
+      "parameters": {
+        "name": "string",
+        "surname": "string",
+        "email": "string",
+        "phone": "string?"
+      },
+      "result": "string"
+    }
   }
 }

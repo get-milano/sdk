@@ -9,13 +9,42 @@ import kotlin.random.Random
 class MilanoViewBuilder internal constructor(
     private val engine: MilanoEngine,
     private val documentText: String,
+    private val documentByteCount: Int? = null,
 ) {
     private var contextSource: MilanoContextSource? = null
     private var stateProvider: MilanoStateDataProvider? = null
     private var handler: MilanoActionHandler? = null
-    private var dispatcher: MilanoDispatcher = MilanoInlineDispatcher
+    private var dispatcher: MilanoDispatcher = platformDefaultDispatcher()
     private var policyOverride: MilanoUnknownTypePolicy? = null
     private var label: String? = null
+    private var allowedActions: List<String>? = null
+    private val declaredActions = LinkedHashMap<String, MilanoVocabulary.Action>()
+
+    /**
+     * Grants only the listed custom actions to this surface: a document
+     * binding any other custom action fails at the gate with a
+     * SchemaViolation (rule "action-capability"). Built-in dollar actions
+     * are contract, not capabilities, and are always available.
+     */
+    fun allowActions(names: List<String>): MilanoViewBuilder =
+        apply {
+            allowedActions = names
+        }
+
+    /**
+     * Declares (or overrides) a custom action for this surface: the name
+     * and parameter shape join the granted set for this builder only.
+     * Declarations type the payload; meaning is assigned by this surface's
+     * action handler.
+     */
+    fun action(
+        name: String,
+        parameters: Map<String, MilanoType> = emptyMap(),
+        result: MilanoType? = null,
+    ): MilanoViewBuilder =
+        apply {
+            declaredActions[name] = MilanoVocabulary.Action(parameters, result)
+        }
 
     /** Supplies fixed context values for the keys the document declares. */
     fun context(values: Map<String, MilanoValue>): MilanoViewBuilder =
@@ -72,11 +101,16 @@ class MilanoViewBuilder internal constructor(
             throw MilanoEngineException.IncompleteRegistry(listOf("(placeholder renderer)"))
         }
 
+        // The surface's granted action set: vocabulary declarations,
+        // overridden by builder declarations, narrowed by the allowlist.
+        var granted: Map<String, MilanoVocabulary.Action> = engine.vocabulary.actions + declaredActions
+        allowedActions?.let { allowed -> granted = granted.filterKeys { it in allowed } }
+
         val pending = ArrayList<MilanoOccurrence>()
-        val gate = MilanoGate(engine, policy, identity) { pending.add(it) }
+        val gate = MilanoGate(engine, policy, identity, granted) { pending.add(it) }
 
         // Steps 1 to 4.
-        val (document, root) = gate.validateDocument(documentText)
+        val (document, root) = gate.validateDocument(documentText, documentByteCount)
 
         // A document using custom actions needs somewhere to send them.
         if (gate.usesCustomActions && handler == null) {
@@ -108,6 +142,16 @@ class MilanoViewBuilder internal constructor(
             for (occurrence in pending) observer.occurrence(occurrence)
         }
 
+        // The impression: the analytics stream opens with the built view,
+        // carrying the document's metadata for attribution.
+        engine.userInteractionObserver?.interaction(
+            MilanoUserInteraction(
+                MilanoUserInteraction.Kind.VIEW_BUILT,
+                identity,
+                value = document.metadata,
+            ),
+        )
+
         val view =
             MilanoView(
                 identity,
@@ -126,9 +170,10 @@ class MilanoViewBuilder internal constructor(
         // validated atomically there.
         contextSource?.let { source ->
             val viewDispatcher = dispatcher
-            source.subscribe { values ->
-                viewDispatcher.dispatch { view.applyContextUpdate(values) }
-            }
+            view.cancelContextSubscription =
+                source.subscribe { values ->
+                    viewDispatcher.dispatch { view.applyContextUpdate(values) }
+                }
         }
         return view
     }
@@ -136,3 +181,11 @@ class MilanoViewBuilder internal constructor(
 
 /** Creates a builder for one document given as text. */
 fun MilanoEngine.viewBuilder(documentText: String): MilanoViewBuilder = MilanoViewBuilder(this, documentText)
+
+/**
+ * Creates a builder for one document given as raw bytes. The document-size
+ * limit is checked against these bytes exactly; the text is decoded as
+ * UTF-8.
+ */
+fun MilanoEngine.viewBuilder(document: ByteArray): MilanoViewBuilder =
+    MilanoViewBuilder(this, document.decodeToString(), document.size)

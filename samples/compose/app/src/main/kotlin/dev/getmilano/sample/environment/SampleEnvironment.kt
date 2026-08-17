@@ -11,8 +11,11 @@ import dev.getmilano.MilanoMainDispatcher
 import dev.getmilano.MilanoObserver
 import dev.getmilano.MilanoType
 import dev.getmilano.MilanoUnknownTypePolicy
+import dev.getmilano.MilanoUserInteractionObserver
 import dev.getmilano.MilanoValue
 import dev.getmilano.MilanoViewBuilder
+import dev.getmilano.sample.milanobridge.ExamplesAction
+import dev.getmilano.sample.milanobridge.ExamplesVocabulary
 import dev.getmilano.sample.milanobridge.milanoRegistry
 import dev.getmilano.sample.ui.Screen
 import dev.getmilano.viewBuilder
@@ -35,6 +38,19 @@ class SampleEnvironment(
         }
 
     /**
+     * The sample's analytics sink: a real app would forward each record to
+     * its tracker; the sample logs it. Milano implements no tracker.
+     */
+    private val analytics =
+        MilanoUserInteractionObserver { interaction ->
+            Log.d(
+                "analytics",
+                "${interaction.kind} view=${interaction.viewIdentity}" +
+                    " node=${interaction.node ?: "-"} name=${interaction.name ?: "-"}",
+            )
+        }
+
+    /**
      * One shared context for every screen: each document reads only the
      * keys it declares; the rest are ignored by rule.
      */
@@ -45,12 +61,14 @@ class SampleEnvironment(
         )
 
     private val engine: MilanoEngine by lazy {
+        // The engine keeps the contract default: unknown types fail the
+        // build. Surfaces that can degrade gracefully opt into skip below.
         MilanoEngine(
             vocabularyJson = asset("vocabulary.json"),
             registry = milanoRegistry(),
-            defaultUnknownTypePolicy = MilanoUnknownTypePolicy.SKIP,
             observer = observer,
-        )
+            userInteractionObserver = analytics,
+        ).also { ExamplesVocabulary.assertMatches(it) }
     }
 
     /** The single async funnel: navigation and submission live in the host. */
@@ -71,8 +89,9 @@ class SampleEnvironment(
             .viewBuilder(asset("interstitial.json"))
             .context(sharedContext)
             .actionHandler { action ->
-                if (action.name == "dismiss") {
+                if (ExamplesAction.from(action) is ExamplesAction.Dismiss) {
                     withContext(Dispatchers.Main) { onDismiss() }
+                    null
                 } else {
                     handle(action)
                 }
@@ -86,6 +105,22 @@ class SampleEnvironment(
     fun pokemonBuilder(screenContext: Map<String, MilanoValue>): MilanoViewBuilder = documentBuilder("pokemon", screenContext)
 
     /**
+     * The profile screen: identity values a real app would fetch from its
+     * account service, injected as screen context over the shared context.
+     */
+    fun profileBuilder(): MilanoViewBuilder =
+        documentBuilder(
+            "profile",
+            mapOf(
+                "memberSince" to MilanoValue.StringValue("March 2024"),
+                "avatarUrl" to
+                    MilanoValue.StringValue(
+                        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png",
+                    ),
+            ),
+        )
+
+    /**
      * Self-contained documents (banners, the expression demos): context
      * injected; any declared state gets instant defaults. A screen may add
      * its own context values on top of the shared ones; on a key collision
@@ -97,7 +132,12 @@ class SampleEnvironment(
     ): MilanoViewBuilder =
         engine
             .viewBuilder(asset("$resource.json"))
-            .context(sharedContext + screenContext)
+            .apply {
+                // Banners are optional, promotional surfaces: an unknown
+                // component degrades to a gap instead of failing the build.
+                // The form and the interstitial keep the fail default.
+                if (resource.startsWith("banner")) unknownTypePolicy(MilanoUnknownTypePolicy.SKIP)
+            }.context(sharedContext + screenContext)
             .stateDataProvider { declarations -> defaults(declarations) }
             .actionHandler(handler)
             .dispatcher(MilanoMainDispatcher())
@@ -129,26 +169,37 @@ class SampleEnvironment(
             }
         }
 
-    private suspend fun handle(action: MilanoAction) {
-        when (action.name) {
-            "openUrl" -> {
-                val url = action.parameters["url"]?.stringOrNull ?: return
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+    /**
+     * The returned value is the completion result: submitContact declares
+     * result "string", so its confirmation number flows back into the
+     * document's onSuccess actions as the result root.
+     */
+    private suspend fun handle(action: MilanoAction): MilanoValue? {
+        // Generated bindings make the dispatch typed and exhaustive.
+        when (val decoded = ExamplesAction.from(action)) {
+            is ExamplesAction.OpenUrl -> {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(decoded.url))
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(intent)
             }
 
-            "submitContact" -> {
-                // Simulated network call; returning normally completes with
-                // success, which runs the document's onSuccess actions.
-                Log.d("sample", "submitting ${action.parameters}")
+            is ExamplesAction.SubmitContact -> {
+                // Simulated network call; the returned confirmation number
+                // is what a real backend would answer with.
+                Log.d("sample", "submitting ${decoded.name} ${decoded.surname} <${decoded.email}>")
                 delay(1_000)
+                return MilanoValue.StringValue("MC-${java.util.UUID.randomUUID().toString().take(6)}")
             }
 
-            else -> {
-                Log.d("sample", "unhandled action ${action.name}")
+            is ExamplesAction.Dismiss -> {
+                // Interpreted by the presenting screen's handler; inert here.
+            }
+
+            is ExamplesAction.Unrecognized -> {
+                Log.d("sample", "unhandled action ${decoded.action.name}")
             }
         }
+        return null
     }
 
     private fun asset(name: String): String =

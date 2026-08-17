@@ -24,27 +24,26 @@ enum DocumentParser {
             throw MilanoBuildError.malformedDocument(detail: "version is not major.minor.patch")
         }
 
+        var vocabularyRequirement: VocabularyRequirement?
+        if let requirementEntry = root["vocabulary"] {
+            guard case .record(let requirement) = requirementEntry,
+                case .string(let requiredName)? = requirement["name"], !requiredName.isEmpty
+            else {
+                throw MilanoBuildError.malformedDocument(detail: "vocabulary requirement needs a name")
+            }
+            var minimum: String?
+            if let minEntry = requirement["min"] {
+                guard case .string(let minString) = minEntry, parseSemver(minString) != nil else {
+                    throw MilanoBuildError.malformedDocument(
+                        detail: "vocabulary min is not major.minor.patch")
+                }
+                minimum = minString
+            }
+            vocabularyRequirement = VocabularyRequirement(name: requiredName, min: minimum)
+        }
+
         let contextDeclarations = try declarations(root["context"], section: "context")
         let stateDeclarations = try declarations(root["state"], section: "state")
-
-        var localActions: [String: MilanoVocabulary.Action] = [:]
-        if let actionsEntry = root["actions"] {
-            guard case .record(let actionsJSON) = actionsEntry else {
-                throw MilanoBuildError.malformedDocument(detail: "actions is not an object")
-            }
-            for (name, declaration) in actionsJSON {
-                guard MilanoIdentifier.isValid(name) else {
-                    throw MilanoBuildError.schemaViolation(
-                        rule: "action-declaration", node: nil, expected: "identifier", found: name)
-                }
-                do {
-                    localActions[name] = try MilanoVocabulary.action(from: declaration, at: name)
-                } catch {
-                    throw MilanoBuildError.schemaViolation(
-                        rule: "action-declaration", node: nil, expected: "action declaration", found: name)
-                }
-            }
-        }
 
         guard let rootNodeEntry = root["root"] else {
             throw MilanoBuildError.malformedDocument(detail: "missing root")
@@ -53,9 +52,9 @@ enum DocumentParser {
 
         return ParsedDocument(
             versionString: versionString, major: major, minor: minor,
+            vocabularyRequirement: vocabularyRequirement,
             contextDeclarations: contextDeclarations,
             stateDeclarations: stateDeclarations,
-            localActions: localActions,
             root: rootNode,
             metadata: root["metadata"])
     }
@@ -185,17 +184,18 @@ enum DocumentParser {
             return .sequence(try actionList(actionsEntry, at: "\(path).actions"))
 
         case "$when":
+            // Both branches are optional: a $when may carry only `else`.
             guard object.keys.allSatisfy({ ["action", "condition", "then", "else"].contains($0) }),
-                let conditionEntry = object["condition"],
-                let thenEntry = object["then"]
+                let conditionEntry = object["condition"]
             else {
                 throw MilanoBuildError.schemaViolation(
-                    rule: "action-encoding", node: nil, expected: "$when condition and then", found: path)
+                    rule: "action-encoding", node: nil, expected: "$when condition", found: path)
             }
+            let thenActions = try object["then"].map { try actionList($0, at: "\(path).then") } ?? []
             let otherwise = try object["else"].map { try actionList($0, at: "\(path).else") } ?? []
             return .when(
                 condition: try docValue(conditionEntry, at: "\(path).condition"),
-                then: try actionList(thenEntry, at: "\(path).then"),
+                then: thenActions,
                 otherwise: otherwise)
 
         default:
@@ -217,8 +217,11 @@ enum DocumentParser {
                 default: parameters[key] = try docValue(value, at: "\(path).\(key)")
                 }
             }
+            // The declared result type is unknown until the gate resolves
+            // the granted action set.
             return .custom(
-                name: name, parameters: parameters, onSuccess: onSuccess, onFailure: onFailure)
+                name: name, parameters: parameters, onSuccess: onSuccess, onFailure: onFailure,
+                result: nil)
         }
     }
 }

@@ -28,38 +28,24 @@ internal object DocumentParser {
             throw MilanoBuildException.MalformedDocument("version is not major.minor.patch")
         }
 
+        val vocabularyRequirement =
+            root["vocabulary"]?.let { entry ->
+                val requirement =
+                    (entry as? MilanoValue.RecordValue)?.values
+                        ?: throw MilanoBuildException.MalformedDocument("vocabulary requirement is not an object")
+                val requiredName =
+                    (requirement["name"] as? MilanoValue.StringValue)?.value?.takeIf { it.isNotEmpty() }
+                        ?: throw MilanoBuildException.MalformedDocument("vocabulary requirement needs a name")
+                val minimum =
+                    requirement["min"]?.let { minEntry ->
+                        (minEntry as? MilanoValue.StringValue)?.value?.takeIf { parseSemver(it) != null }
+                            ?: throw MilanoBuildException.MalformedDocument("vocabulary min is not major.minor.patch")
+                    }
+                VocabularyRequirement(requiredName, minimum)
+            }
+
         val contextDeclarations = declarations(root["context"], "context")
         val stateDeclarations = declarations(root["state"], "state")
-
-        val localActions = LinkedHashMap<String, MilanoVocabulary.Action>()
-        when (val actionsEntry = root["actions"]) {
-            null -> {}
-
-            is MilanoValue.RecordValue -> {
-                for ((name, declaration) in actionsEntry.values) {
-                    if (!MilanoIdentifier.isValid(name)) {
-                        throw MilanoBuildException.SchemaViolation(
-                            rule = "action-declaration",
-                            expected = "identifier",
-                            found = name,
-                        )
-                    }
-                    try {
-                        localActions[name] = MilanoVocabulary.action(declaration, name)
-                    } catch (_: MilanoEngineException) {
-                        throw MilanoBuildException.SchemaViolation(
-                            rule = "action-declaration",
-                            expected = "action declaration",
-                            found = name,
-                        )
-                    }
-                }
-            }
-
-            else -> {
-                throw MilanoBuildException.MalformedDocument("actions is not an object")
-            }
-        }
 
         val rootNodeEntry =
             root["root"]
@@ -70,9 +56,9 @@ internal object DocumentParser {
             versionString,
             major,
             minor,
+            vocabularyRequirement,
             contextDeclarations,
             stateDeclarations,
-            localActions,
             rootNode,
             root["metadata"],
         )
@@ -241,20 +227,20 @@ internal object DocumentParser {
             }
 
             "\$when" -> {
+                // Both branches are optional: a $when may carry only `else`.
                 val conditionEntry = obj["condition"]
-                val thenEntry = obj["then"]
                 if (!obj.keys.all { it in setOf("action", "condition", "then", "else") } ||
-                    conditionEntry == null || thenEntry == null
+                    conditionEntry == null
                 ) {
                     throw MilanoBuildException.SchemaViolation(
                         rule = "action-encoding",
-                        expected = "\$when condition and then",
+                        expected = "\$when condition",
                         found = path,
                     )
                 }
                 ActionSpec.When(
                     condition = docValue(conditionEntry, "$path.condition"),
-                    then = actionList(thenEntry, "$path.then"),
+                    then = obj["then"]?.let { actionList(it, "$path.then") } ?: emptyList(),
                     otherwise = obj["else"]?.let { actionList(it, "$path.else") } ?: emptyList(),
                 )
             }

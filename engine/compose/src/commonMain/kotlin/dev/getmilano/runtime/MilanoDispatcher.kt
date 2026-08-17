@@ -17,3 +17,9 @@ fun interface MilanoDispatcher {
 object MilanoInlineDispatcher : MilanoDispatcher {
     override fun dispatch(work: () -> Unit) = work()
 }
+
+/**
+ * The platform's correct default dispatcher: main-thread-bound on
+ * Android, inline on the JVM (single-threaded hosts and tests).
+ */
+internal expect fun platformDefaultDispatcher(): MilanoDispatcher

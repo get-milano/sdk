@@ -12,3 +12,8 @@
 build/
 .gradle/
 .kotlin/
+
+# IDE / local machine
+.idea/
+local.properties
+**/xcuserdata/

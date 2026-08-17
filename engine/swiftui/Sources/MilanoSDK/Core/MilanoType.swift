@@ -1,13 +1,17 @@
 import Foundation
 
 /// A type from the document type system: bool, int, double, string,
-/// array of T, or record with named typed fields; each optionally optional.
+/// enum over named members, array of T, or record with named typed fields;
+/// each optionally optional.
 public struct MilanoType: Equatable, Sendable {
     public indirect enum Kind: Equatable, Sendable {
         case bool
         case int
         case double
         case string
+        /// A closed set of member strings; two enum types are the same
+        /// exactly when their member sets are equal (structural identity).
+        case enumeration(Set<String>)
         case array(MilanoType)
         case record([String: MilanoType])
     }
@@ -26,6 +30,7 @@ public struct MilanoType: Equatable, Sendable {
 extension MilanoType {
     /// Parses a JSON type descriptor:
     /// - a primitive name string, with a trailing `?` for optional (`"int"`, `"string?"`)
+    /// - `{"enum": [<member>...], "optional": <bool>}`
     /// - `{"array": <descriptor>, "optional": <bool>}`
     /// - `{"record": {<field>: <descriptor>}, "optional": <bool>}`
     init?(descriptor: MilanoValue) {
@@ -50,7 +55,19 @@ extension MilanoType {
             case .bool(let flag): optional = flag
             default: return nil
             }
-            if let element = object["array"] {
+            if case .array(let memberList)? = object["enum"] {
+                guard object.keys.allSatisfy({ $0 == "enum" || $0 == "optional" }),
+                    !memberList.isEmpty
+                else { return nil }
+                var members: Set<String> = []
+                for entry in memberList {
+                    guard case .string(let member) = entry,
+                        MilanoIdentifier.isValid(member),
+                        members.insert(member).inserted
+                    else { return nil }
+                }
+                self.init(.enumeration(members), optional: optional)
+            } else if let element = object["array"] {
                 guard object.keys.allSatisfy({ $0 == "array" || $0 == "optional" }),
                     let elementType = MilanoType(descriptor: element)
                 else {
@@ -106,6 +123,8 @@ extension MilanoType {
             return .double(Double(i))
         case (.string, .string):
             return value
+        case (.enumeration(let members), .string(let member)):
+            return members.contains(member) ? value : nil
         case (.array(let elementType), .array(let elements)):
             var canonical: [MilanoValue] = []
             canonical.reserveCapacity(elements.count)

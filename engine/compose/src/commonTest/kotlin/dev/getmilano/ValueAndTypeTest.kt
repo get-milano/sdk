@@ -145,6 +145,34 @@ class MilanoTypeTest {
     }
 
     @Test
+    fun enumDescriptorsParse() {
+        val tone = type("""{"enum": ["info", "warning"]}""")
+        assertEquals(MilanoType(MilanoType.Kind.Enum(setOf("info", "warning"))), tone)
+        // Structural identity: member order in the descriptor is irrelevant.
+        assertEquals(tone, type("""{"enum": ["warning", "info"]}"""))
+        assertTrue(type("""{"enum": ["a"], "optional": true}""").optional)
+
+        // Empty, duplicate, non-identifier, non-string, and stray keys are
+        // invalid declarations.
+        assertNull(MilanoType.fromDescriptor(jsonValue("""{"enum": []}""")))
+        assertNull(MilanoType.fromDescriptor(jsonValue("""{"enum": ["a", "a"]}""")))
+        assertNull(MilanoType.fromDescriptor(jsonValue("""{"enum": ["with-dash"]}""")))
+        assertNull(MilanoType.fromDescriptor(jsonValue("""{"enum": [1]}""")))
+        assertNull(MilanoType.fromDescriptor(jsonValue("""{"enum": ["a"], "extra": 1}""")))
+    }
+
+    @Test
+    fun enumsValidateMembership() {
+        val tone = MilanoType(MilanoType.Kind.Enum(setOf("info", "warning")))
+        assertEquals(MilanoValue.StringValue("info"), tone.validated(MilanoValue.StringValue("info")))
+        assertNull(tone.validated(MilanoValue.StringValue("loud")))
+        assertNull(tone.validated(MilanoValue.IntValue(1)))
+        assertNull(tone.validated(MilanoValue.Null))
+        val optional = MilanoType(MilanoType.Kind.Enum(setOf("info")), optional = true)
+        assertEquals(MilanoValue.Null, optional.validated(MilanoValue.Null))
+    }
+
+    @Test
     fun identifierGrammar() {
         assertTrue(MilanoIdentifier.isValid("Banner"))
         assertTrue(MilanoIdentifier.isValid("a_1"))

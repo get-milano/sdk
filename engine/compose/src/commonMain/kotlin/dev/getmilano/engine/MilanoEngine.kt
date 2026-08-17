@@ -10,12 +10,24 @@ package dev.getmilano
 class MilanoEngine(
     vocabularyJson: String,
     registry: MilanoRegistry,
-    val defaultUnknownTypePolicy: MilanoUnknownTypePolicy,
+    val defaultUnknownTypePolicy: MilanoUnknownTypePolicy = MilanoUnknownTypePolicy.FAIL,
     val limits: MilanoLimits = MilanoLimits(),
     internal val observer: MilanoObserver? = null,
+    /**
+     * The product-analytics stream, retained like the observer; null means
+     * interactions are not captured at all.
+     */
+    internal val userInteractionObserver: MilanoUserInteractionObserver? = null,
 ) {
     internal val vocabulary: MilanoVocabulary
     internal val registry: MilanoRegistry
+
+    /**
+     * The held vocabulary's identity, for tooling such as generated
+     * bindings that assert they were generated from this vocabulary.
+     */
+    val vocabularyName: String get() = vocabulary.name
+    val vocabularyVersion: String get() = vocabulary.version
 
     // Creation validates everything and fails fast on developer mistakes:
     // InvalidVocabulary when the artifact violates the vocabulary schema

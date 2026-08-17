@@ -18,6 +18,9 @@ struct MilanoVocabulary: Equatable, Sendable {
     struct Action: Equatable, Sendable {
         /// Parameter name to type.
         let parameters: [String: MilanoType]
+        /// The success completion's value type; `nil` means completions
+        /// carry no data (vocabulary schema spec, completion results).
+        let result: MilanoType?
     }
 
     /// The contract version the artifact targets (major, minor).
@@ -57,12 +60,22 @@ extension MilanoVocabulary {
             throw MilanoEngineError.invalidVocabulary(
                 rule: "milano", detail: "expected major.minor.patch, found \(milano)")
         }
+        // Same versioning rule as documents: an artifact targeting an
+        // unsupported contract major fails fast at engine creation.
+        guard MilanoGate.supportedMajors.contains(major) else {
+            throw MilanoEngineError.invalidVocabulary(
+                rule: "milano-version",
+                detail: "unsupported contract major \(major); supported: \(MilanoGate.supportedMajors)")
+        }
 
         guard case .string(let name)? = root["name"], MilanoIdentifier.isValid(name) else {
             throw MilanoEngineError.invalidVocabulary(rule: "name", detail: "missing or invalid identifier")
         }
-        guard case .string(let vocabularyVersion)? = root["version"], !vocabularyVersion.isEmpty else {
-            throw MilanoEngineError.invalidVocabulary(rule: "version", detail: "missing vocabulary version")
+        guard case .string(let vocabularyVersion)? = root["version"],
+            parseSemver(vocabularyVersion) != nil
+        else {
+            throw MilanoEngineError.invalidVocabulary(
+                rule: "version", detail: "vocabulary version must be major.minor.patch")
         }
 
         guard case .record(let componentsJSON)? = root["components"] else {
@@ -116,7 +129,15 @@ extension MilanoVocabulary {
                 parameters[parameterName] = type
             }
         }
-        return Action(parameters: parameters)
+        var result: MilanoType?
+        if let resultEntry = object["result"] {
+            guard let type = MilanoType(descriptor: resultEntry) else {
+                throw MilanoEngineError.invalidVocabulary(
+                    rule: "action-result", detail: path)
+            }
+            result = type
+        }
+        return Action(parameters: parameters, result: result)
     }
 
     private static func component(from declaration: MilanoValue, at path: String) throws -> Component {

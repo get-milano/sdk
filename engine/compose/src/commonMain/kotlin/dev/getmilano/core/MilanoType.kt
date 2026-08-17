@@ -1,8 +1,9 @@
 package dev.getmilano
 
 /**
- * A type from the document type system: bool, int, double, string,
- * array of T, or record with named typed fields; each optionally optional.
+ * A type from the document type system: bool, int, double, string, enum
+ * over named members, array of T, or record with named typed fields; each
+ * optionally optional.
  */
 data class MilanoType(
     val kind: Kind,
@@ -16,6 +17,14 @@ data class MilanoType(
         data object Double : Kind()
 
         data object Text : Kind()
+
+        /**
+         * A closed set of member strings; two enum types are the same
+         * exactly when their member sets are equal (structural identity).
+         */
+        data class Enum(
+            val members: Set<String>,
+        ) : Kind()
 
         data class Array(
             val element: MilanoType,
@@ -65,6 +74,10 @@ data class MilanoType(
                 value.takeIf { it is MilanoValue.StringValue }
             }
 
+            is Kind.Enum -> {
+                value.takeIf { it is MilanoValue.StringValue && it.value in kind.members }
+            }
+
             is Kind.Array -> {
                 val elements = (value as? MilanoValue.ArrayValue)?.values ?: return null
                 val canonical = ArrayList<MilanoValue>(elements.size)
@@ -91,6 +104,7 @@ data class MilanoType(
         /**
          * Parses a JSON type descriptor:
          * - a primitive name string, with a trailing `?` for optional ("int", "string?")
+         * - {"enum": [<member>...], "optional": <bool>}
          * - {"array": <descriptor>, "optional": <bool>}
          * - {"record": {<field>: <descriptor>}, "optional": <bool>}
          */
@@ -117,7 +131,23 @@ data class MilanoType(
                         }
                     val arrayEntry = entries["array"]
                     val recordEntry = entries["record"]
+                    val enumEntry = entries["enum"]
                     when {
+                        enumEntry is MilanoValue.ArrayValue -> {
+                            if (!entries.keys.all { it == "enum" || it == "optional" }) return null
+                            if (enumEntry.values.isEmpty()) return null
+                            val members = LinkedHashSet<String>(enumEntry.values.size)
+                            for (entry in enumEntry.values) {
+                                val member = (entry as? MilanoValue.StringValue)?.value ?: return null
+                                if (!MilanoIdentifier.isValid(member) || !members.add(member)) return null
+                            }
+                            MilanoType(Kind.Enum(members), optional)
+                        }
+
+                        enumEntry != null -> {
+                            null
+                        }
+
                         arrayEntry != null -> {
                             if (!entries.keys.all { it == "array" || it == "optional" }) return null
                             val element = fromDescriptor(arrayEntry) ?: return null

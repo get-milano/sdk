@@ -1,0 +1,18 @@
+{
+  "json.schemas": [
+    {
+      "fileMatch": [
+        "samples/swiftui/Resources/*.json",
+        "!samples/swiftui/Resources/vocabulary.json"
+      ],
+      "url": "./samples/swiftui/documents.schema.json"
+    },
+    {
+      "fileMatch": [
+        "samples/compose/app/src/main/assets/*.json",
+        "!samples/compose/app/src/main/assets/vocabulary.json"
+      ],
+      "url": "./samples/compose/documents.schema.json"
+    }
+  ]
+}

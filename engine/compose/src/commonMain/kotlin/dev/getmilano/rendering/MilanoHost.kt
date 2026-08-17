@@ -39,3 +39,34 @@ fun MilanoHost(
         else -> loading()
     }
 }
+
+/**
+ * The quick path: one composable from raw document and vocabulary text.
+ * Engine, registry, and builder are created inside; declared state is
+ * synthesized as zero-values (overridable via [state]); engine and build
+ * failures both land in the failure content. Ideal for a first
+ * integration or a simple embed; real apps share one engine and use the
+ * builder overload.
+ */
+@Composable
+fun MilanoHost(
+    documentText: String,
+    vocabularyJson: String,
+    renderers: Map<String, MilanoRenderer>,
+    context: Map<String, MilanoValue> = emptyMap(),
+    state: Map<String, MilanoValue> = emptyMap(),
+    onAction: (suspend (MilanoAction) -> MilanoValue?)? = null,
+    loading: @Composable () -> Unit = {},
+    failure: @Composable (Throwable) -> Unit = {},
+) {
+    val builderResult =
+        remember {
+            runCatching {
+                milanoQuickBuilder(documentText, vocabularyJson, renderers, context, state, onAction)
+            }
+        }
+    builderResult.fold(
+        onSuccess = { builder -> MilanoHost(builder, loading, failure) },
+        onFailure = { error -> failure(error) },
+    )
+}

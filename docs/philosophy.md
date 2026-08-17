@@ -15,9 +15,9 @@ Milano is deliberately named DDUI, not SDUI. The unit of exchange is a document;
 
 Documents carry structure and declarations, never data values. A form document declares that `state.email` is a `string`; it never contains an email address. Values are injected at build time (state data provider), at render time (context source), and at interaction time (event payloads). The consequence is cacheability: the same document bytes serve every user, every session, every locale.
 
-## The gate: rendering never fails because building may
+## The gate: Milano's rendering never fails because building may
 
-Every check that could fail happens before a view exists: parsing, schema validation, vocabulary conformance, expression type checking, limits, state data validation. This is the construction gate, and it is all-or-nothing. A document that passes the gate renders totally: no type errors, no null dereference, no division failures, no runtime surprises. A document that does not pass produces exactly one typed error and no view. There is no half-rendered state.
+Every Milano check that could fail happens before a view exists: parsing, schema validation, vocabulary conformance, expression type checking, limits, state data validation. This is the construction gate, and it is all-or-nothing. A document that passes the gate renders totally as far as Milano's mechanics reach: no type errors, no null dereference, no division failures, no validation surprises after the gate. A document that does not pass produces exactly one typed error and no view. There is no half-rendered state. What the gate cannot promise is your code: renderers, action handlers, and the resources they load remain ordinary software with ordinary failure modes; the gate guarantees they receive validated, typed input, not that they succeed.
 
 ## Design-system agnostic, mechanics exact
 

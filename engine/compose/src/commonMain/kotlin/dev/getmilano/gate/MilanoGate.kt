@@ -24,6 +24,12 @@ internal class MilanoGate(
     private val engine: MilanoEngine,
     private val policy: MilanoUnknownTypePolicy,
     private val viewIdentity: String,
+    /**
+     * The surface's granted custom actions: the vocabulary's declarations,
+     * overridden and narrowed by the builder. Built-in dollar actions are
+     * contract, not capabilities.
+     */
+    private val grantedActions: Map<String, MilanoVocabulary.Action>,
     private val report: (MilanoOccurrence) -> Unit,
 ) {
     /**
@@ -35,7 +41,7 @@ internal class MilanoGate(
 
     companion object {
         /** The contract majors this runtime supports. */
-        val SUPPORTED_MAJORS = listOf(0)
+        val SUPPORTED_MAJORS = listOf(1)
 
         fun name(type: MilanoType): String {
             val base =
@@ -44,6 +50,7 @@ internal class MilanoGate(
                     is MilanoType.Kind.Int -> "int"
                     is MilanoType.Kind.Double -> "double"
                     is MilanoType.Kind.Text -> "string"
+                    is MilanoType.Kind.Enum -> "enum"
                     is MilanoType.Kind.Array -> "array"
                     is MilanoType.Kind.Record -> "record"
                 }
@@ -63,9 +70,13 @@ internal class MilanoGate(
     }
 
     /** Steps 1 to 4: parse, version, limits, vocabulary walk. */
-    fun validateDocument(text: String): Pair<ParsedDocument, BuiltNode> {
-        // Gate limit: document size, checked before parsing.
-        val byteCount = text.encodeToByteArray().size
+    fun validateDocument(
+        text: String,
+        rawByteCount: Int? = null,
+    ): Pair<ParsedDocument, BuiltNode> {
+        // Gate limit: document size, checked before parsing; when the host
+        // supplied raw bytes their exact count is used.
+        val byteCount = rawByteCount ?: text.encodeToByteArray().size
         if (byteCount > engine.limits.maxDocumentBytes) {
             throw MilanoBuildException.LimitExceeded("maxDocumentBytes", engine.limits.maxDocumentBytes, byteCount)
         }
@@ -78,6 +89,30 @@ internal class MilanoGate(
             throw MilanoBuildException.UnsupportedVersion(document.versionString, SUPPORTED_MAJORS)
         }
 
+        // Step 3: vocabulary requirement, when the document declares one.
+        document.vocabularyRequirement?.let { requirement ->
+            if (requirement.name != engine.vocabulary.name) {
+                throw MilanoBuildException.SchemaViolation(
+                    rule = "vocabulary-requirement",
+                    node = null,
+                    expected = requirement.name,
+                    found = engine.vocabulary.name,
+                )
+            }
+            requirement.min?.let { minimum ->
+                val required = parseSemver(minimum)
+                val held = parseSemver(engine.vocabulary.version)
+                if (required != null && held != null && held < required) {
+                    throw MilanoBuildException.SchemaViolation(
+                        rule = "vocabulary-requirement",
+                        node = null,
+                        expected = ">=$minimum",
+                        found = engine.vocabulary.version,
+                    )
+                }
+            }
+        }
+
         // Gate limits: depth and node count over the document as written.
         val (depth, count) = measure(document.root, 1)
         if (depth > engine.limits.maxTreeDepth) {
@@ -85,17 +120,6 @@ internal class MilanoGate(
         }
         if (count > engine.limits.maxNodeCount) {
             throw MilanoBuildException.LimitExceeded("maxNodeCount", engine.limits.maxNodeCount, count)
-        }
-
-        // Local action names must not collide with vocabulary actions.
-        for (name in document.localActions.keys) {
-            if (name in engine.vocabulary.actions) {
-                throw MilanoBuildException.SchemaViolation(
-                    rule = "action-declaration",
-                    expected = "unique action name",
-                    found = name,
-                )
-            }
         }
 
         // Steps 3 and 4: vocabulary walk and expression typing
@@ -171,7 +195,12 @@ internal class MilanoGate(
 
         node.id?.let { id ->
             if (!seenIds.add(id)) {
-                throw MilanoBuildException.SchemaViolation(rule = "id", node = reference, expected = "unique id", found = id)
+                throw MilanoBuildException.SchemaViolation(
+                    rule = "id-uniqueness",
+                    node = reference,
+                    expected = "unique id",
+                    found = id,
+                )
             }
         }
 
@@ -223,7 +252,7 @@ internal class MilanoGate(
             val declaredType = component.properties[name]
             if (declaredType == null) {
                 if (component.strict) {
-                    throw MilanoBuildException.SchemaViolation(rule = "property-undeclared", node = reference, found = name)
+                    throw MilanoBuildException.SchemaViolation(rule = "undeclared-property", node = reference, found = name)
                 }
                 report(
                     MilanoOccurrence(MilanoOccurrence.Kind.UNDECLARED_PROPERTY, viewIdentity, reference),
@@ -258,7 +287,7 @@ internal class MilanoGate(
             val scope =
                 component.events[event]?.let { EventScope.Payload(it) }
                     ?: EventScope.Unavailable
-            events[event] = actions.map { validateAction(it, document, reference, scope) }
+            events[event] = actions.map { validateAction(it, document, reference, scope, EventScope.Unavailable) }
         }
 
         val children = ArrayList<BuiltNode>()
@@ -282,6 +311,7 @@ internal class MilanoGate(
         document: ParsedDocument,
         node: String,
         eventScope: EventScope,
+        resultScope: EventScope,
     ): ActionSpec =
         when (action) {
             is ActionSpec.Set -> {
@@ -295,12 +325,14 @@ internal class MilanoGate(
                         )
                 ActionSpec.Set(
                     action.key,
-                    checked(action.value, stateType, "action-encoding", node, document, eventScope),
+                    checked(action.value, stateType, "action-encoding", node, document, eventScope, resultScope),
                 )
             }
 
             is ActionSpec.Sequence -> {
-                ActionSpec.Sequence(action.actions.map { validateAction(it, document, node, eventScope) })
+                ActionSpec.Sequence(
+                    action.actions.map { validateAction(it, document, node, eventScope, resultScope) },
+                )
             }
 
             is ActionSpec.When -> {
@@ -313,21 +345,21 @@ internal class MilanoGate(
                             node,
                             document,
                             eventScope,
+                            resultScope,
                         ),
-                    then = action.then.map { validateAction(it, document, node, eventScope) },
-                    otherwise = action.otherwise.map { validateAction(it, document, node, eventScope) },
+                    then = action.then.map { validateAction(it, document, node, eventScope, resultScope) },
+                    otherwise = action.otherwise.map { validateAction(it, document, node, eventScope, resultScope) },
                 )
             }
 
             is ActionSpec.Custom -> {
                 usesCustomActions = true
                 val declaration =
-                    document.localActions[action.name]
-                        ?: engine.vocabulary.actions[action.name]
+                    grantedActions[action.name]
                         ?: throw MilanoBuildException.SchemaViolation(
-                            rule = "action-declaration",
+                            rule = "action-capability",
                             node = node,
-                            expected = "declared action",
+                            expected = "granted action",
                             found = action.name,
                         )
                 val checkedParameters = LinkedHashMap<String, DocValue>()
@@ -341,7 +373,7 @@ internal class MilanoGate(
                                 found = parameter,
                             )
                     checkedParameters[parameter] =
-                        checked(value, parameterType, "action-encoding", node, document, eventScope)
+                        checked(value, parameterType, "action-encoding", node, document, eventScope, resultScope)
                 }
                 for ((parameter, parameterType) in declaration.parameters) {
                     if (parameter !in checkedParameters) {
@@ -356,12 +388,24 @@ internal class MilanoGate(
                     }
                 }
                 // Event bindings inside onSuccess/onFailure evaluate against the
-                // payload captured at dispatch: same static scope.
+                // payload captured at dispatch: same static scope. The result
+                // root rebinds to this action's declared result inside
+                // onSuccess, and is never available inside onFailure.
+                val successScope =
+                    declaration.result?.let { EventScope.Payload(it) }
+                        ?: EventScope.Unavailable
                 ActionSpec.Custom(
                     name = action.name,
                     parameters = checkedParameters,
-                    onSuccess = action.onSuccess.map { validateAction(it, document, node, eventScope) },
-                    onFailure = action.onFailure.map { validateAction(it, document, node, eventScope) },
+                    onSuccess =
+                        action.onSuccess.map {
+                            validateAction(it, document, node, eventScope, successScope)
+                        },
+                    onFailure =
+                        action.onFailure.map {
+                            validateAction(it, document, node, eventScope, EventScope.Unavailable)
+                        },
+                    result = declaration.result,
                 )
             }
         }
@@ -377,6 +421,7 @@ internal class MilanoGate(
         node: String,
         document: ParsedDocument,
         eventScope: EventScope = EventScope.Unavailable,
+        resultScope: EventScope = EventScope.Unavailable,
     ): DocValue =
         when (value) {
             is DocValue.Literal -> {
@@ -392,18 +437,25 @@ internal class MilanoGate(
             }
 
             is DocValue.Expression -> {
-                if (value.source.length > engine.limits.maxExpressionLength) {
+                // Counted in Unicode scalars, per the document model's limits.
+                val scalarLength = value.source.unicodeScalarCount()
+                if (scalarLength > engine.limits.maxExpressionLength) {
                     throw MilanoBuildException.LimitExceeded(
                         "maxExpressionLength",
                         engine.limits.maxExpressionLength,
-                        value.source.length,
+                        scalarLength,
                     )
                 }
                 try {
                     val expr = ExprParser.parse(value.source)
                     val checker =
-                        ExprChecker(document.stateDeclarations, document.contextDeclarations, eventScope)
-                    val inferred = checker.infer(expr)
+                        ExprChecker(
+                            document.stateDeclarations,
+                            document.contextDeclarations,
+                            eventScope,
+                            resultScope,
+                        )
+                    val inferred = checker.infer(expr, expecting = type)
                     if (!checker.accepts(type, inferred)) throw ExprException("type mismatch")
                     DocValue.TypedExpression(value.source, expr, type)
                 } catch (error: ExprException) {

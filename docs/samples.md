@@ -9,7 +9,7 @@ Both sample apps, `samples/swiftui` and `samples/compose`, ship the same demos r
 
 Every demo can be opened directly, which is also how these screenshots were taken:
 
-- **iOS**: set the `MILANO_SCREEN` environment variable on the run scheme (`banner`, `banner-card`, `banner-strip`, `form`, `tip-calculator`, `checkbox-gate`, `pokemon`, `embedded`, `interstitial`).
+- **iOS**: set the `MILANO_SCREEN` environment variable on the run scheme (`quickstart`, `banner`, `banner-card`, `banner-strip`, `form`, `tip-calculator`, `checkbox-gate`, `pokemon`, `profile`, `catalog`, `embedded`, `interstitial`).
 - **Android**: pass the same key as a launch extra: `adb shell am start -n dev.getmilano.sample/.MainActivity -e milano_screen pokemon`.
 
 ## Banner · Overlay
@@ -45,11 +45,14 @@ This is the pattern for any screen that owns its data: fetch first, hand Milano 
 
 Also in both apps, without screenshots here:
 
+- **Quick start**: the one-view quick path from [Getting started](getting-started): inline vocabulary, inline document, one renderer, and the `MilanoHost` quick overload, with no shared engine.
 - **Banner · Strip**: the third declared layout of the same `Banner` component.
-- **Contact form**: `TextField`, `Checkbox`, conditional visibility, required markers, expression-driven validation, and a custom `submitContact` action with `onSuccess` follow-ups.
+- **Contact form**: `TextField`, `Checkbox`, conditional visibility, required markers, expression-driven validation, and a custom `submitContact` action whose handler returns a confirmation number: the declared `result` binds inside `onSuccess`, and the thank-you line shows it without any host UI code. The fields also report focus to the [analytics stream](analytics), and every screen's taps, dispatches, and outcomes arrive there automatically.
 - **Tip calculator**: all math lives in the document as expressions over state; the host ships no logic.
-- **Checkbox gate**: a `$when` action wiring a checkbox to dependent state.
+- **Checkbox gate**: a checkbox writing state through `$set`, with `if(...)` expressions gating the button's label, enabled state, and a counter.
 - **Embedded**: a Milano view between native components in a host screen.
 - **Interstitial**: a full-screen document whose `dismiss` action is interpreted by the presenting screen.
+- **Profile**: a whole user-profile screen as one document: identity from context (avatar, name, membership), settings as state behind `Checkbox` and `$set`, and a summary line computed by an expression. Declares `vocabulary.min: 1.1.0`, so an app holding an older vocabulary fails the build instead of rendering a half-understood profile.
+- **Catalog**: an intermediate screen: a list of item `Card`s (image, name, blurb), each bound to `tap` with `openUrl`, so tapping an item opens its page through the host's action handler. Documents are data, so the producer enumerates the items; changing the catalog is publishing a new document. Each card also carries the sample's [accessibility](accessibility) set: a label and hint collapsing the card into one announced button, with the artwork marked decorative.
 
 The samples follow the architecture described in [Guidelines](guidelines); how renderers bind to the vocabulary is covered in [Bridge](bridge).

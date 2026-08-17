@@ -36,6 +36,19 @@ internal object MilanoWhitespace {
 
 /** The Milano-defined double format: never the platform default. */
 internal object MilanoDoubleFormat {
+    /** "129" -> "130"; "99" -> "100": decimal increment of a digit string. */
+    private fun incrementDigits(digits: String): String {
+        val chars = digits.toCharArray()
+        for (index in chars.indices.reversed()) {
+            if (chars[index] != '9') {
+                chars[index] = chars[index] + 1
+                return String(chars)
+            }
+            chars[index] = '0'
+        }
+        return "1" + String(chars)
+    }
+
     fun format(value: Double): String {
         if (value.isNaN()) return "nan"
         if (value.isInfinite()) return if (value > 0) "inf" else "-inf"
@@ -61,6 +74,37 @@ internal object MilanoDoubleFormat {
             digits = digits.dropLast(1)
             exponent10 += 1
         }
+
+        // The platform's toString guarantees round-trip but not shortest
+        // digits (legacy on JDK <19 and on ART). The spec demands shortest,
+        // so search for the shortest correctly rounded digit string that
+        // still parses back to the same value.
+        val magnitude = kotlin.math.abs(value)
+        shortest@ for (length in 1 until digits.length) {
+            val truncated = digits.substring(0, length)
+            val next = digits[length]
+            val roundUp = next > '5' || (next == '5' && digits.drop(length + 1).any { it != '0' })
+            val nearestFirst =
+                if (roundUp) {
+                    listOf(incrementDigits(truncated), truncated)
+                } else {
+                    listOf(truncated, incrementDigits(truncated))
+                }
+            for (candidate in nearestFirst) {
+                var shortDigits = candidate
+                var shortExponent = exponent10 + (digits.length - length)
+                while (shortDigits.length > 1 && shortDigits.endsWith("0")) {
+                    shortDigits = shortDigits.dropLast(1)
+                    shortExponent += 1
+                }
+                if ("${shortDigits}e$shortExponent".toDouble() == magnitude) {
+                    digits = shortDigits
+                    exponent10 = shortExponent
+                    break@shortest
+                }
+            }
+        }
+
         val normalizedExponent = exponent10 + digits.length - 1
         val sign = if (negative) "-" else ""
 

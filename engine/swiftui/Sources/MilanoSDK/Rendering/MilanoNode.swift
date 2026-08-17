@@ -30,6 +30,16 @@ public struct MilanoNode {
     public func emit(_ event: String, payload: MilanoValue? = nil) {
         core.emit(node: resolved.reference, event: event, payload: payload)
     }
+
+    /// Reports a widget interaction to the engine's user-interaction
+    /// stream, for signals the document does not model as events (focus,
+    /// visibility, selection). Never touches dispatch or state; a no-op
+    /// when the engine carries no user-interaction observer.
+    public func userInteraction(
+        _ kind: MilanoUserInteraction.Kind, value: MilanoValue? = nil
+    ) {
+        core.record(kind, node: resolved.reference, name: nil, value: value)
+    }
 }
 
 /// One materialized child, ready to place in a layout.
