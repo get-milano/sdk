@@ -19,6 +19,19 @@ class UserInteractionTest {
         override fun dispatch(work: () -> Unit) = work()
     }
 
+    /**
+     * Suspends forever: the handler's asynchronous completion would land on
+     * a background thread at an arbitrary time, racing its
+     * COMPLETION_SUCCEEDED record against teardown. These tests cover the
+     * synchronous funnel only; completions are CompletionResultTest's.
+     */
+    private object NeverCompletingHandler : MilanoActionHandler {
+        override suspend fun handle(action: MilanoAction): MilanoValue? {
+            kotlinx.coroutines.suspendCancellableCoroutine<Unit> { }
+            return null
+        }
+    }
+
     private class Collector : MilanoUserInteractionObserver {
         val collected = ArrayList<MilanoUserInteraction>()
 
@@ -61,7 +74,7 @@ class UserInteractionTest {
             engine
                 .viewBuilder(document)
                 .stateDataProvider { mapOf("value" to MilanoValue.StringValue("")) }
-                .actionHandler { null }
+                .actionHandler(NeverCompletingHandler)
                 .dispatcher(InlineDispatcher)
                 .build()
         }
