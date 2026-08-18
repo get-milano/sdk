@@ -247,10 +247,18 @@ class MilanoView internal constructor(
         queue.addLast(work)
         if (processing) return
         processing = true
-        while (queue.isNotEmpty()) {
-            queue.removeFirst()()
+        try {
+            while (queue.isNotEmpty()) {
+                queue.removeFirst()()
+            }
+        } finally {
+            // A host listener or renderer that throws unwinds through here.
+            // The queue is cleared and the flag released: the throw still
+            // reaches the caller, and the view stays usable instead of
+            // silently dying with work stuck behind a flag never reset.
+            queue.clear()
+            processing = false
         }
-        processing = false
     }
 
     private fun execute(

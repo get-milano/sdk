@@ -1,0 +1,25 @@
+{
+  "name": "milano-typescript",
+  "private": true,
+  "description": "Workspace root for the Milano TypeScript packages; not published.",
+  "license": "Apache-2.0",
+  "workspaces": [
+    "engine/ts",
+    "engine/react",
+    "samples/react-native"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typedoc": "^0.28.20",
+    "typescript": "^5.7.2"
+  },
+  "overrides": {
+    "react": "19.2.3",
+    "react-native": "0.85.3"
+  }
+}

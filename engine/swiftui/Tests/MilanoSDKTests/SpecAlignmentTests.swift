@@ -217,4 +217,94 @@ struct SpecAlignmentTests {
                 limit: "maxExpressionLength", value: 74, actual: 75))
         }
     }
+
+    /// The work queue is released on every exit from the drain, so a view
+    /// stays usable no matter how a listener behaves. Swift's non-throwing
+    /// closures make a throwing listener unreachable, which is why this
+    /// pins the property the other engines' regression test pins: the
+    /// drain completes, the flag is released, and re-entrant work posted
+    /// from the hook runs after the list rather than never.
+    @Test func theWorkQueueIsReleasedAfterEveryDrain() async throws {
+        let document = Data("""
+            {"version": "1.0.0",
+             "state": {"a": "int"},
+             "root": {"type": "Text", "id": "t",
+                      "properties": {"text": {"$expr": "str(state.a)"}},
+                      "on": {"tap": [{"action": "$set", "key": "a",
+                                      "value": {"$expr": "state.a + 1"}}]}}}
+            """.utf8)
+        let view = try await engine()
+            .viewBuilder(document: document)
+            .stateData { _ in ["a": .int(0)] }
+            .dispatcher(InlineDispatcher())
+            .build()
+
+        // A re-entrant emission from the hook: it must run, and after the
+        // list that provoked it.
+        var reentered = false
+        view.core.onChange = { [weak core = view.core] in
+            if !reentered {
+                reentered = true
+                core?.emit(node: "t", event: "tap")
+            }
+        }
+        view.emit(node: "t", event: "tap")
+        #expect(view.state["a"] == .int(2))
+
+        // And the view keeps working afterwards: nothing stayed behind a
+        // flag that was never reset.
+        view.core.onChange = nil
+        view.emit(node: "t", event: "tap")
+        #expect(view.state["a"] == .int(3))
+    }
+
+    /// Teardown observed mid-list does not interrupt the list: state and
+    /// actions spec, Completion. Pinned here because a conformance vector
+    /// cannot express it (steps run between events, never inside one).
+    @Test func teardownDuringAnActionListDoesNotInterruptIt() async throws {
+        final class Analytics: MilanoUserInteractionObserver, @unchecked Sendable {
+            var kinds: [(MilanoUserInteraction.Kind, String?)] = []
+            func interaction(_ interaction: MilanoUserInteraction) {
+                kinds.append((interaction.kind, interaction.name))
+            }
+        }
+
+        let document = Data("""
+            {"version": "1.0.0",
+             "state": {"a": "int"},
+             "root": {"type": "Text", "id": "t",
+                      "properties": {"text": {"$expr": "str(state.a)"}},
+                      "on": {"tap": [
+                          {"action": "$set", "key": "a", "value": 1},
+                          {"action": "work"},
+                          {"action": "$set", "key": "a", "value": 42}]}}}
+            """.utf8)
+        let analytics = Analytics()
+        var registry = MilanoRegistry()
+        registry.register(StubRenderer(), for: "Text")
+        let engine = try MilanoEngine(
+            vocabularyJSON: vocabulary, registry: registry,
+            userInteractionObserver: analytics)
+        let view = try await engine
+            .viewBuilder(document: document)
+            .stateData { _ in ["a": .int(0)] }
+            .actionHandler { _ in nil }
+            .dispatcher(InlineDispatcher())
+            .build()
+
+        // The first $set re-resolves and fires the hook, which tears the
+        // view down. The rest of the list still runs: the custom action is
+        // dispatched (the handler's own invocation is asynchronous, so the
+        // synchronous evidence is the analytics record) and the trailing
+        // $set applies.
+        view.core.onChange = { [weak core = view.core] in core?.teardown() }
+        view.emit(node: "t", event: "tap")
+
+        #expect(analytics.kinds.contains { $0.0 == .actionDispatched && $0.1 == "work" })
+        #expect(view.state["a"] == .int(42))
+
+        // Torn down all the same: nothing after the list is accepted.
+        view.emit(node: "t", event: "tap")
+        #expect(view.state["a"] == .int(42))
+    }
 }

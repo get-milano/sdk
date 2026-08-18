@@ -5,7 +5,7 @@ nav_order: 5
 
 # Creating a bridge
 
-The bridge is the layer that makes Milano yours: it declares the vocabulary, converts nodes into your models, and wraps your components as renderers. This page builds one, step by step. The complete versions live in `samples/swiftui/Sources/MilanoBridge` and `samples/compose` (`milanobridge` package).
+The bridge is the layer that makes Milano yours: it declares the vocabulary, converts nodes into your models, and wraps your components as renderers. This page builds one, step by step. The complete versions live in `samples/swiftui/Sources/MilanoBridge`, `samples/compose` (`milanobridge` package), and `samples/react-native/src/milano-bridge.tsx`.
 
 ## 1. Declare the vocabulary
 
@@ -80,7 +80,7 @@ extension BannerModel {
 }
 ```
 
-`property(_:)` returns a `MilanoValue`; the typed accessors (`stringValue`, `boolValue`, and friends on Swift; `stringOrNull`, `boolOrNull`, and friends on Kotlin) return nil for a different type. Absent optional properties come through as null, so defaulting with `??` (or `?:`) is the normal pattern.
+`property(_:)` returns a `MilanoValue`; the typed accessors (`stringValue`, `boolValue`, and friends on Swift and TypeScript; `stringOrNull`, `boolOrNull`, and friends on Kotlin) return nil for a different type. Absent optional properties come through as null, so defaulting with `??` (or `?:`) is the normal pattern.
 
 ## 4. Wrap components as renderers
 
@@ -127,6 +127,33 @@ class BannerRenderer : MilanoRenderer {
 }
 ```
 
+And in React, where a renderer is an ordinary component that receives one resolved node:
+
+```tsx
+import type { MilanoNodeProps } from "@get-milano/react";
+
+function BannerRenderer({ node }: MilanoNodeProps) {
+  if (!(node.property("visible").boolValue ?? true)) return null;
+  return (
+    <BannerView imageUrl={node.property("backgroundImageUrl").stringValue ?? undefined}>
+      {node.children}
+    </BannerView>
+  );
+}
+
+function ButtonRenderer({ node }: MilanoNodeProps) {
+  return (
+    <PrimaryButton
+      label={node.property("label").stringValue ?? ""}
+      enabled={node.property("enabled").boolValue ?? true}
+      onPress={() => node.emit("tap")}
+    />
+  );
+}
+```
+
+`node.children` arrives already materialized and keyed by node reference, so a container places it directly and identity survives re-resolution. Integer properties are `bigint` (`.intValue`); use `.numberValue` where a JavaScript number is what the component wants.
+
 Renderers are invoked on the main thread, and re-invoked when state or context changes; keep them cheap and free of side effects.
 
 ## 5. Expose one registry factory
@@ -152,6 +179,18 @@ fun milanoRegistry(): MilanoRegistry =
     }
 ```
 
+```tsx
+export function milanoRegistry() {
+  // createMilanoRegistry pins the renderer types; a bare
+  // `new MilanoRegistry()` infers `unknown` and will not satisfy MilanoHost.
+  const registry = createMilanoRegistry();
+  registry.register("Banner", BannerRenderer);
+  registry.register("Text", TextRenderer);
+  registry.register("Button", ButtonRenderer);
+  return registry;
+}
+```
+
 Engine creation verifies the registry covers the whole vocabulary and throws `IncompleteRegistry` naming what is missing, so a gap surfaces at startup, not at render time.
 
 ## 6. Placeholders, if you want them
@@ -160,7 +199,7 @@ Under the `placeholder` unknown-type policy, unknown component types route to a 
 
 ## 7. Generated typed bindings
 
-The vocabulary is machine-readable, so the bridge does not have to be stringly-typed. `tools/generate_bindings.py` in the [specs repository](https://github.com/get-milano/specs) turns the artifact into compiler-checked API for both platforms: node wrappers whose accessors carry the gate's guarantees in the type system (a declared non-optional property is a non-optional Swift/Kotlin property, no `?? ""` fallbacks), typed event emitters, an exhaustive action type with an `unrecognized` case for forward compatibility, and a vocabulary identity helper that refuses to run against a mismatched engine.
+The vocabulary is machine-readable, so the bridge does not have to be stringly-typed. `tools/generate_bindings.py` in the [specs repository](https://github.com/get-milano/specs) turns the artifact into compiler-checked API for Swift and Kotlin: node wrappers whose accessors carry the gate's guarantees in the type system (a declared non-optional property is a non-optional Swift/Kotlin property, no `?? ""` fallbacks), typed event emitters, an exhaustive action type with an `unrecognized` case for forward compatibility, and a vocabulary identity helper that refuses to run against a mismatched engine.
 
 ```sh
 python3 tools/generate_bindings.py vocabulary.json \
@@ -172,9 +211,11 @@ python3 tools/generate_bindings.py vocabulary.json \
 
 A bridge model then reads `button.label` instead of `node.property("label").stringValue ?? ""`, and the action funnel becomes an exhaustive `switch` over a sealed type: a typo is a compile error, and a vocabulary change turns into a compiler-guided migration instead of a grep.
 
+There is no TypeScript emitter yet, so the React bridge reads properties through `node.property(...)` with the accessors above; the React Native sample does exactly that. Narrowing an enum property to a union type (`node.property("layout").stringValue as BannerLayout | null`) is safe: the gate has already rejected every non-member.
+
 ### As a build step
 
-Commit the generated file and let the build refresh it, so it can never drift from the vocabulary. Both sample apps wire it this way (the samples resolve the specs checkout at `../../../specs` because of the repository layout; adjust the path to where your checkout lives).
+Commit the generated file and let the build refresh it, so it can never drift from the vocabulary. The SwiftUI and Compose sample apps wire it this way (the samples resolve the specs checkout at `../../../specs` because of the repository layout; adjust the path to where your checkout lives).
 
 Gradle (`app/build.gradle.kts`), running before every compile with input/output tracking so it is cached when nothing changed:
 

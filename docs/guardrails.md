@@ -67,7 +67,7 @@ After the gate, the runtime does not fail; it behaves:
 
 ## Threading
 
-Renderers run on the main thread. Events, state writes, and view updates serialize through the `MilanoDispatcher`; the platform default is the main thread on both engines. Engines are immutable and safe to share. Action handlers run asynchronously and may hop threads freely; their completion is funneled back through the dispatcher.
+Renderers run on the main thread. Events, state writes, and view updates serialize through the `MilanoDispatcher`; the platform default is the main thread on the Swift and Kotlin engines, and the host's event loop in TypeScript, which is single-threaded by construction. Engines are immutable and safe to share. Action handlers run asynchronously and may hop threads freely; their completion is funneled back through the dispatcher.
 
 ## Observability
 

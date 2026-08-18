@@ -5,9 +5,9 @@ nav_order: 0
 
 # Milano SDK
 
-Milano is a client-only, design-system-agnostic **Document-Driven UI (DDUI)** framework for **SwiftUI** and **Compose**. A JSON document describes the structure of a piece of UI, its state and context declarations, and the actions it can request. The engine validates the document against a vocabulary you define, then renders it with **your** components. Milano never draws a pixel of its own.
+Milano is a client-only, design-system-agnostic **Document-Driven UI (DDUI)** framework for **SwiftUI**, **Compose**, and **React / React Native**. A JSON document describes the structure of a piece of UI, its state and context declarations, and the actions it can request. The engine validates the document against a vocabulary you define, then renders it with **your** components. Milano never draws a pixel of its own.
 
-This site documents the engines and how to consume them. The normative contract lives in the [specification](https://github.com/get-milano/specs): the document model, the vocabulary schema, the expression language, the runtime semantics, and the conformance suite both engines are green against.
+This site documents the engines and how to consume them. The normative contract lives in the [specification](https://github.com/get-milano/specs): the document model, the vocabulary schema, the expression language, the runtime semantics, and the conformance suite every engine is green against.
 
 ## What v1.0 does
 
@@ -21,22 +21,22 @@ This site documents the engines and how to consume them. The normative contract 
 - **Not a SaaS.** There is no backend, no console, no account. Milano is a library you embed.
 - **Not a design system.** Milano ships zero components. Every visible element is rendered by code you register.
 
-## The two engines
+## The engines
 
-| | SwiftUI | Compose |
-|---|---|---|
-| Language | Swift 6, strict concurrency | Kotlin Multiplatform |
-| Module | `MilanoSDK` (Swift Package) | `dev.get-milano:engine-compose` |
-| Package | `import MilanoSDK` | `dev.getmilano` |
-| Runs on | iPhone, iPad, macOS, watchOS | Android, JVM |
+| | SwiftUI | Compose | React / React Native |
+|---|---|---|---|
+| Language | Swift 6, strict concurrency | Kotlin Multiplatform | TypeScript, zero dependencies |
+| Module | `MilanoSDK` (Swift Package) | `dev.get-milano:engine-compose` | `@get-milano/core` (npm) |
+| Package | `import MilanoSDK` | `dev.getmilano` | `@get-milano/react` (the binding; no React Native package needed) |
+| Runs on | iPhone, iPad, macOS, watchOS | Android, JVM | Browsers, React Native (iOS, Android), Node |
 
-From 1.0.0 the SDK follows semantic versioning: within a major version, releases are additive. Both engines implement the same contract (v1.0 of the specs) and pass the same conformance suite. Mechanics are identical to the bit: expression results, error taxonomy, dispatch ordering, and reporting behave the same on both platforms.
+From 1.0.0 the SDK follows semantic versioning: within a major version, releases are additive. Every engine implements the same contract (v1.0 of the specs) and passes the same conformance suite. Mechanics are identical to the bit: expression results, error taxonomy, dispatch ordering, and reporting behave the same everywhere. The TypeScript packages arrived in 1.1.0; they implement the same contract v1.0.
 
 ## Where to go next
 
 1. [Playground](https://get-milano.dev/playground/): try vocabularies and documents in the browser, nothing to install.
 2. [Getting started](getting-started): install an engine and render a first document.
-3. [Samples](samples): the demo apps on both platforms, with screenshots.
+3. [Samples](samples): the demo apps on all three platforms, with screenshots.
 4. [Philosophy](philosophy): the ideas the design follows.
 5. [Guidelines](guidelines): the recommended app architecture.
 6. [Creating a bridge](bridge): connect Milano to your design system.
@@ -44,7 +44,7 @@ From 1.0.0 the SDK follows semantic versioning: within a major version, releases
 8. [Expressions](expressions): the expression language reference.
 9. [Guardrails](guardrails): errors, policies, limits, and observability.
 10. [Performance](performance): measured baselines, threading model, and working budgets.
-11. [Accessibility](accessibility): assistive-technology semantics as vocabulary design, with the sample mappings for both platforms.
+11. [Accessibility](accessibility): assistive-technology semantics as vocabulary design, with the sample mappings for each platform.
 12. [User interaction analytics](analytics): the engine-captured interaction stream (impressions, taps, dispatches, outcomes) plus renderer-reported widget signals, delivered to one host sink.
 
 ## License
