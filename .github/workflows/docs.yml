@@ -43,8 +43,16 @@ jobs:
     # reference comes out of one job. Generated output is never committed:
     # it is an artifact, and the deploy job consumes it.
     runs-on: macos-latest
+    env:
+      # Coverage runs each engine's own suite, including the conformance
+      # harness, which reads vectors from here. Same pattern as ci.yml.
+      MILANO_SPECS_DIR: ${{ github.workspace }}/.specs
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: get-milano/specs
+          path: .specs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
