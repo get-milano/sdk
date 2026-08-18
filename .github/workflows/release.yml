@@ -20,9 +20,13 @@ name: Release
 # uploads everything to a draft release and publishes it, which is the
 # step that creates the v<version> tag (on the rewritten-manifest commit,
 # tag-only, never on main); and only then the maven job publishes to
-# GitHub Packages, the npm job stages the packages on npmjs for a
-# maintainer to approve, and the docs jobs generate the API reference for
-# every engine and deploy the docs site.
+# GitHub Packages and the npm job stages the packages on npmjs for a
+# maintainer to approve.
+#
+# The documentation site is not part of this pipeline: it is not a
+# versioned artifact, and tying it here meant a docs failure could only be
+# retried by cutting a new version. It lives in docs.yml, which runs on
+# its own and can be dispatched at any time.
 #
 # Nothing leaves the pipeline until every lane is green: a failing Swift
 # lane leaves no tag, no release, and no published package, so a rerun is
@@ -485,87 +489,3 @@ jobs:
           echo 'Staged. Approve them to make them public:'
           echo '  npm stage list'
           echo '  npm stage approve <stage-id>   # prompts for 2FA'
-
-  docs:
-    # The API reference for every engine, generated from the released
-    # sources. macOS because DocC needs Xcode; Dokka and TypeDoc run here
-    # too so the whole reference comes out of one job. Generated output is
-    # never committed: it is an artifact, and the pages job deploys it.
-    needs: [preflight, kotlin, typescript, release]
-    if: needs.preflight.outputs.proceed == 'true'
-    runs-on: macos-latest
-    env:
-      VERSION: ${{ needs.preflight.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-      - run: npm ci
-
-      - name: Stamp the versions the reference will show
-        run: |
-          SWIFT=engine/swiftui/Sources/MilanoSDK/Core/MilanoInfo.swift
-          sed -i '' -E "s/(public static let version = )\"[^\"]*\"/\1\"$VERSION\"/" "$SWIFT"
-          node scripts/stamp-version.mjs "$VERSION"
-
-      - name: Generate the API reference
-        run: ./scripts/generate-docs.sh "$VERSION"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: api-reference
-          path: docs/libs/
-          retention-days: 1
-
-  pages:
-    # Builds the docs site exactly as GitHub Pages builds it (the
-    # github-pages gem, the same remote theme), with the generated
-    # reference dropped into docs/libs, and deploys the result.
-    #
-    # Requires Settings -> Pages -> Source: GitHub Actions. Until that is
-    # switched, this job fails and the rest of the release is unaffected.
-    needs: [preflight, docs]
-    if: needs.preflight.outputs.proceed == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.3"
-          bundler-cache: true
-          working-directory: docs
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: api-reference
-          path: docs/libs/
-
-      # The site is served from get-milano.dev/sdk/, so the base path is
-      # pinned rather than inferred: every internal link and asset URL
-      # depends on it.
-      - name: Build the site
-        working-directory: docs
-        run: bundle exec jekyll build --destination ../_site --baseurl /sdk
-
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-      - id: deploy
-        uses: actions/deploy-pages@v4
