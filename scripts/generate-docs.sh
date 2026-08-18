@@ -38,6 +38,34 @@ if command -v xcodebuild > /dev/null 2>&1; then
     --output-path "$OUT/swiftui" \
     > /dev/null
   rm -rf "$DERIVED"
+
+  # DocC leaves the archive root without a landing page: the index.html it
+  # writes there is the app shell, and it is the one file the static-hosting
+  # transform does not rewrite -- it keeps `baseUrl = "/"` while every page
+  # below it gets the hosting base path. Served at /sdk/libs/swiftui/ it asks
+  # for /js and /css at the domain root, gets 404s, and renders blank.
+  #
+  # There is nothing at the archive root to show anyway; the reference starts
+  # one level down, at documentation/<module>. So replace the shell with a
+  # redirect there, which also matches Dokka and TypeDoc, both of which land
+  # on real content. The module is read back out of the archive rather than
+  # written down here, so a rename cannot quietly restore the blank page.
+  LANDING="$(cd "$OUT/swiftui/documentation" 2> /dev/null && ls -1d */ 2> /dev/null | head -1 || true)"
+  [ -n "$LANDING" ] || { echo "no module under documentation/ in the doccarchive" >&2; exit 1; }
+  LANDING="documentation/${LANDING%/}/"
+  echo "    landing page -> $LANDING"
+  # Relative, so it holds under any base path and in a local preview.
+  cat > "$OUT/swiftui/index.html" <<HTML
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>MilanoSDK</title>
+<meta http-equiv="refresh" content="0; url=$LANDING">
+<link rel="canonical" href="$LANDING">
+<script>location.replace("$LANDING" + location.search + location.hash)</script>
+<p><a href="$LANDING">MilanoSDK API reference</a></p>
+</html>
+HTML
 else
   echo "==> swiftui skipped: xcodebuild not found (Xcode is required for DocC)"
 fi
