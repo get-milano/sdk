@@ -49,17 +49,27 @@ mkdir -p "$OUT/compose"
 cp -R "$ROOT/engine/compose/build/dokka/html/." "$OUT/compose/"
 
 # --- TypeScript: TypeDoc, one run per published package.
+#
+# The packages are built first: @get-milano/react imports @get-milano/core
+# through the workspace symlink, and the package resolves to its `dist`
+# types. Without a build, TypeDoc reports the core module as missing and
+# every type in the React binding degrades to `any`.
+echo "==> building the packages so their types resolve"
+npm run build --workspaces --if-present > /dev/null
+
 echo "==> ts and react (TypeDoc)"
 npx --no-install typedoc engine/ts/src/index.ts \
   --tsconfig engine/ts/tsconfig.json \
   --out "$OUT/ts" \
   --name "@get-milano/core $VERSION" \
+  --excludeInternal \
   --hideGenerator \
   > /dev/null
 npx --no-install typedoc engine/react/src/index.ts \
   --tsconfig engine/react/tsconfig.json \
   --out "$OUT/react" \
   --name "@get-milano/react $VERSION" \
+  --excludeInternal \
   --hideGenerator \
   > /dev/null
 
