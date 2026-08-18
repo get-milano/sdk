@@ -19,9 +19,10 @@ name: Release
 # XCFramework, rewrites Package.swift to a binaryTarget, stamps versions,
 # uploads everything to a draft release and publishes it, which is the
 # step that creates the v<version> tag (on the rewritten-manifest commit,
-# tag-only, never on main); and only then the maven and npm jobs publish
-# to GitHub Packages and to npmjs, and the docs jobs generate the API
-# reference for every engine and deploy the docs site.
+# tag-only, never on main); and only then the maven job publishes to
+# GitHub Packages, the npm job stages the packages on npmjs for a
+# maintainer to approve, and the docs jobs generate the API reference for
+# every engine and deploy the docs site.
 #
 # Nothing leaves the pipeline until every lane is green: a failing Swift
 # lane leaves no tag, no release, and no published package, so a rerun is
@@ -30,9 +31,11 @@ name: Release
 # as is a failed docs deploy: the site is rebuilt from scratch every time,
 # so publishing it again is always safe.
 # npm publishes are immutable, so the npm job is the one lane a rerun
-# cannot repeat: it skips versions already on the registry. It carries no
-# credential: npmjs trusts this workflow by name (trusted publishing), so
-# the repository holds no npm token at all.
+# cannot repeat: it skips versions already published or already staged. It
+# carries no credential: npmjs trusts this workflow by name (trusted
+# publishing), so the repository holds no npm token at all. It stages
+# rather than publishes, so the packages go public only when a maintainer
+# approves them with 2FA.
 # See RELEASE-SETUP (private) for secrets.
 
 on:
@@ -456,10 +459,15 @@ jobs:
       - name: Build the packages
         run: npm run build
 
-      # Dependency order: core, then react, so a package is never on the
-      # registry before what it depends on. Versions already published are
-      # skipped, which is what makes a rerun safe.
-      - name: Publish to npmjs
+      # Staged, not published: the trusted publisher authorises
+      # `npm stage publish`, which puts the tarball on the registry without
+      # making it public. A maintainer then approves it with 2FA, which is
+      # the proof-of-presence an automated publish cannot provide.
+      #
+      # Dependency order: core, then react, so a package is never staged
+      # before what it depends on. `npm stage` is unaware of workspaces, so
+      # each package is staged from its own directory.
+      - name: Stage on npmjs
         run: |
           for directory in engine/ts engine/react; do
             name="$(node -p "require('./$directory/package.json').name")"
@@ -467,8 +475,16 @@ jobs:
               echo "$name@$VERSION is already published; skipping."
               continue
             fi
-            npm publish --workspace "$name" --access public
+            if npm stage list "$name" 2>/dev/null | grep -q "$VERSION"; then
+              echo "$name@$VERSION is staged already, waiting for approval; skipping."
+              continue
+            fi
+            ( cd "$directory" && npm stage publish )
           done
+          echo
+          echo 'Staged. Approve them to make them public:'
+          echo '  npm stage list'
+          echo '  npm stage approve <stage-id>   # prompts for 2FA'
 
   docs:
     # The API reference for every engine, generated from the released
