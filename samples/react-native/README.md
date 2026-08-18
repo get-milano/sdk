@@ -16,6 +16,12 @@ Then press `i` or `a`, or run `npm run ios` / `npm run android` in this director
 
 `EXPO_PUBLIC_MILANO_SCREEN=banner npm start` opens one demo directly, mirroring `MILANO_SCREEN` in the other two samples. Accepted values: any demo id (`banner`, `banner-card`, `banner-strip`, `form`, `tip-calculator`, `checkbox-gate`) plus `quickstart`, `pokemon`, `profile`, `catalog`, `embedded`, `interstitial`.
 
+## Identity
+
+This app is `dev.getmilano.sample.reactnative` on both platforms, distinct from the `dev.getmilano.sample` the SwiftUI and Compose samples use on theirs. It runs on both, so sharing their identifier would mean installing it replaced whichever native sample was already on the device.
+
+Changing that identifier means changing `app.json` **and** the committed `ios/` and `android/` projects, which are what actually build. Afterwards, delete `android/build/generated/autolinking`: React Native writes the app's package into generated Java from a cached `autolinking.json`, and the task producing it does not treat the Gradle `namespace` as an input, so an otherwise correct build fails with `cannot find symbol: class BuildConfig` naming the old package.
+
 ## Layout
 
 | Path | Contents |

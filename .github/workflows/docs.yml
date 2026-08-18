@@ -82,6 +82,13 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: ./scripts/generate-docs.sh "$VERSION"
 
+      # Runs every engine's suite under its own coverage tool and writes
+      # docs/coverage.md, so the published page describes this commit. A
+      # toolchain that cannot be measured is reported as such rather than
+      # failing the build.
+      - name: Coverage report
+        run: node scripts/coverage.mjs
+
       # Tarred, not uploaded as a tree: DocC names a page after the symbol
       # it documents, so thousands of files are called things like
       # `!=(_:_:).json`, and upload-artifact rejects colons for the sake of
@@ -89,12 +96,16 @@ jobs:
       # bytes. (upload-pages-artifact in the deploy job tars for the same
       # reason, which is why the deploy itself is unaffected.)
       - name: Pack the reference
-        run: tar -czf api-reference.tar.gz -C docs/libs .
+        run: |
+          tar -czf api-reference.tar.gz -C docs/libs .
+          cp docs/coverage.md coverage.md
 
       - uses: actions/upload-artifact@v4
         with:
           name: api-reference
-          path: api-reference.tar.gz
+          path: |
+            api-reference.tar.gz
+            coverage.md
           retention-days: 1
 
   deploy:
@@ -126,6 +137,7 @@ jobs:
         run: |
           mkdir -p docs/libs
           tar -xzf api-reference.tar.gz -C docs/libs
+          mv coverage.md docs/coverage.md
           rm api-reference.tar.gz
 
       # The site is served from get-milano.dev/sdk/, so the base path is

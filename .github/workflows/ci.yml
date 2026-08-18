@@ -44,10 +44,31 @@ jobs:
       # packages are built before anything is checked.
       - name: Build the packages
         run: npm run build
+      # Regenerates the sample's bindings from the vocabulary and compiles
+      # them: the TypeScript emitter has no other test, and this is how the
+      # Swift and Kotlin emitters are covered too (their samples compile
+      # what the generator wrote).
       - name: Types (strict, packages and sample)
         run: npm run typecheck
+
+      - name: The committed bindings match the vocabulary
+        run: git diff --exit-code -- samples/react-native/src/bindings.generated.ts
+
+      # Repository-level invariants no single test can see: the three
+      # samples shipping identical documents, versions agreeing across
+      # VERSION and the manifests, and the packed tarballs actually
+      # installing and importing.
+      - name: Consistency
+        run: node scripts/check-consistency.mjs
       - name: Tests (conformance suite included)
         run: npm test
+
+      # `react: >=18` is a promise, and the workspace installs exactly one
+      # React, so every test above runs against that single version. This
+      # mounts the packed binding on each supported major in its own
+      # project, which is the only place React 18 is ever executed.
+      - name: React compatibility (18 and 19)
+        run: node scripts/verify-react-compat.mjs
 
   docs:
     # The guides, built the way Pages builds them. Catches Liquid and theme
@@ -80,6 +101,21 @@ jobs:
       - name: Engine tests and Android library (conformance suite included)
         working-directory: engine/compose
         run: ./gradlew jvmTest assembleAndroidMain
+
+      # The AAR carries the floor it imposes on consumers. AGP derives it
+      # from compileSdk unless told otherwise, so a toolchain bump can
+      # silently lock out every app on an older compileSdk. This is the
+      # only place that would notice.
+      - name: The AAR imposes no compileSdk floor
+        run: |
+          AAR="$(find engine/compose/build/outputs/aar -name '*.aar' | head -1)"
+          METADATA="$(unzip -p "$AAR" META-INF/com/android/build/gradle/aar-metadata.properties)"
+          echo "$METADATA"
+          echo "$METADATA" | grep -qx 'minCompileSdk=1' || {
+            echo "the published AAR would demand a compileSdk floor;" \
+                 "see aarMetadata in engine/compose/build.gradle.kts" >&2
+            exit 1
+          }
       - name: Sample app (source consumption via composite build)
         working-directory: samples/compose
         run: ./gradlew :app:assembleDebug

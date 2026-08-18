@@ -2,14 +2,22 @@
   "expo": {
     "name": "Milano",
     "slug": "milano-sample",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "bundleIdentifier": "dev.getmilano.sample"
+      "bundleIdentifier": "dev.getmilano.sample.reactnative",
+      "icon": "../assets/app-icon.png"
     },
     "android": {
-      "package": "dev.getmilano.sample"
+      "package": "dev.getmilano.sample.reactnative",
+      "icon": "../assets/app-icon.png"
+    },
+    "icon": "../assets/app-icon.png",
+    "splash": {
+      "image": "../assets/logo-mark.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
     }
   }
 }

@@ -199,19 +199,33 @@ Under the `placeholder` unknown-type policy, unknown component types route to a 
 
 ## 7. Generated typed bindings
 
-The vocabulary is machine-readable, so the bridge does not have to be stringly-typed. `tools/generate_bindings.py` in the [specs repository](https://github.com/get-milano/specs) turns the artifact into compiler-checked API for Swift and Kotlin: node wrappers whose accessors carry the gate's guarantees in the type system (a declared non-optional property is a non-optional Swift/Kotlin property, no `?? ""` fallbacks), typed event emitters, an exhaustive action type with an `unrecognized` case for forward compatibility, and a vocabulary identity helper that refuses to run against a mismatched engine.
+The vocabulary is machine-readable, so the bridge does not have to be stringly-typed. `tools/generate_bindings.py` in the [specs repository](https://github.com/get-milano/specs) turns the artifact into compiler-checked API for Swift, Kotlin, and TypeScript: node wrappers whose accessors carry the gate's guarantees in the type system (a declared non-optional property is a non-optional Swift/Kotlin property, no `?? ""` fallbacks), typed event emitters, an exhaustive action type with an `unrecognized` case for forward compatibility, and a vocabulary identity helper that refuses to run against a mismatched engine.
 
 ```sh
 python3 tools/generate_bindings.py vocabulary.json \
     --swift-prefix Shop  --swift-out  Sources/MilanoBridge/GeneratedBindings.swift \
-    --kotlin-package com.acme.shop.milano --kotlin-out app/src/main/kotlin/.../GeneratedBindings.kt
+    --kotlin-package com.acme.shop.milano --kotlin-out app/src/main/kotlin/.../GeneratedBindings.kt \
+    --ts-prefix Shop --ts-out src/milano/bindings.ts
 ```
 
 `--swift-prefix` namespaces the Swift types (`ShopButtonNode`, `ShopAction`) since Swift has no packages; `--kotlin-package` places the Kotlin file, with an optional `--kotlin-prefix` for teams that prefer prefixed class names over import aliases. Output is deterministic: same artifact, same bytes.
 
 A bridge model then reads `button.label` instead of `node.property("label").stringValue ?? ""`, and the action funnel becomes an exhaustive `switch` over a sealed type: a typo is a compile error, and a vocabulary change turns into a compiler-guided migration instead of a grep.
 
-There is no TypeScript emitter yet, so the React bridge reads properties through `node.property(...)` with the accessors above; the React Native sample does exactly that. Narrowing an enum property to a union type (`node.property("layout").stringValue as BannerLayout | null`) is safe: the gate has already rejected every non-member.
+The TypeScript output is the same idea in the language's own terms: a class per component whose getters return `string`, `bigint`, `boolean` and your enums as string-literal unions (never `string | null` where the vocabulary says non-optional), typed `emitTap()`-style methods, and a discriminated union for actions:
+
+```ts
+const button = new ShopButtonNode(node);   // node: the binding's MilanoNode
+button.label;                              // string, not string | null
+button.emitTap();
+
+switch (shopAction(action).kind) {         // exhaustive: a missing arm is a compile error
+  case "openUrl": ...
+  case "unrecognized": ...
+}
+```
+
+The generated file imports only `@get-milano/core` and describes the node structurally, so it works with the React binding and with any other host wrapper.
 
 ### As a build step
 
@@ -235,6 +249,17 @@ val generateMilanoBindings by tasks.registering(Exec::class) {
 tasks.named("preBuild") { dependsOn(generateMilanoBindings) }
 ```
 
+npm, as part of the typecheck, which is how `samples/react-native` wires it:
+
+```json
+{
+  "scripts": {
+    "bindings": "node scripts/generate-bindings.mjs",
+    "typecheck": "npm run bindings && tsc --noEmit"
+  }
+}
+```
+
 Xcode, as a pre-build script phase (via Tuist's `scripts: [.pre(...)]`, or Build Phases in a plain project; script sandboxing must be off for phases that write into the source tree: `ENABLE_USER_SCRIPT_SANDBOXING = NO`):
 
 ```sh
@@ -244,7 +269,7 @@ python3 "$SPECS_DIR/tools/generate_bindings.py" "$SRCROOT/Resources/vocabulary.j
     --swift-out "$SRCROOT/Sources/MilanoBridge/GeneratedBindings.swift"
 ```
 
-For CI honesty, add a check that the committed file matches the vocabulary: regenerate and `git diff --exit-code`.
+For CI honesty, add a check that the committed file matches the vocabulary: regenerate and `git diff --exit-code`. This repository does exactly that for the React Native sample, which doubles as the emitter's test: the generated file is compiled by the sample's own typecheck, so a generator that emits something uncompilable fails CI rather than reaching you.
 
 ## Growing the vocabulary
 

@@ -377,7 +377,7 @@ jobs:
             --draft \
             --target "$RELEASE_SHA" \
             --title "v$VERSION" \
-            --notes "Milano $VERSION. Signed MilanoSDK.xcframework (iOS, iOS Simulator, macOS, watchOS, watchOS Simulator); Compose engine AAR and JVM JAR (also on GitHub Packages as dev.get-milano:engine-compose:$VERSION). SwiftPM: pin \`from: \"$VERSION\"\` to resolve the prebuilt binary. Conformance gate: specs@$SPECS_SHA; built with tuist $TUIST_VERSION."
+            --notes "Milano $VERSION. What changed: https://github.com/get-milano/sdk/blob/v$VERSION/CHANGELOG.md. Signed MilanoSDK.xcframework (iOS, iOS Simulator, macOS, watchOS, watchOS Simulator); Compose engine AAR and JVM JAR (also on GitHub Packages as dev.get-milano:engine-compose:$VERSION). SwiftPM: pin \`from: \"$VERSION\"\` to resolve the prebuilt binary. Conformance gate: specs@$SPECS_SHA; built with tuist $TUIST_VERSION."
           gh release edit "v$VERSION" --draft=false
 
           # The tag now exists at the release commit; the scratch branch

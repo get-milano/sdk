@@ -22,7 +22,18 @@ let project = Project(
                 macOS: "12.0"
             ),
             infoPlist: .extendingDefault(with: [
-                "UILaunchScreen": [:]
+                // The launch screen is the mark on the system background,
+                // so it follows light and dark without a second asset.
+                // The image lives in Assets.xcassets, generated with every
+                // other app asset by samples/scripts/generate-app-assets.py.
+                "UILaunchScreen": [
+                    "UIImageName": "LaunchLogo",
+                    "UIImageRespectsSafeAreaInsets": true
+                ],
+                // The three sample apps carry the SDK's version, so a
+                // screenshot or a TestFlight build says which release it
+                // demonstrates. Checked by scripts/check-consistency.mjs.
+                "CFBundleShortVersionString": "1.2.0"
             ]),
             sources: ["Sources/**"],
             resources: ["Resources/**"],

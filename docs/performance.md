@@ -5,7 +5,7 @@ nav_order: 9
 
 # Performance
 
-What Milano costs at build and at update, measured, plus the threading model and the working budgets we recommend. Numbers are medians from the benchmark suites the Swift and Kotlin engines ship (`PerformanceBenchmarks` in the Swift tests, `PerformanceBenchmark` in the Kotlin tests); run them on your own hardware for numbers you can budget against. The TypeScript engine ships no benchmark suite yet; its shape is the same, and its absolute numbers are the JavaScript runtime's, not these.
+What Milano costs at build and at update, measured, plus the threading model and the working budgets we recommend. Numbers are medians from the benchmark suites the Swift and Kotlin engines ship (`PerformanceBenchmarks` in the Swift tests, `PerformanceBenchmark` in the Kotlin tests); run them on your own hardware for numbers you can budget against. The TypeScript engine ships the same benchmark (`npm run benchmark --workspace @get-milano/core`), measuring the same document shapes, so the three are comparable in method. They are not comparable as a ranking: `swift test` builds in debug, Kotlin runs on the JVM after warm-up, and Node measures a JIT that has seen the loop already. Run each on your own hardware before budgeting against it.
 
 ## Safety limits are not performance budgets
 

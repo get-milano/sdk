@@ -58,4 +58,12 @@ Also in all three apps, without screenshots here:
 
 The React Native app adds one wrinkle the other two do not have: its documents are bundled as **text**, generated into `src/documents.generated.ts` by `npm run documents`. Milano distinguishes `int` from `double` and `JSON.parse` does not, so a JSON import would quietly retype a document on the way in.
 
+## The web: the playground
+
+There is no `samples/web` directory, because the [Playground](https://get-milano.dev/playground/) is the web example and a better one than a sample app would be: it hosts documents you write, with [Material UI](https://mui.com) as the design system, one renderer per component type. Its [source](https://github.com/get-milano/playground) shows the React binding doing everything at once, in about 700 lines:
+
+- `src/renderers.tsx`: Material components wired to Milano, one renderer per type, plus a generic renderer for component types it has no mapping for.
+- `src/engine.ts`: engine, registry, builder, and an action handler that leaves each dispatched action pending until a human settles it.
+- `src/App.tsx`: `MilanoRenderedView`, a state inspector on `view.subscribe`, and both the occurrence and analytics streams.
+
 The samples follow the architecture described in [Guidelines](guidelines); how renderers bind to the vocabulary is covered in [Bridge](bridge).

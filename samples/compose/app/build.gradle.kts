@@ -14,7 +14,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0.0"
+        versionName = "1.2.0"
     }
 
     buildFeatures {
@@ -92,7 +92,7 @@ tasks.named("preBuild") {
 
 dependencies {
     // Substituted from source by the composite build in settings.gradle.kts.
-    implementation("dev.get-milano:engine-compose:1.1.2")
+    implementation("dev.get-milano:engine-compose:1.2.0")
 
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.compose.material3:material3:1.3.1")

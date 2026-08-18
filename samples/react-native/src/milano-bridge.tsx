@@ -1,7 +1,5 @@
-import { MilanoValue } from "@get-milano/core";
 import { createMilanoRegistry } from "@get-milano/react";
 import type {
-  MilanoNode,
   MilanoPlaceholderRenderer,
   MilanoReactRegistry,
   MilanoRenderer,
@@ -10,6 +8,17 @@ import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { View } from "react-native";
 
+import {
+  SampleBannerNode,
+  SampleButtonNode,
+  SampleCardNode,
+  SampleCheckboxNode,
+  SampleImageNode,
+  SampleNumberFieldNode,
+  SampleRowNode,
+  SampleTextFieldNode,
+  SampleTextNode,
+} from "./bindings.generated.ts";
 import {
   BannerView,
   LabeledNumberField,
@@ -20,44 +29,28 @@ import {
   StyledText,
   SurfaceCard,
 } from "./design-system.tsx";
-import type { BannerAlignment, BannerLayout, LiveRegion, TextRole } from "./design-system.tsx";
 
 /**
  * The one doorway between Milano and the design system. Every renderer
- * reads declared properties through the node, maps them onto a design
- * system component, and emits declared events back. Nothing here decides
- * what the screen says; the documents do.
+ * reads declared properties through the generated bindings, maps them onto
+ * a design system component, and emits declared events back. Nothing here
+ * decides what the screen says; the documents do.
  *
- * Reads are gate-guaranteed: a property declared `string` always answers a
- * string, a declared enum always answers one of its members, so the `??`
- * fallbacks below cover optionals only.
+ * The wrappers come from `npm run bindings`, generated from
+ * vocabulary.json: `button.label` is a `string` because the vocabulary
+ * says so, `banner.layout` is a union of its declared members, and a
+ * vocabulary change that breaks this file fails the typecheck instead of
+ * surfacing as an empty label at runtime.
  */
 
-function text(node: MilanoNode, name: string): string {
-  return node.property(name).stringValue ?? "";
+/** A declared optional, as the design system wants it. */
+function orUndefined<T>(value: T | null): T | undefined {
+  return value ?? undefined;
 }
 
-function optionalText(node: MilanoNode, name: string): string | undefined {
-  return node.property(name).stringValue ?? undefined;
-}
-
-function flag(node: MilanoNode, name: string, fallback: boolean): boolean {
-  return node.property(name).boolValue ?? fallback;
-}
-
-function integer(node: MilanoNode, name: string, fallback: number): number {
-  const value = node.property(name).intValue;
+/** A declared int, as a number for React Native's style props. */
+function pixels(value: bigint | null, fallback: number): number {
   return value === null ? fallback : Number(value);
-}
-
-function optionalInteger(node: MilanoNode, name: string): number | undefined {
-  const value = node.property(name).intValue;
-  return value === null ? undefined : Number(value);
-}
-
-/** A declared enum member, or the fallback when the optional is absent. */
-function member<T extends string>(node: MilanoNode, name: string, fallback: T): T {
-  return (node.property(name).stringValue as T | null) ?? fallback;
 }
 
 const ColumnRenderer: MilanoRenderer = ({ node }) => (
@@ -69,7 +62,7 @@ const RowRenderer: MilanoRenderer = ({ node }) => (
     style={{
       alignItems: "center",
       flexDirection: "row",
-      gap: integer(node, "spacing", 8),
+      gap: pixels(new SampleRowNode(node).spacing, 8),
     }}
   >
     {node.children}
@@ -77,40 +70,42 @@ const RowRenderer: MilanoRenderer = ({ node }) => (
 );
 
 const TextRenderer: MilanoRenderer = ({ node }) => {
-  if (!flag(node, "visible", true)) return null;
-  const liveRegion = node.property("liveRegion").stringValue as LiveRegion | null;
+  const text = new SampleTextNode(node);
+  if (text.visible === false) return null;
   return (
     <StyledText
-      text={text(node, "text")}
-      role={member<TextRole>(node, "role", "body")}
-      liveRegion={liveRegion ?? undefined}
+      text={text.text}
+      role={text.role ?? "body"}
+      liveRegion={orUndefined(text.liveRegion)}
     />
   );
 };
 
 const ButtonRenderer: MilanoRenderer = ({ node }) => {
-  if (!flag(node, "visible", true)) return null;
+  const button = new SampleButtonNode(node);
+  if (button.visible === false) return null;
   return (
     <PrimaryButton
-      label={text(node, "label")}
-      enabled={flag(node, "enabled", true)}
+      label={button.label}
+      enabled={button.enabled}
       // No `tap` interaction is reported here: the document models the tap
       // as an event, so it already reaches analytics as `event`. Reporting
       // it again would double-count.
-      onPress={() => node.emit("tap")}
+      onPress={() => button.emitTap()}
     />
   );
 };
 
 const TextFieldRenderer: MilanoRenderer = ({ node }) => {
-  if (!flag(node, "visible", true)) return null;
+  const field = new SampleTextFieldNode(node);
+  if (field.visible === false) return null;
   return (
     <LabeledTextField
-      label={text(node, "label")}
-      value={text(node, "value")}
-      required={flag(node, "required", false)}
-      error={optionalText(node, "error")}
-      onChange={(value) => node.emit("change", MilanoValue.string(value))}
+      label={field.label}
+      value={field.value}
+      required={field.required ?? false}
+      error={orUndefined(field.error)}
+      onChange={(value) => field.emitChange(value)}
       onFocus={() => node.userInteraction("focusGained")}
       onBlur={() => node.userInteraction("focusLost")}
     />
@@ -118,12 +113,13 @@ const TextFieldRenderer: MilanoRenderer = ({ node }) => {
 };
 
 const NumberFieldRenderer: MilanoRenderer = ({ node }) => {
-  if (!flag(node, "visible", true)) return null;
+  const field = new SampleNumberFieldNode(node);
+  if (field.visible === false) return null;
   return (
     <LabeledNumberField
-      label={text(node, "label")}
-      value={node.property("value").numberValue ?? 0}
-      onChange={(value) => node.emit("change", MilanoValue.double(value))}
+      label={field.label}
+      value={field.value}
+      onChange={(value) => field.emitChange(value)}
       onFocus={() => node.userInteraction("focusGained")}
       onBlur={() => node.userInteraction("focusLost")}
     />
@@ -131,18 +127,20 @@ const NumberFieldRenderer: MilanoRenderer = ({ node }) => {
 };
 
 const CheckboxRenderer: MilanoRenderer = ({ node }) => {
-  if (!flag(node, "visible", true)) return null;
+  const checkbox = new SampleCheckboxNode(node);
+  if (checkbox.visible === false) return null;
   return (
     <LabeledToggle
-      label={text(node, "label")}
-      checked={flag(node, "checked", false)}
-      onChange={(checked) => node.emit("change", MilanoValue.bool(checked))}
+      label={checkbox.label}
+      checked={checkbox.checked}
+      onChange={(checked) => checkbox.emitChange(checked)}
     />
   );
 };
 
 const BannerRenderer: MilanoRenderer = ({ node }) => {
-  const visible = flag(node, "visible", true);
+  const banner = new SampleBannerNode(node);
+  const visible = banner.visible !== false;
   // The impression, for banner analytics: reported once, when the banner
   // first appears. The node object is fresh after every re-resolution, so
   // the effect keys on the node's reference; keying on the node itself
@@ -157,43 +155,49 @@ const BannerRenderer: MilanoRenderer = ({ node }) => {
     if (visible) current.current.userInteraction("appeared");
   }, [reference, visible]);
   if (!visible) return null;
-  const layout = member<BannerLayout>(node, "layout", "overlay");
+  const layout = banner.layout ?? "overlay";
   return (
     <BannerView
       layout={layout}
-      imageUrl={optionalText(node, "backgroundImageUrl")}
-      height={integer(node, "height", layout === "card" ? 170 : 260)}
-      contentAlignment={member<BannerAlignment>(node, "contentAlignment", "bottomLeading")}
-      showScrim={flag(node, "showScrim", true)}
-      cornerRadius={integer(node, "cornerRadius", 16)}
+      imageUrl={orUndefined(banner.backgroundImageUrl)}
+      height={pixels(banner.height, layout === "card" ? 170 : 260)}
+      contentAlignment={banner.contentAlignment ?? "bottomLeading"}
+      showScrim={banner.showScrim ?? true}
+      cornerRadius={pixels(banner.cornerRadius, 16)}
     >
       {node.children}
     </BannerView>
   );
 };
 
-const CardRenderer: MilanoRenderer = ({ node }) => (
-  <SurfaceCard
-    cornerRadius={integer(node, "cornerRadius", 12)}
-    padding={integer(node, "padding", 12)}
-    accessibilityLabel={optionalText(node, "accessibilityLabel")}
-    accessibilityHint={optionalText(node, "accessibilityHint")}
-    onPress={() => node.emit("tap")}
-  >
-    {node.children}
-  </SurfaceCard>
-);
+const CardRenderer: MilanoRenderer = ({ node }) => {
+  const card = new SampleCardNode(node);
+  return (
+    <SurfaceCard
+      cornerRadius={pixels(card.cornerRadius, 12)}
+      padding={pixels(card.padding, 12)}
+      accessibilityLabel={orUndefined(card.accessibilityLabel)}
+      accessibilityHint={orUndefined(card.accessibilityHint)}
+      onPress={() => card.emitTap()}
+    >
+      {node.children}
+    </SurfaceCard>
+  );
+};
 
-const ImageRenderer: MilanoRenderer = ({ node }) => (
-  <RemoteImage
-    url={text(node, "url")}
-    width={optionalInteger(node, "width")}
-    height={optionalInteger(node, "height")}
-    cornerRadius={integer(node, "cornerRadius", 0)}
-    contentDescription={optionalText(node, "contentDescription")}
-    decorative={flag(node, "decorative", false)}
-  />
-);
+const ImageRenderer: MilanoRenderer = ({ node }) => {
+  const image = new SampleImageNode(node);
+  return (
+    <RemoteImage
+      url={image.url}
+      width={image.width === null ? undefined : Number(image.width)}
+      height={image.height === null ? undefined : Number(image.height)}
+      cornerRadius={pixels(image.cornerRadius, 0)}
+      contentDescription={orUndefined(image.contentDescription)}
+      decorative={image.decorative ?? false}
+    />
+  );
+};
 
 /**
  * Unknown types under the `placeholder` policy arrive here as data, never
