@@ -4,5 +4,5 @@
  * Kotlin engines do.
  */
 export const MilanoInfo = {
-  version: "1.1.1",
+  version: "0.0.0-dev",
 } as const;

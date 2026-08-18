@@ -56,6 +56,7 @@ export interface ViewOptions {
  */
 export class MilanoView {
   readonly identity: string;
+  /** @internal The parsed document; the view's own business. */
   readonly document: ParsedDocument;
   private readonly runtime: ViewRuntime;
 
@@ -86,6 +87,7 @@ export class MilanoView {
    */
   private readonly records: DispatchRecord[] = [];
 
+  /** @internal Views are created by the builder, never by hosts. */
   constructor(options: ViewOptions) {
     this.identity = options.identity;
     this.runtime = options.runtime;
