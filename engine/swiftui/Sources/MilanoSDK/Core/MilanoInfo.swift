@@ -5,5 +5,5 @@
 public enum MilanoInfo {
     /// The engine implementation version. The Milano contract version this engine
     /// supports is declared by the gate.
-    public static let version = "0.0.0-dev"
+    public static let version = "1.1.2"
 }
