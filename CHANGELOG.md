@@ -9,6 +9,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [semantic versioning](https://semver.org): within a
 major, documents, vocabularies, and integrations keep working.
 
+## 1.2.1
+
+### Fixed
+
+- **Both packages export their own `package.json`.** An `exports` map is a
+  closed list, and this subpath was not on it, so a tool reading the
+  manifest of an installed Milano package (a version probe, a bundler
+  plugin, a documentation generator) failed with
+  `ERR_PACKAGE_PATH_NOT_EXPORTED` rather than getting the file, which was
+  in the tarball all along. Additive: nothing that worked before changes.
+
 ## 1.2.0
 
 ### Added

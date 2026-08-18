@@ -7,10 +7,33 @@
 //
 // Idempotent, and it fails loudly if a file changed shape, so a silent
 // half-stamped publish is impossible.
+//
+// CI-only. release.yml runs this in a runner that builds, tests, and
+// publishes, then is discarded; the stamp never reaches main. Run by hand,
+// it does the same edit to your working tree, and the result looks
+// identical to a passing commit until check-consistency.mjs notices
+// info.ts carries a real version instead of the development placeholder
+// (this happened twice: once from the original run, once from someone
+// re-running it after the first fix). Set MILANO_ALLOW_LOCAL_STAMP=1 to
+// stamp locally anyway, e.g. to inspect the output before a release.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+if (process.env.CI !== "true" && process.env.MILANO_ALLOW_LOCAL_STAMP !== "1") {
+  console.error(
+    "stamp-version.mjs is meant to run inside release.yml's CI runner, not locally.\n" +
+      "Running it here edits your working tree the same way, and the stamp will\n" +
+      "look like a normal commit until check-consistency.mjs flags info.ts as\n" +
+      "carrying a real version instead of the development placeholder.\n\n" +
+      "To bump a released version, edit VERSION by hand and run\n" +
+      "check-consistency.mjs to find everything else that needs updating.\n\n" +
+      "To run this anyway (e.g. to inspect the stamped output before a release),\n" +
+      "set MILANO_ALLOW_LOCAL_STAMP=1.",
+  );
+  process.exit(1);
+}
 
 const version = process.argv[2];
 if (version === undefined || !/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) {

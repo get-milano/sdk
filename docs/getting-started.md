@@ -17,7 +17,7 @@ A tagged release resolves to a prebuilt, signed `MilanoSDK.xcframework`, integri
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/get-milano/sdk.git", from: "1.2.0")
+    .package(url: "https://github.com/get-milano/sdk.git", from: "1.2.1")
 ]
 ```
 
@@ -45,7 +45,7 @@ repositories {
     }
 }
 dependencies {
-    implementation("dev.get-milano:engine-compose:1.2.0")
+    implementation("dev.get-milano:engine-compose:1.2.1")
 }
 ```
 

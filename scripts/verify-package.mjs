@@ -90,6 +90,16 @@ const react = require("@get-milano/react");
 assert.equal(typeof core.MilanoEngine, "function");
 assert.equal(core.MilanoValue.string("x").stringValue, "x");
 assert.equal(typeof react.MilanoHost, "function");
+
+// An exports map is a closed list: anything it does not name is
+// unreachable, and the manifest is the subpath tools reach for most
+// (version probes, bundler plugins, doc generators). It went unlisted
+// through 1.2.0, where reading it threw ERR_PACKAGE_PATH_NOT_EXPORTED.
+for (const name of ["@get-milano/core", "@get-milano/react"]) {
+  const manifest = require(name + "/package.json");
+  assert.equal(manifest.name, name);
+  assert.ok(manifest.version, name + " has no version");
+}
 console.log("cjs ok");
 `,
   );

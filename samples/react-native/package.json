@@ -1,6 +1,6 @@
 {
   "name": "milano-sample-react-native",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "The Milano sample app for React Native: the same documents the SwiftUI and Compose samples render, through the same contract.",
   "license": "Apache-2.0",
