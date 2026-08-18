@@ -207,10 +207,17 @@ final class MilanoViewCore: @unchecked Sendable {
         queue.append(work)
         guard !processing else { return }
         processing = true
+        // The queue is released on every exit from the drain, matching the
+        // Kotlin and TypeScript engines. Swift's non-throwing closures make
+        // a non-local exit unreachable here today; the guarantee should not
+        // depend on that.
+        defer {
+            queue.removeAll()
+            processing = false
+        }
         while !queue.isEmpty {
             queue.removeFirst()()
         }
-        processing = false
     }
 
     private func execute(

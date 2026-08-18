@@ -28,6 +28,43 @@ jobs:
           brew install swiftlint
           swiftlint --strict
 
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: get-milano/specs
+          path: .specs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci
+      # The sample typechecks against the packages' published shape, so the
+      # packages are built before anything is checked.
+      - name: Build the packages
+        run: npm run build
+      - name: Types (strict, packages and sample)
+        run: npm run typecheck
+      - name: Tests (conformance suite included)
+        run: npm test
+
+  docs:
+    # The guides, built the way Pages builds them. Catches Liquid and theme
+    # breakage on the pull request rather than at release, when the same
+    # site is rebuilt with the generated API reference dropped in.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: docs
+      - name: Build the docs site
+        working-directory: docs
+        run: bundle exec jekyll build --destination ../_site --baseurl /sdk
+
   kotlin:
     runs-on: ubuntu-latest
     steps:

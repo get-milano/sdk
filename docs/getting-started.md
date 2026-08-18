@@ -17,7 +17,7 @@ A tagged release resolves to a prebuilt, signed `MilanoSDK.xcframework`, integri
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/get-milano/sdk.git", from: "1.0.0")
+    .package(url: "https://github.com/get-milano/sdk.git", from: "1.1.0")
 ]
 ```
 
@@ -45,7 +45,7 @@ repositories {
     }
 }
 dependencies {
-    implementation("dev.get-milano:engine-compose:1.0.0")
+    implementation("dev.get-milano:engine-compose:1.1.0")
 }
 ```
 
@@ -57,9 +57,21 @@ Or build from source, as a composite build in `settings.gradle.kts`:
 includeBuild("path/to/sdk/engine/compose")
 ```
 
+### React and React Native
+
+```sh
+npm install @get-milano/react @get-milano/core
+```
+
+Two packages, the same two on every platform. `@get-milano/core` is the engine and has zero dependencies; `@get-milano/react` is the binding and imports only `react`, so the same renderer surface serves the web and React Native.
+
+There is **no React Native package and no native code**: no autolinking, no config plugin, nothing to run before `npm install`. Milano draws nothing, so nothing about it is platform-specific; your renderers use `View` and `Text` on React Native and DOM elements on the web. The sample app runs on React Native 0.85 with the new architecture and React 19; on the web, React 18 or newer.
+
+One rule applies from the first line: **load documents and vocabularies as text**, never through `import doc from "./doc.json"`. Milano distinguishes `int` from `double` and `JSON.parse` does not, so the engine brings its own JSON reader; text is also the shape a content service hands you.
+
 ## One view first: the quick path
 
-Before wiring the full architecture, render something with a single view. `MilanoHost` has a quick overload that takes the raw document and vocabulary (bytes on Swift, strings on Kotlin) plus a renderer map, and creates the engine, registry, and builder inside; declared state is synthesized as zero-values, and both engine and build failures land in your failure content:
+Before wiring the full architecture, render something with a single view. `MilanoHost` has a quick overload that takes the raw document and vocabulary (bytes on Swift, strings on Kotlin and TypeScript) plus a renderer map, and creates the engine, registry, and builder inside; declared state is synthesized as zero-values, and both engine and build failures land in your failure content:
 
 ```swift
 MilanoHost(
@@ -93,7 +105,26 @@ MilanoHost(
 )
 ```
 
-Both sample apps ship a **Quick start** screen built exactly this way: inline vocabulary, inline document, one renderer, zero setup. Use the quick path for a first integration or a simple embed; for real apps, share one engine across screens and use the builder, which is everything below.
+{% raw %}
+```tsx
+<MilanoQuickHost
+  document={documentText}
+  vocabulary={vocabularyText}
+  renderers={{ Greeting }}
+  context={{ userName: MilanoValue.string("Ada") }}
+  onAction={(action) => {
+    console.log(`dispatched ${action.name}`);
+    return null; // the completion result, for actions that declare one
+  }}
+  loading={<ActivityIndicator />}
+  failure={(error) => <Text>{String(error)}</Text>}
+/>
+```
+{% endraw %}
+
+Everything `MilanoQuickHost` receives must be stable across renders (module scope or `useMemo`): a new document, vocabulary, or renderer map means a new build.
+
+All three sample apps ship a **Quick start** screen built exactly this way: inline vocabulary, inline document, one renderer, zero setup. Use the quick path for a first integration or a simple embed; for real apps, share one engine across screens and use the builder, which is everything below.
 
 ## Render a first document
 
@@ -210,7 +241,43 @@ fun PromoScreen() {
 }
 ```
 
-The dispatcher defaults to the platform main thread on both engines (Android's default is `MilanoMainDispatcher()`), so events and view updates serialize on the main thread without configuration; pass a dispatcher only to override the seam.
+### React and React Native
+
+```tsx
+import { MilanoEngine, MilanoValue } from "@get-milano/core";
+import { createMilanoRegistry, MilanoHost } from "@get-milano/react";
+import type { MilanoNodeProps } from "@get-milano/react";
+import { Pressable, Text } from "react-native";
+
+function Greeting({ node }: MilanoNodeProps) {
+  return (
+    <Pressable accessibilityRole="button" onPress={() => node.emit("tap")}>
+      <Text>{node.property("text").stringValue ?? ""}</Text>
+    </Pressable>
+  );
+}
+
+const registry = createMilanoRegistry();
+registry.register("Greeting", Greeting);
+
+const engine = new MilanoEngine({ vocabularyJson: vocabularyText, registry });
+
+const builder = engine
+  .viewBuilder(documentText)
+  .context({ userName: MilanoValue.string("Ada") })
+  .actionHandler((action) => {
+    if (action.name === "openUrl") { /* route to your URL opener */ }
+    return null;
+  });
+
+export function PromoScreen() {
+  return <MilanoHost builder={builder} loading={<ActivityIndicator />} failure={() => null} />;
+}
+```
+
+On the web, the same imports and the same code, with DOM elements in the renderer instead of `Pressable` and `Text`. `MilanoHost` subscribes through `useSyncExternalStore` and tears the view down when it unmounts; keep the builder stable across renders, because a new builder means a new build.
+
+The dispatcher defaults to the platform main thread on the Swift and Kotlin engines (Android's default is `MilanoMainDispatcher()`), so events and view updates serialize on the main thread without configuration; pass a dispatcher only to override the seam. The TypeScript engine inherits JavaScript's single-threaded model and serializes on the host's event loop.
 
 The action handler's return value is the **completion result**. Returning normally completes the action with success; throwing completes it with failure. If the action's declaration includes a `result` type, return the value the document should get back (it binds the `result` expression root inside the action's `onSuccess` list); for every other action, return `nil`/`null`. The [contact form sample](samples) returns a confirmation number from `submitContact`, and the document shows it in the thank-you line, all without host UI code.
 
@@ -222,4 +289,4 @@ Unknown component types **fail the build by default**: a document using a type y
 
 ## Working samples
 
-The repository contains two complete sample apps, `samples/swiftui` (Tuist project) and `samples/compose`, demonstrating banners with three layouts, an interstitial, a Milano view embedded between native components, a form with conditional visibility, required markers, and expression-driven errors, a screen that merges app-wide and per-screen context from a live API, a whole user-profile screen, and a catalog of tappable item cards. See them side by side, with screenshots from both platforms, in [Samples](samples); they follow the architecture described in [Guidelines](guidelines).
+The repository contains three complete sample apps, `samples/swiftui` (Tuist project), `samples/compose`, and `samples/react-native` (Expo), demonstrating banners with three layouts, an interstitial, a Milano view embedded between native components, a form with conditional visibility, required markers, and expression-driven errors, a screen that merges app-wide and per-screen context from a live API, a whole user-profile screen, and a catalog of tappable item cards. See them side by side, with screenshots, in [Samples](samples); they follow the architecture described in [Guidelines](guidelines).

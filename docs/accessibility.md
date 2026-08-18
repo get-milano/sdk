@@ -17,18 +17,18 @@ Three consequences worth internalizing before the how-to:
 
 Declare a semantic, optional property; map it in the renderer; let documents fill it in when the default is not enough. The sample vocabulary ships a complete worked set:
 
-| Property | On | Type | SwiftUI mapping | Compose mapping |
-|---|---|---|---|---|
-| `contentDescription` | `Image` | `string?` | `.accessibilityLabel(_:)` | `AsyncImage(contentDescription:)` |
-| `decorative` | `Image` | `bool?` | `.accessibilityHidden(true)` | `contentDescription = null` |
-| `accessibilityLabel` | `Card` | `string?` | `.accessibilityElement(children: .ignore)` + `.accessibilityLabel(_:)` | `semantics(mergeDescendants = true) { contentDescription = label }` |
-| `accessibilityHint` | `Card` | `string?` | `.accessibilityHint(_:)` | `clickable(onClickLabel = hint)` |
-| `liveRegion` | `Text` | `{"enum": ["polite", "assertive"], "optional": true}` | announcement on change (see below) | `semantics { liveRegion = Polite / Assertive }` |
+| Property | On | Type | SwiftUI mapping | Compose mapping | React Native mapping |
+|---|---|---|---|---|---|
+| `contentDescription` | `Image` | `string?` | `.accessibilityLabel(_:)` | `AsyncImage(contentDescription:)` | `accessibilityLabel` |
+| `decorative` | `Image` | `bool?` | `.accessibilityHidden(true)` | `contentDescription = null` | `accessible={false}` + `importantForAccessibility="no-hide-descendants"` |
+| `accessibilityLabel` | `Card` | `string?` | `.accessibilityElement(children: .ignore)` + `.accessibilityLabel(_:)` | `semantics(mergeDescendants = true) { contentDescription = label }` | `accessibilityLabel` on the `Pressable` |
+| `accessibilityHint` | `Card` | `string?` | `.accessibilityHint(_:)` | `clickable(onClickLabel = hint)` | `accessibilityHint` |
+| `liveRegion` | `Text` | `{"enum": ["polite", "assertive"], "optional": true}` | announcement on change (see below) | `semantics { liveRegion = Polite / Assertive }` | `accessibilityLiveRegion` |
 
 Two mappings need no property at all, because the semantic information is already in the vocabulary:
 
-- **Headings.** `Text.role: "title"` maps to a heading trait (`.accessibilityAddTraits(.isHeader)` / `semantics { heading() }`) as well as a font. One declaration, two consumers.
-- **Tappable cards.** `Card` declares a `tap` event, so its renderers mark it as one activatable button (`.isButton` trait / `clickable(role = Role.Button)`), and the label collapses the children into a single, sensible announcement.
+- **Headings.** `Text.role: "title"` maps to a heading trait (`.accessibilityAddTraits(.isHeader)` / `semantics { heading() }` / `accessibilityRole="header"`) as well as a font. One declaration, two consumers.
+- **Tappable cards.** `Card` declares a `tap` event, so its renderers mark it as one activatable button (`.isButton` trait / `clickable(role = Role.Button)` / `accessibilityRole="button"`), and the label collapses the children into a single, sensible announcement.
 
 ## Worked examples in the samples
 
@@ -52,10 +52,11 @@ The profile's computed summary and the contact form's thank-you line declare `"l
 
 ## Platform honesty
 
-The two platforms are not identical, and the mapping table should never pretend they are:
+The platforms are not identical, and the mapping table should never pretend they are:
 
-- **Live regions**: Compose has them natively (`LiveRegionMode`). SwiftUI does not; the sample's `StyledText` approximates by posting an accessibility announcement when the text changes. Same document, same intent, best-available mechanics on each platform. `assertive` on iOS currently behaves like `polite`; if interruption matters to your product, handle it in your design system.
-- **Hints**: SwiftUI has a dedicated hint slot; Compose's idiom is the click action's spoken label (`onClickLabel`). Both read naturally; the wording that works for "double-tap to..." phrasing works for both.
+- **Live regions**: Compose has them natively (`LiveRegionMode`), and React Native exposes `accessibilityLiveRegion` (Android's mechanism; on iOS it is advisory). SwiftUI does not; the sample's `StyledText` approximates by posting an accessibility announcement when the text changes. Same document, same intent, best-available mechanics on each platform. `assertive` on iOS currently behaves like `polite`; if interruption matters to your product, handle it in your design system.
+- **Hints**: SwiftUI and React Native have a dedicated hint slot; Compose's idiom is the click action's spoken label (`onClickLabel`). All read naturally; the wording that works for "double-tap to..." phrasing works everywhere.
+- **Decorative images**: iOS and Android each need their own opt-out, and React Native needs both (`accessible={false}` covers VoiceOver, `importantForAccessibility` covers TalkBack). The sample's `RemoteImage` sets both from one declared `decorative` flag.
 
 ## Guidance for your own vocabulary
 
