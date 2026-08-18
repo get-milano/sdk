@@ -41,7 +41,7 @@ From source (works on any ref, no credentials), in `settings.gradle.kts`:
 includeBuild("path/to/sdk/engine/compose")
 ```
 
-then depend on `dev.get-milano:engine-compose:1.2.0`; the composite build substitutes it. Your build's Gradle drives the engine's, so this path needs **Gradle 9.6 or newer** (the engine builds with AGP 9, which does not run on older Gradle). Consuming the published artifact has no such requirement. On tagged releases the same coordinate is published to GitHub Packages Maven (note: GitHub Packages requires an authenticated Gradle repository even for public packages).
+then depend on `dev.get-milano:engine-compose:1.2.1`; the composite build substitutes it. Your build's Gradle drives the engine's, so this path needs **Gradle 9.6 or newer** (the engine builds with AGP 9, which does not run on older Gradle). Consuming the published artifact has no such requirement. On tagged releases the same coordinate is published to GitHub Packages Maven (note: GitHub Packages requires an authenticated Gradle repository even for public packages).
 
 ```kotlin
 val engine = MilanoEngine(

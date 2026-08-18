@@ -1,6 +1,6 @@
 {
   "name": "@get-milano/core",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Milano Document-Driven UI: the contract engine in TypeScript. Documents in, resolved trees out, validated by a strict gate. No UI toolkit, no dependencies.",
   "license": "Apache-2.0",
   "author": "Ezequiel (kimi) Aceto <ezequiel.aceto@gmail.com> (https://kimi.blog)",
@@ -17,7 +17,8 @@
       "types": "./dist/types/index.d.ts",
       "import": "./dist/esm/index.js",
       "require": "./dist/cjs/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",

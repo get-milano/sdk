@@ -33,7 +33,7 @@ let project = Project(
                 // The three sample apps carry the SDK's version, so a
                 // screenshot or a TestFlight build says which release it
                 // demonstrates. Checked by scripts/check-consistency.mjs.
-                "CFBundleShortVersionString": "1.2.0"
+                "CFBundleShortVersionString": "1.2.1"
             ]),
             sources: ["Sources/**"],
             resources: ["Resources/**"],
