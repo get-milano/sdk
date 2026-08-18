@@ -58,6 +58,10 @@ const values = payload.recordValue ?? {};
 
 Milano is not server-driven UI (it never talks to a server), not a SaaS (nothing hosted), and not a design system (it draws nothing). Your components draw every pixel; documents only decide structure and behavior.
 
+## Changes
+
+[CHANGELOG](https://github.com/get-milano/sdk/blob/main/CHANGELOG.md), which records what changed for consumers in each release.
+
 ## License
 
 [Apache-2.0](https://github.com/get-milano/sdk/blob/main/LICENSE). Redistributions must retain the attribution in [NOTICE](https://github.com/get-milano/sdk/blob/main/NOTICE).

@@ -7,7 +7,7 @@ nav_order: 1
 
 Rendering a document takes five pieces: a **vocabulary** (the JSON artifact declaring which component types and actions exist), **renderers** (your code, one per component type), an **engine** (holds vocabulary, registry, policy, and limits), a **builder** (per document, injects context, state data, and the action handler), and a **host** (shows a loading view, then the built view or the failure).
 
-To try vocabularies, documents, and expressions before installing anything, open the [Playground](https://get-milano.dev/playground/): it validates and renders in the browser against the live specification.
+To try vocabularies, documents, and expressions before installing anything, open the [Playground](https://get-milano.dev/playground/): it runs this very engine (`@get-milano/core` from npm) in the browser, so a document that builds there builds in your app, and one that fails shows the same typed error.
 
 ## Install
 
@@ -17,7 +17,7 @@ A tagged release resolves to a prebuilt, signed `MilanoSDK.xcframework`, integri
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/get-milano/sdk.git", from: "1.1.2")
+    .package(url: "https://github.com/get-milano/sdk.git", from: "1.2.0")
 ]
 ```
 
@@ -45,7 +45,7 @@ repositories {
     }
 }
 dependencies {
-    implementation("dev.get-milano:engine-compose:1.1.2")
+    implementation("dev.get-milano:engine-compose:1.2.0")
 }
 ```
 
@@ -67,7 +67,11 @@ npm install @get-milano/react @get-milano/core
 
 Two packages, the same two on every platform. `@get-milano/core` is the engine and has zero dependencies; `@get-milano/react` is the binding and imports only `react`, so the same renderer surface serves the web and React Native.
 
-There is **no React Native package and no native code**: no autolinking, no config plugin, nothing to run before `npm install`. Milano draws nothing, so nothing about it is platform-specific; your renderers use `View` and `Text` on React Native and DOM elements on the web. The sample app runs on React Native 0.85 with the new architecture and React 19; on the web, React 18 or newer.
+There is **no React Native package and no native code**: no autolinking, no config plugin, nothing to run before `npm install`. Milano draws nothing, so nothing about it is platform-specific; your renderers use `View` and `Text` on React Native and DOM elements on the web.
+
+The supported range is wide because the surface is small. The binding uses `createElement` and five hooks, one of which is `useSyncExternalStore`, so the floor is **React 18** and there is no ceiling; CI mounts the packed package on each supported React major, so the range is tested rather than asserted. On React Native the supported floor is **0.85** with the new architecture, which is what the sample app runs. Older React Natives are likely to work, since nothing here touches a React Native API, but they are untested and not a promise.
+
+React Native does impose one rule on your app, though not through Milano: **pin `react` to the exact version your `react-native` declares**, because React Native bundles a renderer compiled against one exact React build and React will not start against any other. `"react": "19.2.3"` next to `"react-native": "^0.85.3"`, never `"^19.2.3"`, and any test renderer pinned to that same exact version. A floating range resolves one patch ahead as soon as one ships, and the app fails at startup with `Incompatible React versions`.
 
 One rule applies from the first line: **load documents and vocabularies as text**, never through `import doc from "./doc.json"`. Milano distinguishes `int` from `double` and `JSON.parse` does not, so the engine brings its own JSON reader; text is also the shape a content service hands you.
 

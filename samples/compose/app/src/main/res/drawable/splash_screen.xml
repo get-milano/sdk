@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The pre-Android-12 launch screen: the window background is the only
+  thing drawn before the first frame, so the mark is centred on it. From
+  API 31 the system composes its own splash from android:icon instead,
+  which is the same mark, so the two look alike either way.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_background" />
+    <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@drawable/splash_logo" />
+    </item>
+</layer-list>

@@ -29,6 +29,8 @@ export interface Palette {
   readonly text: string;
   readonly secondaryText: string;
   readonly accent: string;
+  /** A tinted surface for accented rows; SwiftUI tints indigo, Compose uses secondaryContainer. */
+  readonly accentContainer: string;
   readonly onAccent: string;
   readonly disabled: string;
   readonly danger: string;
@@ -40,6 +42,7 @@ const light: Palette = {
   text: "#11111C",
   secondaryText: "#6E6E7A",
   accent: "#4B3BD8",
+  accentContainer: "rgba(75,59,216,0.12)",
   onAccent: "#FFFFFF",
   disabled: "#C7C7CF",
   danger: "#C4293B",
@@ -51,6 +54,7 @@ const dark: Palette = {
   text: "#F4F4F8",
   secondaryText: "#9A9AA8",
   accent: "#9C8CFF",
+  accentContainer: "rgba(156,140,255,0.18)",
   onAccent: "#14141F",
   disabled: "#3A3A48",
   danger: "#FF7A88",
@@ -73,6 +77,7 @@ const onScrim: Palette = {
   ...dark,
   background: "transparent",
   surface: "rgba(255,255,255,0.16)",
+  accentContainer: "rgba(255,255,255,0.16)",
   text: "#FFFFFF",
   secondaryText: "rgba(255,255,255,0.85)",
 };
@@ -367,48 +372,71 @@ export function BannerView({
   children,
 }: BannerProps): ReactNode {
   const palette = usePalette();
-  const alignment = alignments[contentAlignment];
-  if (layout === "strip") {
-    return (
-      <View
-        style={[
-          styles.strip,
-          { backgroundColor: palette.surface, borderRadius: cornerRadius },
-        ]}
-      >
-        {imageUrl === undefined ? null : (
-          <Image source={{ uri: imageUrl }} style={styles.stripImage} />
-        )}
-        <View style={styles.stripContent}>{children}</View>
-      </View>
-    );
+
+  // Exhaustive on purpose. This was a chain of `if`s falling through to
+  // the overlay, and `strip` was never handled: a strip document silently
+  // drew as a full-height photo banner, wrong but not broken, so nothing
+  // failed. A missing case is now a type error at the `never` below.
+  switch (layout) {
+    // Card: the image on top, the content below it on a surface. The same
+    // idiom SwiftUI and Compose use for this layout, so the one document
+    // reads the same way on all three.
+    case "card":
+      return (
+        <View
+          style={[styles.card, { backgroundColor: palette.surface, borderRadius: cornerRadius }]}
+        >
+          {imageUrl === undefined ? null : (
+            <Image source={{ uri: imageUrl }} style={{ height }} resizeMode="cover" />
+          )}
+          <View style={styles.cardContent}>{children}</View>
+        </View>
+      );
+
+    // Strip: a slim, imageless announcement row on a tinted surface. It
+    // ignores the image and the scrim in every sample, so a document that
+    // sets them still reads as a strip.
+    case "strip":
+      return (
+        <View
+          style={[
+            styles.strip,
+            { backgroundColor: palette.accentContainer, borderRadius: cornerRadius },
+          ]}
+        >
+          {children}
+        </View>
+      );
+
+    // Overlay: content over the image, on a scrim that keeps it readable.
+    case "overlay":
+      return (
+        <View
+          style={[
+            styles.banner,
+            { height, borderRadius: cornerRadius, backgroundColor: palette.surface },
+          ]}
+        >
+          {imageUrl === undefined ? null : (
+            <Image source={{ uri: imageUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          )}
+          {showScrim ? (
+            <LinearGradient
+              colors={["transparent", "rgba(0,0,0,0.65)"]}
+              style={StyleSheet.absoluteFill}
+            />
+          ) : null}
+          <View style={[styles.bannerContent, alignments[contentAlignment]]}>
+            <OnScrim>{children}</OnScrim>
+          </View>
+        </View>
+      );
+
+    default: {
+      const unhandled: never = layout;
+      throw new Error(`unhandled banner layout: ${String(unhandled)}`);
+    }
   }
-  return (
-    <View
-      style={[
-        styles.banner,
-        {
-          height,
-          borderRadius: cornerRadius,
-          backgroundColor: palette.surface,
-          margin: layout === "card" ? 16 : 0,
-        },
-      ]}
-    >
-      {imageUrl === undefined ? null : (
-        <Image source={{ uri: imageUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-      )}
-      {showScrim ? (
-        <LinearGradient
-          colors={["transparent", "rgba(0,0,0,0.65)"]}
-          style={StyleSheet.absoluteFill}
-        />
-      ) : null}
-      <View style={[styles.bannerContent, alignment]}>
-        <OnScrim>{children}</OnScrim>
-      </View>
-    </View>
-  );
 }
 
 export interface SurfaceCardProps {
@@ -563,11 +591,13 @@ const styles = StyleSheet.create({
   fieldLabel: { fontSize: 13 },
   input: { borderRadius: 10, borderWidth: 1, fontSize: 16, padding: 12 },
   toggleRow: { alignItems: "center", flexDirection: "row", gap: 12 },
-  banner: { overflow: "hidden" },
+  banner: { margin: 16, overflow: "hidden" },
+  card: { margin: 16, overflow: "hidden" },
+  cardContent: { gap: 8, padding: 16 },
   bannerContent: { flex: 1, gap: 8, padding: 16 },
-  strip: { alignItems: "center", flexDirection: "row", gap: 12, margin: 16, padding: 12 },
-  stripImage: { borderRadius: 8, height: 48, width: 48 },
-  stripContent: { flex: 1, gap: 4 },
+  // 12 of gap and 14 of padding, the same numbers the SwiftUI and Compose
+  // strips use, so the row has the same weight on all three.
+  strip: { alignItems: "center", flexDirection: "row", gap: 12, margin: 16, padding: 14 },
   nativeCard: { borderRadius: 16, gap: 4, margin: 16, padding: 16 },
   carousel: { gap: 12, paddingHorizontal: 16 },
   carouselItem: {

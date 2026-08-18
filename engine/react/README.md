@@ -14,7 +14,18 @@ Documentation: [get-milano.dev/sdk](https://get-milano.dev/sdk/).
 npm install @get-milano/react @get-milano/core
 ```
 
-React 18 or newer (peer). On React Native, 0.85 with the new architecture and React 19 is what the sample app runs; nothing here uses a React Native API, so older versions are a support statement rather than a technical bound.
+React 18 or newer (peer). The floor is technical rather than nominal: the binding subscribes to the engine through `useSyncExternalStore`, which React 18 introduced. Above it there is no upper bound, because the whole React surface used here is `createElement` and five hooks.
+
+On React Native the supported floor is **0.85**, on the new architecture, which is what the sample app runs and what CI exercises. Nothing in this package imports a React Native API, or any renderer's API, so older releases are likely to work as far back as React 18 arrived; they are simply not tested, and not a promise.
+
+One rule your app has to follow, and it is React Native's rule rather than ours: **pin `react` to the exact version your `react-native` declares.** React Native bundles a renderer compiled against one exact React build, and React refuses to start against any other, down to the patch:
+
+```jsonc
+"react": "19.2.3",          // exactly what react-native asks for, no range
+"react-native": "^0.85.3"
+```
+
+A range like `^19.2.3` resolves a patch ahead the moment one is published, and the app dies at startup with `Incompatible React versions`. Test renderers count as well: `react-test-renderer` carries a peer range of its own and will drag `react` forward if you let it float, so give it the same exact version.
 
 ## A renderer
 
@@ -95,6 +106,10 @@ Renderers report widget signals the document does not model as events, and they 
 ```
 
 Milano implements no tracker: records arrive unredacted and the host decides what to keep.
+
+## Changes
+
+[CHANGELOG](https://github.com/get-milano/sdk/blob/main/CHANGELOG.md), which records what changed for consumers in each release.
 
 ## License
 

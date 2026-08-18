@@ -45,7 +45,8 @@ From 1.0.0 the SDK follows semantic versioning: within a major version, releases
 9. [Guardrails](guardrails): errors, policies, limits, and observability.
 10. [Performance](performance): measured baselines, threading model, and working budgets.
 11. [Accessibility](accessibility): assistive-technology semantics as vocabulary design, with the sample mappings for each platform.
-12. [User interaction analytics](analytics): the engine-captured interaction stream (impressions, taps, dispatches, outcomes) plus renderer-reported widget signals, delivered to one host sink.
+12. [Coverage](coverage): how much of each engine its tests reach, regenerated on every docs build.
+13. [User interaction analytics](analytics): the engine-captured interaction stream (impressions, taps, dispatches, outcomes) plus renderer-reported widget signals, delivered to one host sink.
 
 ## License
 

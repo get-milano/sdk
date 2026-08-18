@@ -1,6 +1,6 @@
 {
   "name": "@get-milano/core",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Milano Document-Driven UI: the contract engine in TypeScript. Documents in, resolved trees out, validated by a strict gate. No UI toolkit, no dependencies.",
   "license": "Apache-2.0",
   "author": "Ezequiel (kimi) Aceto <ezequiel.aceto@gmail.com> (https://kimi.blog)",
@@ -33,10 +33,11 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test \"test/**/*.test.ts\"",
+    "test": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=95 --test-coverage-branches=90 \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.cjs.json && node scripts/build.mjs",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "benchmark": "node test/performance.bench.ts"
   },
   "keywords": [
     "milano",

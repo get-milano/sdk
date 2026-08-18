@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Applied to the launcher activity only, so the mark is what shows
+      while the process starts. API 31 and up ignore windowBackground for
+      this and use the attributes in values-v31 instead.
+    -->
+    <style name="Theme.Milano.Splash" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@drawable/splash_screen</item>
+    </style>
+</resources>

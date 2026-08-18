@@ -10,7 +10,7 @@ The normative specifications and the conformance suite live in [get-milano/specs
 
 Consumer documentation lives in [`docs/`](docs/index.md), published at [get-milano.dev/sdk](https://get-milano.dev/sdk/): getting started, philosophy, guidelines, creating a bridge, writing documents, expressions, and guardrails.
 
-Try Milano without installing anything: the [Playground](https://get-milano.dev/playground/) validates and renders vocabularies and documents in the browser, with live expressions and interactive actions.
+Try Milano without installing anything: the [Playground](https://get-milano.dev/playground/) runs the published engine in the browser, with live state, expressions, dispatched actions you can complete, and both observability streams. Its source is also the worked example of the React binding.
 
 Status: stable. From 1.0.0 the SDK follows semantic versioning: within a major version, releases are additive and documents, vocabularies, and integrations keep working. The SDK implements contract v1.0 of the [Milano specs](https://github.com/get-milano/specs).
 
@@ -41,7 +41,7 @@ From source (works on any ref, no credentials), in `settings.gradle.kts`:
 includeBuild("path/to/sdk/engine/compose")
 ```
 
-then depend on `dev.get-milano:engine-compose:1.1.2`; the composite build substitutes it. Your build's Gradle drives the engine's, so this path needs **Gradle 9.6 or newer** (the engine builds with AGP 9, which does not run on older Gradle). Consuming the published artifact has no such requirement. On tagged releases the same coordinate is published to GitHub Packages Maven (note: GitHub Packages requires an authenticated Gradle repository even for public packages).
+then depend on `dev.get-milano:engine-compose:1.2.0`; the composite build substitutes it. Your build's Gradle drives the engine's, so this path needs **Gradle 9.6 or newer** (the engine builds with AGP 9, which does not run on older Gradle). Consuming the published artifact has no such requirement. On tagged releases the same coordinate is published to GitHub Packages Maven (note: GitHub Packages requires an authenticated Gradle repository even for public packages).
 
 ```kotlin
 val engine = MilanoEngine(
