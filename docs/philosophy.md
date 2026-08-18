@@ -25,11 +25,11 @@ Milano owns mechanics and stays out of appearance. What Milano fixes exactly: ex
 
 ## Two engines, one contract
 
-The SwiftUI and Compose engines are independent implementations of one specification, kept honest by a shared conformance suite of executable vectors. Neither engine is the reference; the specification is. A behavior difference between the engines is by definition a bug in at least one of them.
+The SwiftUI, Compose, and TypeScript engines are independent implementations of one specification, kept honest by a shared conformance suite of executable vectors. No engine is the reference; the specification is. A behavior difference between the engines is by definition a bug in at least one of them.
 
 ## Toolkits, not operating systems
 
-Milano targets SwiftUI and Compose, the UI toolkits, not iOS and Android, the operating systems. The SwiftUI engine runs wherever SwiftUI runs: iPhone, iPad, macOS, watchOS. The Compose engine is Kotlin Multiplatform and runs on Android and the JVM.
+Milano targets UI toolkits, not operating systems. The SwiftUI engine runs wherever SwiftUI runs: iPhone, iPad, macOS, watchOS. The Compose engine is Kotlin Multiplatform and runs on Android and the JVM. The TypeScript engine has no toolkit at all, so its React binding serves the web and React Native from the same code, and the engine itself runs anywhere JavaScript does.
 
 ## Small closed core
 

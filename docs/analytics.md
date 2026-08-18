@@ -44,6 +44,22 @@ val engine = MilanoEngine(
 )
 ```
 
+```ts
+const engine = new MilanoEngine({
+  vocabularyJson,
+  registry,
+  userInteractionObserver: {
+    interaction(interaction) {
+      tracker.log(interaction.kind, {
+        view: interaction.viewIdentity,
+        node: interaction.node ?? "",
+        name: interaction.name ?? "",
+      });
+    },
+  },
+});
+```
+
 Each `MilanoUserInteraction` carries the kind, the view identity (including the builder's `label`, your natural screen/surface dimension), the node reference when anchored to a node, the event or action name when one applies, and a value with the interaction's data.
 
 ## What arrives without doing anything else
@@ -69,15 +85,21 @@ node.userInteraction(.focusGained)
 node.userInteraction(.selectionChanged, value: .string("weekly"))
 ```
 
+```tsx
+node.userInteraction("focusGained");
+node.userInteraction("selectionChanged", MilanoValue.string("weekly"));
+```
+
 The widget kinds are a closed set: `tap`, `doubleTap`, `longPress`, `focusGained`, `focusLost`, `textChanged`, `toggled`, `selectionChanged` (segmented controls, pickers, tabs), `valueChanged` (sliders, steppers), `appeared`, `disappeared`, `scrolled`.
 
 Use them for what dispatch does not see; anything modeled as a document event already arrives as `event`, so a checkbox renderer should *not* also report `toggled` — that would double-count.
 
-The samples wire two worked examples: `LabeledTextField` reports `focusGained` / `focusLost` from its platform focus state on both platforms, and the banner renderers report `appeared` once on first display — banner impressions, for free, on every banner document ever shipped.
+The samples wire two worked examples: `LabeledTextField` reports `focusGained` / `focusLost` from its platform focus state on all three platforms, and the banner renderers report `appeared` once on first display — banner impressions, for free, on every banner document ever shipped.
 
 ## Practical notes
 
-- Records arrive on the dispatcher (main thread) for runtime-captured kinds, and on whatever thread the renderer reports from for widget kinds; hop to your tracker's queue in the sink.
+- Records arrive on the dispatcher (main thread) for runtime-captured kinds, and on whatever thread the renderer reports from for widget kinds; hop to your tracker's queue in the sink. In TypeScript everything arrives on the host's event loop.
+- In React, the node object a renderer receives is fresh after every re-resolution. Key an impression effect on `node.reference`, not on the node itself, or an impression is reported on every state change; the React Native sample's banner renderer shows the pattern.
 - The stream is high-volume by design; sampling and filtering belong in your sink, not in documents.
-- The quick-path `MilanoHost` overload does not take an interaction observer; analytics is a reason to graduate to the shared-engine architecture from [Getting started](getting-started).
-- Conformance pins the runtime-captured stream (kinds, ordering, anchoring) in the specs' vector suite, so both engines produce identical records for identical inputs.
+- The quick-path `MilanoHost` overload does not take an interaction observer on Swift and Kotlin (`MilanoQuickHost` does, in React); analytics is a reason to graduate to the shared-engine architecture from [Getting started](getting-started).
+- Conformance pins the runtime-captured stream (kinds, ordering, anchoring) in the specs' vector suite, so every engine produces identical records for identical inputs.

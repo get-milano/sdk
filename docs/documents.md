@@ -147,7 +147,7 @@ python3 tools/reference_check.py --document banner.json --vocabulary vocabulary.
 banner.json: valid against examples@1.0.0
 ```
 
-A rejected document prints the same typed error the engines would throw, and exits nonzero, so a `for` loop over your documents is a complete CI gate. Both sample apps run exactly that loop as a build step: a document the engines would reject fails the build on the developer's machine.
+A rejected document prints the same typed error the engines would throw, and exits nonzero, so a `for` loop over your documents is a complete CI gate. The SwiftUI and Compose sample apps run exactly that loop as a build step: a document the engines would reject fails the build on the developer's machine.
 
 **Validate while authoring.** `tools/generate_document_schema.py` specializes the official document schema to your vocabulary: component types become an enum, properties get typed value schemas, event names constrain `on`. Commit the output next to your documents and point your editor at it (the SDK repo's `.vscode/settings.json` maps the sample documents to their generated schemas), and typos get red squiggles before anything runs. Regenerate it in the same build step as your typed bindings so it never drifts.
 

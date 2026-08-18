@@ -1,5 +1,5 @@
 title: Milano SDK
-description: How to use the Milano SDK engines for SwiftUI and Compose, create a bridge to your design system, and write documents.
+description: How to use the Milano SDK engines for SwiftUI, Compose, and React, create a bridge to your design system, and write documents.
 logo: "/assets/img/get-milano.png"
 favicon_ico: "/favicon.ico"
 remote_theme: just-the-docs/just-the-docs

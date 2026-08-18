@@ -1,0 +1,146 @@
+{
+  "milano": "1.0.0",
+  "name": "examples",
+  "version": "1.1.0",
+  "components": {
+    "Banner": {
+      "properties": {
+        "backgroundImageUrl": "string?",
+        "layout": {
+          "enum": [
+            "overlay",
+            "card",
+            "strip"
+          ],
+          "optional": true
+        },
+        "height": "int?",
+        "contentAlignment": {
+          "enum": [
+            "topLeading",
+            "topTrailing",
+            "center",
+            "bottomLeading",
+            "bottomTrailing"
+          ],
+          "optional": true
+        },
+        "showScrim": "bool?",
+        "cornerRadius": "int?",
+        "visible": "bool?"
+      },
+      "children": true
+    },
+    "Column": {
+      "children": true
+    },
+    "Text": {
+      "properties": {
+        "text": "string",
+        "role": {
+          "enum": [
+            "title",
+            "subtitle",
+            "body"
+          ],
+          "optional": true
+        },
+        "visible": "bool?",
+        "liveRegion": {
+          "enum": [
+            "polite",
+            "assertive"
+          ],
+          "optional": true
+        }
+      }
+    },
+    "Button": {
+      "properties": {
+        "label": "string",
+        "enabled": "bool",
+        "visible": "bool?"
+      },
+      "events": {
+        "tap": null
+      }
+    },
+    "TextField": {
+      "properties": {
+        "label": "string",
+        "value": "string",
+        "visible": "bool?",
+        "required": "bool?",
+        "error": "string?"
+      },
+      "events": {
+        "change": "string"
+      }
+    },
+    "NumberField": {
+      "properties": {
+        "label": "string",
+        "value": "double",
+        "visible": "bool?"
+      },
+      "events": {
+        "change": "double"
+      }
+    },
+    "Checkbox": {
+      "properties": {
+        "label": "string",
+        "checked": "bool",
+        "visible": "bool?"
+      },
+      "events": {
+        "change": "bool"
+      }
+    },
+    "Row": {
+      "properties": {
+        "spacing": "int?"
+      },
+      "children": true
+    },
+    "Card": {
+      "properties": {
+        "cornerRadius": "int?",
+        "padding": "int?",
+        "accessibilityLabel": "string?",
+        "accessibilityHint": "string?"
+      },
+      "children": true,
+      "events": {
+        "tap": null
+      }
+    },
+    "Image": {
+      "properties": {
+        "url": "string",
+        "height": "int?",
+        "width": "int?",
+        "cornerRadius": "int?",
+        "contentDescription": "string?",
+        "decorative": "bool?"
+      }
+    }
+  },
+  "actions": {
+    "openUrl": {
+      "parameters": {
+        "url": "string"
+      }
+    },
+    "dismiss": {},
+    "submitContact": {
+      "parameters": {
+        "name": "string",
+        "surname": "string",
+        "email": "string",
+        "phone": "string?"
+      },
+      "result": "string"
+    }
+  }
+}

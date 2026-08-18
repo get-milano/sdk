@@ -23,7 +23,7 @@ DesignSystem
 ```
 
 - **DesignSystem** contains your visual components: banner layouts, styled text, buttons, fields, toggles. Components take plain models and closures. This layer must not import Milano; it must remain usable, previewable, and testable without a single document in sight.
-- **MilanoBridge** is the only layer that knows both sides. It owns the vocabulary artifact, converts `MilanoNode` properties into design-system models, wraps design-system components in renderers, and exposes one registry factory that registers everything.
+- **MilanoBridge** is the only layer that knows both sides. It owns the vocabulary artifact, converts `MilanoNode` properties into design-system models, wraps design-system components in renderers, and exposes one registry factory that registers everything. In a React app this is one module (`milano-bridge.tsx` in the sample), not a package boundary, but the rule is the same.
 - **App / Environment** creates the engine once, owns shared context, builds views per document, and routes custom actions to platform behavior.
 
 ## Rules that keep the seams clean
@@ -42,6 +42,8 @@ DesignSystem
 
 **Treat documents as untrusted input.** Never assume a build succeeds. Give `MilanoHost` a real loading view and a deliberate failure branch. For optional surfaces like banners, the correct failure UI is usually nothing at all.
 
+**In React, keep the builder stable and load documents as text.** A new builder means a new build, so create it at module scope or in a `useMemo` keyed on what actually changes; passing a fresh builder every render rebuilds the view on every render. And never `import doc from "./doc.json"`: `JSON.parse` collapses `5.0` to `5`, and Milano's `int` and `double` are different types. Hand the engine the document's text and let it parse.
+
 **Decide the unknown-type policy consciously.** `skip` keeps old app versions rendering new documents gracefully and is the right default for optional surfaces. `fail` is right when partial UI would be misleading. `placeholder` needs a registered placeholder renderer and is mostly a development aid.
 
 ## Conventions the samples use
@@ -52,4 +54,4 @@ DesignSystem
 
 ## Quality gates
 
-The engines and samples hold themselves to zero lint violations (SwiftLint, ktlint with `ktlint_official`) and a green conformance suite on both platforms. If you extend the engines, the same gates apply: the conformance suite is the definition of done, and a spec change comes before an implementation change.
+The engines and samples hold themselves to zero lint violations (SwiftLint, ktlint with `ktlint_official`, TypeScript `strict`) and a green conformance suite on every platform. If you extend the engines, the same gates apply: the conformance suite is the definition of done, and a spec change comes before an implementation change.
