@@ -5,7 +5,7 @@ nav_order: 7
 
 # Expressions
 
-Expressions bind document properties and action parameters to state, context, and event payloads. The language is deliberately small: pure, total, statically typed at the gate, and specified to the bit so both engines produce identical results. This page is the working reference; the [specification](https://github.com/get-milano/specs) is normative.
+Expressions bind document properties and action parameters to state, context, and event payloads. The language is deliberately small: pure, total, statically typed at the gate, and specified to the bit so every engine produces identical results. This page is the working reference; the [specification](https://github.com/get-milano/specs) is normative.
 
 ## The marker
 
@@ -77,4 +77,4 @@ There are no regular expressions and no case-mapping functions in v1.0. Validati
 
 Every expression has a static type, determined at the gate. A property expression must type-check to the property's declared type; a mismatch is a `SchemaViolation` before any view exists. A non-optional `T` is accepted wherever `T?` is expected; the reverse never holds. The practical idiom for an optional result is `if(condition, value, null)`.
 
-After the gate, evaluation is total: no type errors, no null dereference, no failures. The conformance suite exercises every boundary above, on both engines.
+After the gate, evaluation is total: no type errors, no null dereference, no failures. The conformance suite exercises every boundary above, on every engine.

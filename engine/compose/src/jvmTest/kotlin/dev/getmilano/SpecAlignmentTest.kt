@@ -248,4 +248,114 @@ class SpecAlignmentTest {
             assertEquals(bytes.size, expected.actual)
         }
     }
+
+    /**
+     * A host listener that throws must not take the view with it. Pre-fix
+     * the work-queue drain left `processing` true forever, so every later
+     * emission queued work that never ran: the view went silently dead and
+     * each dropped closure leaked its captured payload.
+     */
+    @Test
+    fun aThrowingListenerDoesNotWedgeTheView() {
+        val document =
+            """{"version": "1.0.0",
+                "state": {"a": "int"},
+                "root": {"type": "Text", "id": "t",
+                         "properties": {"text": {"${'$'}expr": "str(state.a)"}},
+                         "on": {"tap": [{"action": "${'$'}set", "key": "a",
+                                         "value": {"${'$'}expr": "state.a + 1"}}]}}}"""
+        val view =
+            runBlocking {
+                engine()
+                    .viewBuilder(document)
+                    .stateDataProvider { mapOf("a" to MilanoValue.IntValue(0)) }
+                    .dispatcher(InlineDispatcher)
+                    .build()
+            }
+
+        var failing = true
+        view.onChange = {
+            if (failing) throw IllegalStateException("host bug")
+        }
+
+        try {
+            view.emit("t", "tap")
+            fail("the listener's exception must reach the caller")
+        } catch (expected: IllegalStateException) {
+            assertEquals("host bug", expected.message)
+        }
+        assertEquals(MilanoValue.IntValue(1), view.state["a"])
+
+        // Still alive: the queue was not left wedged behind a flag the
+        // throw skipped past.
+        failing = false
+        val seen = ArrayList<MilanoValue>()
+        view.onChange = {
+            view.state["a"]?.let { value -> seen.add(value) }
+        }
+        view.emit("t", "tap")
+        view.emit("t", "tap")
+        assertEquals(
+            listOf<MilanoValue>(MilanoValue.IntValue(2), MilanoValue.IntValue(3)),
+            seen,
+        )
+    }
+
+    /**
+     * Teardown observed mid-list does not interrupt the list: state and
+     * actions spec, Completion. Pinned here because a conformance vector
+     * cannot express it (steps run between events, never inside one).
+     */
+    @Test
+    fun teardownDuringAnActionListDoesNotInterruptIt() {
+        class Analytics : MilanoUserInteractionObserver {
+            val records = ArrayList<Pair<MilanoUserInteraction.Kind, String?>>()
+
+            override fun interaction(interaction: MilanoUserInteraction) {
+                records.add(interaction.kind to interaction.name)
+            }
+        }
+
+        val document =
+            """{"version": "1.0.0",
+                "state": {"a": "int"},
+                "root": {"type": "Text", "id": "t",
+                         "properties": {"text": {"${'$'}expr": "str(state.a)"}},
+                         "on": {"tap": [
+                             {"action": "${'$'}set", "key": "a", "value": 1},
+                             {"action": "work"},
+                             {"action": "${'$'}set", "key": "a", "value": 42}]}}}"""
+        val analytics = Analytics()
+        val registry = MilanoRegistry()
+        registry.register("Text", StubRenderer)
+        val engine = MilanoEngine(vocabulary, registry, userInteractionObserver = analytics)
+        val view =
+            runBlocking {
+                engine
+                    .viewBuilder(document)
+                    .stateDataProvider { mapOf("a" to MilanoValue.IntValue(0)) }
+                    .actionHandler { null }
+                    .dispatcher(InlineDispatcher)
+                    .build()
+            }
+
+        // The first $set re-resolves and fires the hook, which tears the
+        // view down. The rest of the list still runs: the custom action is
+        // dispatched (the handler's own invocation is asynchronous, so the
+        // synchronous evidence is the analytics record) and the trailing
+        // $set applies.
+        view.onChange = { view.teardown() }
+        view.emit("t", "tap")
+
+        assertTrue(
+            analytics.records.any {
+                it.first == MilanoUserInteraction.Kind.ACTION_DISPATCHED && it.second == "work"
+            },
+        )
+        assertEquals(MilanoValue.IntValue(42), view.state["a"])
+
+        // Torn down all the same: nothing after the list is accepted.
+        view.emit("t", "tap")
+        assertEquals(MilanoValue.IntValue(42), view.state["a"])
+    }
 }

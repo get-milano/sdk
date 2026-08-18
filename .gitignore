@@ -17,3 +17,13 @@ build/
 .idea/
 local.properties
 **/xcuserdata/
+
+# TypeScript packages and the Expo sample
+node_modules/
+dist/
+.expo/
+
+# Generated API reference and the built docs site
+docs/libs/
+docs/.jekyll-cache/
+/_site/

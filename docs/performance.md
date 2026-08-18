@@ -5,7 +5,7 @@ nav_order: 9
 
 # Performance
 
-What Milano costs at build and at update, measured, plus the threading model and the working budgets we recommend. Numbers are medians from the benchmark suites both engines ship (`PerformanceBenchmarks` in the Swift tests, `PerformanceBenchmark` in the Kotlin tests); run them on your own hardware for numbers you can budget against.
+What Milano costs at build and at update, measured, plus the threading model and the working budgets we recommend. Numbers are medians from the benchmark suites the Swift and Kotlin engines ship (`PerformanceBenchmarks` in the Swift tests, `PerformanceBenchmark` in the Kotlin tests); run them on your own hardware for numbers you can budget against. The TypeScript engine ships no benchmark suite yet; its shape is the same, and its absolute numbers are the JavaScript runtime's, not these.
 
 ## Safety limits are not performance budgets
 
@@ -46,7 +46,7 @@ Swift numbers are release-mode (`swift test -c release`); debug builds are rough
 
 ## How the engine currently works, and the licensed optimization
 
-Today both engines re-resolve the **entire tree** on every update and invalidate the host once: the simplest correct implementation, and the numbers above show it is comfortably fast at v1.0's scales. If future surfaces demand more, the designed upgrade path is incremental resolution: the gate already statically resolves every expression's state and context references, so it can emit an exact dependency index, making update cost proportional to what changed rather than tree size, with node-scoped invalidation to the renderers. Because the conformance suite pins observable semantics, that rewrite is contract-invisible: either engine can adopt it independently, and the suite proves nothing changed.
+Today every engine re-resolves the **entire tree** on every update and invalidates the host once: the simplest correct implementation, and the numbers above show it is comfortably fast at v1.0's scales. If future surfaces demand more, the designed upgrade path is incremental resolution: the gate already statically resolves every expression's state and context references, so it can emit an exact dependency index, making update cost proportional to what changed rather than tree size, with node-scoped invalidation to the renderers. Because the conformance suite pins observable semantics, that rewrite is contract-invisible: any engine can adopt it independently, and the suite proves nothing changed.
 
 ## Running the benchmarks
 
