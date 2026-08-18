@@ -161,12 +161,12 @@ jobs:
 
       - name: Build the artifacts
         working-directory: engine/compose
-        run: ./gradlew -PmilanoVersion="$VERSION" assembleRelease jvmJar
+        run: ./gradlew -PmilanoVersion="$VERSION" assembleAndroidMain jvmJar
 
       - name: Collect artifacts
         run: |
           mkdir -p release-artifacts
-          cp "$(find engine/compose/build/outputs/aar -name '*-release.aar' | head -1)" \
+          cp "$(find engine/compose/build/outputs/aar -name '*.aar' | head -1)" \
              "release-artifacts/engine-compose-android-$VERSION.aar"
           cp "$(find engine/compose/build/libs -name "*jvm-$VERSION.jar" | head -1)" \
              "release-artifacts/engine-compose-jvm-$VERSION.jar"

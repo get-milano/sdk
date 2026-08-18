@@ -1,6 +1,7 @@
 plugins {
-    id("com.android.application") version "8.13.0"
-    kotlin("android") version "2.3.20"
+    // AGP 9 compiles Kotlin itself, so there is no kotlin("android") plugin
+    // here: applying it is an error since AGP 9.0.
+    id("com.android.application") version "9.3.1"
     kotlin("plugin.compose") version "2.3.20"
 }
 

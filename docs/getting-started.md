@@ -57,6 +57,8 @@ Or build from source, as a composite build in `settings.gradle.kts`:
 includeBuild("path/to/sdk/engine/compose")
 ```
 
+A composite build is driven by *your* Gradle, not the engine's wrapper, so this path needs **Gradle 9.6 or newer**: the engine builds with AGP 9, which refuses to run on anything older. Nothing above this line is affected, because a published artifact carries no build-tool requirement; only building the engine yourself does.
+
 ### React and React Native
 
 ```sh

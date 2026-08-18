@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   AccessibilityInfo,
@@ -55,8 +56,36 @@ const dark: Palette = {
   danger: "#FF7A88",
 };
 
+/**
+ * Lets a surface impose a palette on everything drawn inside it. Content
+ * over a photographic scrim has to read light whatever the device theme
+ * is, and the components underneath must not have to know they are on a
+ * banner. SwiftUI does this with `.environment(\.colorScheme, .dark)` and
+ * Compose with `LocalContentColor`; in React it is a context.
+ */
+const PaletteContext = createContext<Palette | null>(null);
+
+/**
+ * Content drawn over a photographic scrim. Not the dark palette: those
+ * greys assume a solid dark background, and over a photo they disappear.
+ */
+const onScrim: Palette = {
+  ...dark,
+  background: "transparent",
+  surface: "rgba(255,255,255,0.16)",
+  text: "#FFFFFF",
+  secondaryText: "rgba(255,255,255,0.85)",
+};
+
 export function usePalette(): Palette {
-  return useColorScheme() === "dark" ? dark : light;
+  const imposed = useContext(PaletteContext);
+  const scheme = useColorScheme();
+  return imposed ?? (scheme === "dark" ? dark : light);
+}
+
+/** Draws its children to read against a photographic scrim. */
+function OnScrim({ children }: { readonly children: ReactNode }): ReactNode {
+  return <PaletteContext.Provider value={onScrim}>{children}</PaletteContext.Provider>;
 }
 
 export function Screen({ children }: { readonly children: ReactNode }): ReactNode {
@@ -370,9 +399,14 @@ export function BannerView({
         <Image source={{ uri: imageUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
       )}
       {showScrim ? (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.38)" }]} />
+        <LinearGradient
+          colors={["transparent", "rgba(0,0,0,0.65)"]}
+          style={StyleSheet.absoluteFill}
+        />
       ) : null}
-      <View style={[styles.bannerContent, alignment]}>{children}</View>
+      <View style={[styles.bannerContent, alignment]}>
+        <OnScrim>{children}</OnScrim>
+      </View>
     </View>
   );
 }
