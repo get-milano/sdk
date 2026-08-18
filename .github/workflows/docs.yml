@@ -1,0 +1,143 @@
+name: Docs
+
+# Builds get-milano.dev/sdk: the guides in docs/, plus the API reference
+# generated from every engine's sources into docs/libs/<lib>.
+#
+# Deliberately not part of the release pipeline. The site is not a
+# versioned artifact, and coupling it to a release meant a failure here
+# could only be retried by cutting a new version. Instead:
+#
+# - every push to main that touches the site, an engine, or the version
+#   rebuilds and redeploys it, so the site follows main;
+# - a manual run (workflow_dispatch) republishes it at any time, with an
+#   optional version override for the titles.
+#
+# Nothing here can affect a release: the two pipelines share no jobs.
+# Requires Settings -> Pages -> Source: GitHub Actions.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - engine/**
+      - scripts/generate-docs.sh
+      - VERSION
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version shown in the reference; defaults to the VERSION file"
+        required: false
+
+# One deploy at a time, and never cancel one midway: a half-deployed site
+# is worse than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  reference:
+    # The API reference for every engine, generated from source. macOS
+    # because DocC needs Xcode; Dokka and TypeDoc run here too so the whole
+    # reference comes out of one job. Generated output is never committed:
+    # it is an artifact, and the deploy job consumes it.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci
+
+      - name: Resolve the version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          VERSION="${INPUT_VERSION:-$(tr -d '[:space:]' < VERSION)}"
+          # Validated before it reaches sed and the stamping script, the
+          # same shape preflight enforces in the release workflow.
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "version must be semantic (e.g. 1.1.2 or 1.2.0-rc.1), got: $VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "documenting $VERSION"
+
+      - name: Stamp the versions the reference will show
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          SWIFT=engine/swiftui/Sources/MilanoSDK/Core/MilanoInfo.swift
+          sed -i '' -E "s/(public static let version = )\"[^\"]*\"/\1\"$VERSION\"/" "$SWIFT"
+          node scripts/stamp-version.mjs "$VERSION"
+
+      - name: Generate the API reference
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: ./scripts/generate-docs.sh "$VERSION"
+
+      # Tarred, not uploaded as a tree: DocC names a page after the symbol
+      # it documents, so thousands of files are called things like
+      # `!=(_:_:).json`, and upload-artifact rejects colons for the sake of
+      # filesystems that cannot represent them. Inside a tar they are just
+      # bytes. (upload-pages-artifact in the deploy job tars for the same
+      # reason, which is why the deploy itself is unaffected.)
+      - name: Pack the reference
+        run: tar -czf api-reference.tar.gz -C docs/libs .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-reference
+          path: api-reference.tar.gz
+          retention-days: 1
+
+  deploy:
+    # Builds the site exactly as GitHub Pages builds it (the github-pages
+    # gem, the same remote theme), with the generated reference dropped
+    # into docs/libs, and deploys the result.
+    needs: reference
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: docs
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: api-reference
+
+      - name: Unpack the reference into the site
+        run: |
+          mkdir -p docs/libs
+          tar -xzf api-reference.tar.gz -C docs/libs
+          rm api-reference.tar.gz
+
+      # The site is served from get-milano.dev/sdk/, so the base path is
+      # pinned rather than inferred: every internal link and asset URL
+      # depends on it.
+      - name: Build the site
+        working-directory: docs
+        run: bundle exec jekyll build --destination ../_site --baseurl /sdk
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
