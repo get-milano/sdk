@@ -23,11 +23,11 @@ kotlin {
 
     // The engine core lives in commonMain: pure Kotlin, no platform APIs by
     // construction. The jvm target carries the conformance harness and covers
-    // desktop; androidLibrary keeps the Android library buildable from M1 on.
+    // desktop; the android target keeps the library buildable from M1 on.
     // Since AGP 9 the Android target is declared here rather than in a
     // separate android { } block, and AGP compiles the Kotlin itself.
     jvm()
-    androidLibrary {
+    android {
         namespace = "dev.getmilano"
         compileSdk = 36
         minSdk = 26
