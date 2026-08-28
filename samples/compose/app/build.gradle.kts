@@ -40,7 +40,7 @@ val milanoCliMissing =
 val generateMilanoBindings =
     tasks.register<Exec>("generateMilanoBindings") {
         inputs.file("src/main/assets/vocabulary.json")
-        inputs.file(milanoCli)
+        inputs.files(milanoCli)
         outputs.file("src/main/kotlin/dev/getmilano/sample/milanobridge/GeneratedBindings.kt")
         doFirst { check(file(milanoCli).exists()) { milanoCliMissing } }
         commandLine(
@@ -78,7 +78,7 @@ val validateMilanoDocuments =
 val generateMilanoDocumentSchema =
     tasks.register<Exec>("generateMilanoDocumentSchema") {
         inputs.file("src/main/assets/vocabulary.json")
-        inputs.file(milanoCli)
+        inputs.files(milanoCli)
         outputs.file(rootDir.resolve("documents.schema.json"))
         doFirst { check(file(milanoCli).exists()) { milanoCliMissing } }
         commandLine(
