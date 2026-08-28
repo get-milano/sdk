@@ -21,4 +21,16 @@ class MilanoRegistry {
     fun registerPlaceholder(renderer: MilanoPlaceholderRenderer) {
         placeholder = renderer
     }
+
+    /**
+     * A copy. An engine takes one at creation, so registering a renderer
+     * afterwards cannot change what an existing engine renders, which is
+     * what "immutable after creation" has to mean. Swift gets this from
+     * value semantics and TypeScript copies the same way.
+     */
+    internal fun snapshot(): MilanoRegistry =
+        MilanoRegistry().also { copy ->
+            copy.renderers.putAll(renderers)
+            placeholder?.let(copy::registerPlaceholder)
+        }
 }

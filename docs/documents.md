@@ -132,22 +132,23 @@ The patterns the sample apps use, all expressible without host code:
 
 - **No values in documents.** Declarations only. If you find yourself writing a user's name into a document, that value belongs in context or state.
 - **All-or-nothing validation.** One schema violation anywhere and the whole document is rejected with a typed error naming the rule, the node, and what was expected versus found.
-- **Limits.** Depth at most 32, at most 10,000 nodes, at most 1 MiB of document, at most 1,024 characters per expression. Exceeding any is a gate error.
-- **Namespaces.** `state`, `context`, and `event` are distinct roots; a state key never shadows a context key.
+- **Limits.** Depth at most 32, at most 10,000 nodes, at most 1 MiB of document, at most 1,024 Unicode scalars per expression (an emoji counts once, whatever `string.length` says). Exceeding any is a gate error. Values entering state or context are bounded too, at 65,536 units each (a scalar per unit for strings, one plus the contents for arrays and records): at the gate as an error, at runtime as a rejected update or mutation; see [Guardrails](guardrails#limits).
+- **Namespaces.** `state`, `context`, `event`, and `result` are distinct roots; a state key never shadows a context key.
 - **Unknown root fields are ignored** by engines of the same major version, which is what lets minor versions add fields compatibly.
 
 ## Shipping documents
 
 Documents are data, so shipping them safely is a pipeline problem, and every check the device performs can run earlier. The sample apps wire all of this into their builds; the pieces work anywhere.
 
-**Validate before shipping.** The specs repository's reference checker doubles as a producer CLI that runs one document through the full gate, with declared context and state values synthesized so it is a single command:
+**Validate before shipping.** `@get-milano/cli` runs documents through the full gate, the engine's own, with declared context and state synthesized (or supplied with `--context` and `--state`) so it is a single command:
 
 ```sh
-python3 tools/reference_check.py --document banner.json --vocabulary vocabulary.json
-banner.json: valid against examples@1.0.0
+npx milano validate documents/*.json --vocabulary vocabulary.json
+documents/banner.json: valid
+documents/form.json: SchemaViolation: schema violation (property-type) at email: expected string, found int
 ```
 
-A rejected document prints the same typed error the engines would throw, and exits nonzero, so a `for` loop over your documents is a complete CI gate. The SwiftUI and Compose sample apps run exactly that loop as a build step: a document the engines would reject fails the build on the developer's machine.
+A rejected document prints the typed error the engines throw and the status is nonzero, so one command over your documents is a complete CI gate; `--json` gives tooling the report, and `validate()` from the same package does it from a build script. The specs repository's `tools/reference_check.py --document` does the same job in Python with no engine installed, which is what the SwiftUI and Compose sample apps run as a build step: a document the engines would reject fails the build on the developer's machine.
 
 **Validate while authoring.** `tools/generate_document_schema.py` specializes the official document schema to your vocabulary: component types become an enum, properties get typed value schemas, event names constrain `on`. Commit the output next to your documents and point your editor at it (the SDK repo's `.vscode/settings.json` maps the sample documents to their generated schemas), and typos get red squiggles before anything runs. Regenerate it in the same build step as your typed bindings so it never drifts.
 

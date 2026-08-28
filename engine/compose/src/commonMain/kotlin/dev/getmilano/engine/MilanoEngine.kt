@@ -50,6 +50,6 @@ class MilanoEngine(
         }
 
         this.vocabulary = parsed
-        this.registry = registry
+        this.registry = registry.snapshot()
     }
 }

@@ -17,16 +17,23 @@ public struct MilanoLimits: Equatable, Sendable {
     public var maxNodeCount: Int
     public var maxDocumentBytes: Int
     public var maxExpressionLength: Int
+    /// The largest value that may enter state or context, at the gate and at
+    /// runtime, in the document model's units: one per scalar, one per
+    /// Unicode scalar of a string, one plus the contents for an array or a
+    /// record (`MilanoValue.size`).
+    public var maxValueSize: Int
 
     public init(
         maxTreeDepth: Int = 32,
         maxNodeCount: Int = 10_000,
         maxDocumentBytes: Int = 1_048_576,
-        maxExpressionLength: Int = 1_024
+        maxExpressionLength: Int = 1_024,
+        maxValueSize: Int = 65_536
     ) {
         self.maxTreeDepth = maxTreeDepth
         self.maxNodeCount = maxNodeCount
         self.maxDocumentBytes = maxDocumentBytes
         self.maxExpressionLength = maxExpressionLength
+        self.maxValueSize = maxValueSize
     }
 }

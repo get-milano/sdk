@@ -84,6 +84,36 @@ export class MilanoValue {
     return this.kind === "null";
   }
 
+  /**
+   * The document model's value size, the unit of the value size limit:
+   * one for a scalar or null, one per Unicode scalar for a string, and one
+   * plus the sizes of the elements or fields for an array or a record.
+   */
+  get size(): number {
+    switch (this.kind) {
+      case "string": {
+        // Iterating a string yields code points, never UTF-16 units.
+        let count = 0;
+        for (const _ of this.payload as string) count += 1;
+        return count;
+      }
+      case "array": {
+        let total = 1;
+        for (const element of this.payload as readonly MilanoValue[]) total += element.size;
+        return total;
+      }
+      case "record": {
+        let total = 1;
+        for (const field of Object.values(this.payload as Record<string, MilanoValue>)) {
+          total += field.size;
+        }
+        return total;
+      }
+      default:
+        return 1;
+    }
+  }
+
   get boolValue(): boolean | null {
     return this.kind === "bool" ? (this.payload as boolean) : null;
   }

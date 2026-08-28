@@ -14,6 +14,16 @@ import type {
 import { parseSemver } from "./model.ts";
 
 /** Step 1 of the gate: parse. Envelope violations are MalformedDocument. */
+/**
+ * Object members in lexicographic key order (document model spec,
+ * Validation): JSON defines no order for them, so the gate must not
+ * depend on the one the text happened to use. Building every record in
+ * this order once, here, is what makes every later walk deterministic.
+ */
+export function sortedEntries<T>(object: Readonly<Record<string, T>>): [string, T][] {
+  return Object.entries(object).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+}
+
 export function parseDocument(text: string): ParsedDocument {
   let root: Readonly<Record<string, MilanoValue>> | null;
   try {
@@ -60,6 +70,11 @@ export function parseDocument(text: string): ParsedDocument {
 
   const rootNodeEntry = root["root"];
   if (rootNodeEntry === undefined) throw MilanoBuildError.malformedDocument("missing root");
+  // metadata is a JSON object: hosts read it as a map.
+  const metadata = root["metadata"] ?? null;
+  if (metadata !== null && metadata.recordValue === null) {
+    throw MilanoBuildError.malformedDocument("metadata must be an object");
+  }
 
   return {
     versionString,
@@ -69,7 +84,7 @@ export function parseDocument(text: string): ParsedDocument {
     contextDeclarations,
     stateDeclarations,
     root: parseNode(rootNodeEntry, "root"),
-    metadata: root["metadata"] ?? null,
+    metadata,
   };
 }
 
@@ -81,7 +96,7 @@ function declarations(
   const object = entry.recordValue;
   if (object === null) throw MilanoBuildError.malformedDocument(`${section} is not an object`);
   const result = emptyRecord<MilanoType>();
-  for (const [key, descriptor] of Object.entries(object)) {
+  for (const [key, descriptor] of sortedEntries(object)) {
     const type = isValidIdentifier(key) ? MilanoType.fromDescriptor(descriptor) : null;
     if (type === null) {
       throw MilanoBuildError.schemaViolation(
@@ -110,6 +125,9 @@ function parseNode(entry: MilanoValue, path: string): RawNode {
   if (idEntry !== undefined) {
     id = idEntry.stringValue;
     if (id === null) throw MilanoBuildError.malformedDocument(`${path} id is not a string`);
+    // An empty id would be an empty reference in every report about the
+    // node; the envelope requires a non-empty string.
+    if (id.length === 0) throw MilanoBuildError.malformedDocument(`${path} id is empty`);
   }
 
   const properties = emptyRecord<DocValue>();
@@ -119,7 +137,7 @@ function parseNode(entry: MilanoValue, path: string): RawNode {
     if (entries === null) {
       throw MilanoBuildError.malformedDocument(`${path} properties is not an object`);
     }
-    for (const [name, value] of Object.entries(entries)) {
+    for (const [name, value] of sortedEntries(entries)) {
       properties[name] = docValue(value, `${path}.${name}`);
     }
   }
@@ -141,7 +159,7 @@ function parseNode(entry: MilanoValue, path: string): RawNode {
   if (onEntry !== undefined) {
     const entries = onEntry.recordValue;
     if (entries === null) throw MilanoBuildError.malformedDocument(`${path} on is not an object`);
-    for (const [event, actions] of Object.entries(entries)) {
+    for (const [event, actions] of sortedEntries(entries)) {
       events[event] = actionList(actions, `${path}.on.${event}`);
     }
   }
@@ -245,7 +263,7 @@ function action(entry: MilanoValue, path: string): ActionSpec {
       const parameters = emptyRecord<DocValue>();
       let onSuccess: readonly ActionSpec[] = [];
       let onFailure: readonly ActionSpec[] = [];
-      for (const [key, value] of Object.entries(object)) {
+      for (const [key, value] of sortedEntries(object)) {
         if (key === "action") continue;
         if (key === "onSuccess") {
           onSuccess = actionList(value, `${path}.onSuccess`);

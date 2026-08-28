@@ -142,7 +142,7 @@ internal data class MilanoVocabulary(
                 null -> {}
 
                 is MilanoValue.RecordValue -> {
-                    for ((parameterName, descriptor) in parametersEntry.values) {
+                    for ((parameterName, descriptor) in parametersEntry.values.entries.sortedBy { it.key }) {
                         val type = MilanoType.fromDescriptor(descriptor)
                         if (!MilanoIdentifier.isValid(parameterName) || type == null) {
                             throw MilanoEngineException.InvalidVocabulary("action-parameter", "$path.$parameterName")

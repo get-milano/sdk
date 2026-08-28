@@ -163,9 +163,9 @@ public final class MilanoViewBuilder: @unchecked Sendable {
         // Initial resolution: every property expression evaluated.
         let resolvedRoot = MilanoResolver.resolve(
             root, state: state, context: context,
-            report: { kind, node in
+            report: { kind, node, name in
                 pending.append(
-                    MilanoOccurrence(kind: kind, viewIdentity: identity, node: node))
+                    MilanoOccurrence(kind: kind, viewIdentity: identity, node: node, name: name))
             })
 
         // Only a successful build reports its occurrences.

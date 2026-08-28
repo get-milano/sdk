@@ -212,6 +212,8 @@ python3 tools/generate_bindings.py vocabulary.json \
 
 A bridge model then reads `button.label` instead of `node.property("label").stringValue ?? ""`, and the action funnel becomes an exhaustive `switch` over a sealed type: a typo is a compile error, and a vocabulary change turns into a compiler-guided migration instead of a grep.
 
+Enums and records each get one nominal type per declaration site. A record-typed property, event payload, action parameter, or result comes back as a wrapper (`ShopCardPayload`, `ShopOrderCart`) with a typed accessor per field, the declared optionality, and a memberwise constructor for building one to emit or return; a record inside a record, or an array of records, nests the same way (`ShopCardPayloadOwner`, `ShopCartLinesItem`). The wrapper holds the `MilanoValue` it was built from, so nothing is lost for code that wants the raw value.
+
 The TypeScript output is the same idea in the language's own terms: a class per component whose getters return `string`, `bigint`, `boolean` and your enums as string-literal unions (never `string | null` where the vocabulary says non-optional), typed `emitTap()`-style methods, and a discriminated union for actions:
 
 ```ts

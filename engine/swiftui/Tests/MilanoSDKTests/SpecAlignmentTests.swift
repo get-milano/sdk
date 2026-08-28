@@ -57,6 +57,7 @@ struct SpecAlignmentTests {
     /// A completion for a deallocated view (deallocation counts as
     /// teardown) is reported, never dropped silently. Pre-fix the weak-self
     /// task returned without reporting.
+    /// engine-pinned: deallocation-counts-as-teardown
     @Test func completionForDeallocatedViewIsReported() async throws {
         let collector = Collector()
         let gate = AsyncStream<Void>.makeStream()
@@ -261,6 +262,7 @@ struct SpecAlignmentTests {
     /// Teardown observed mid-list does not interrupt the list: state and
     /// actions spec, Completion. Pinned here because a conformance vector
     /// cannot express it (steps run between events, never inside one).
+    /// engine-pinned: teardown-during-action-list
     @Test func teardownDuringAnActionListDoesNotInterruptIt() async throws {
         final class Analytics: MilanoUserInteractionObserver, @unchecked Sendable {
             var kinds: [(MilanoUserInteraction.Kind, String?)] = []

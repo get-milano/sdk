@@ -49,6 +49,10 @@ enum DocumentParser {
             throw MilanoBuildError.malformedDocument(detail: "missing root")
         }
         let rootNode = try node(rootNodeEntry, at: "root")
+        // metadata is a JSON object: hosts read it as a map.
+        if let metadata = root["metadata"], metadata.recordValue == nil {
+            throw MilanoBuildError.malformedDocument(detail: "metadata must be an object")
+        }
 
         return ParsedDocument(
             versionString: versionString, major: major, minor: minor,
@@ -88,7 +92,13 @@ enum DocumentParser {
         var id: String?
         switch object["id"] {
         case nil: break
-        case .string(let value): id = value
+        case .string(let value):
+            // An empty id would be an empty reference in every report
+            // about the node; the envelope requires a non-empty string.
+            guard !value.isEmpty else {
+                throw MilanoBuildError.malformedDocument(detail: "\(path) id is empty")
+            }
+            id = value
         default:
             throw MilanoBuildError.malformedDocument(detail: "\(path) id is not a string")
         }

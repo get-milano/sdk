@@ -86,6 +86,7 @@ class EngineLimitsTest {
         assertEquals(1_024, limits.maxExpressionLength)
     }
 
+    // engine-pinned: default-limits-node-count-and-document-size
     @Test
     fun nodeCountBoundaryAtTheDefault() {
         // Exactly at the limit passes; one over is a typed gate error.

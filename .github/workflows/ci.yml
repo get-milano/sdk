@@ -7,6 +7,12 @@ on:
 
 env:
   MILANO_SPECS_DIR: ${{ github.workspace }}/.specs
+  # The conformance suite release the engines are held to: a tag of
+  # get-milano/specs, never its main, so a specs push cannot change what
+  # this repository is tested against. Adopting a new suite is a deliberate
+  # edit here, reviewed with the engine changes it needs; check-consistency
+  # keeps the three workflows and the README on the same release.
+  SPECS_RELEASE: "1.3.1"
 
 jobs:
   swift:
@@ -16,9 +22,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: get-milano/specs
+          ref: ${{ env.SPECS_RELEASE }}
           path: .specs
       - name: Tests (conformance suite included)
         run: swift test
+      - name: The bindings golden compiles against the engine
+        run: node scripts/verify-bindings.mjs swift
       - name: watchOS portability (build only)
         run: >
           xcodebuild -scheme milano-sdk
@@ -35,6 +44,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: get-milano/specs
+          ref: ${{ env.SPECS_RELEASE }}
           path: .specs
       - uses: actions/setup-node@v4
         with:
@@ -44,10 +54,13 @@ jobs:
       # packages are built before anything is checked.
       - name: Build the packages
         run: npm run build
+      # The generator's tests in the specs repository pin its output but
+      # cannot compile it; this compiles the TypeScript golden, which
+      # reaches every descriptor form, against the engine.
+      - name: The bindings golden compiles against the engine
+        run: node scripts/verify-bindings.mjs typescript
       # Regenerates the sample's bindings from the vocabulary and compiles
-      # them: the TypeScript emitter has no other test, and this is how the
-      # Swift and Kotlin emitters are covered too (their samples compile
-      # what the generator wrote).
+      # them, the way a consumer's build does.
       - name: Types (strict, packages and sample)
         run: npm run typecheck
 
@@ -93,11 +106,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: get-milano/specs
+          ref: ${{ env.SPECS_RELEASE }}
           path: .specs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+      # engine/compose/build.gradle.kts stages the generator's Kotlin golden
+      # into the JVM test sources; compiling them is the check.
+      - name: The bindings golden compiles against the engine
+        run: node scripts/verify-bindings.mjs kotlin
       - name: Engine tests and Android library (conformance suite included)
         working-directory: engine/compose
         run: ./gradlew jvmTest assembleAndroidMain
@@ -119,10 +137,14 @@ jobs:
       - name: Sample app (source consumption via composite build)
         working-directory: samples/compose
         run: ./gradlew :app:assembleDebug
+      - name: Desktop sample app (the engine's JVM target, from source)
+        working-directory: samples/compose-desktop
+        run: ./gradlew assemble
       - name: ktlint
         run: |
           curl -sSLO https://github.com/pinterest/ktlint/releases/download/1.8.0/ktlint
           chmod +x ktlint
           ./ktlint "engine/compose/src/**/*.kt" "engine/compose/*.kts" \
                    "samples/compose/app/src/**/*.kt" "samples/compose/*.kts" \
-                   "samples/compose/app/*.kts"
+                   "samples/compose/app/*.kts" \
+                   "samples/compose-desktop/src/**/*.kt" "samples/compose-desktop/*.kts"

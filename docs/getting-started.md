@@ -65,7 +65,7 @@ A composite build is driven by *your* Gradle, not the engine's wrapper, so this 
 npm install @get-milano/react @get-milano/core
 ```
 
-Two packages, the same two on every platform. `@get-milano/core` is the engine and has zero dependencies; `@get-milano/react` is the binding and imports only `react`, so the same renderer surface serves the web and React Native.
+Two packages, the same two on every platform. `@get-milano/core` is the engine and has zero dependencies; `@get-milano/react` is the binding and imports only `react`, so the same renderer surface serves the web and React Native. A third, `@get-milano/cli`, is for the producer's side rather than the app: `npx milano validate` runs documents through the same gate before they ship (see [Documents](documents#shipping-documents)).
 
 There is **no React Native package and no native code**: no autolinking, no config plugin, nothing to run before `npm install`. Milano draws nothing, so nothing about it is platform-specific; your renderers use `View` and `Text` on React Native and DOM elements on the web.
 
@@ -130,7 +130,7 @@ MilanoHost(
 
 Everything `MilanoQuickHost` receives must be stable across renders (module scope or `useMemo`): a new document, vocabulary, or renderer map means a new build.
 
-All three sample apps ship a **Quick start** screen built exactly this way: inline vocabulary, inline document, one renderer, zero setup. Use the quick path for a first integration or a simple embed; for real apps, share one engine across screens and use the builder, which is everything below.
+All four sample apps ship a **Quick start** screen built exactly this way: inline vocabulary, inline document, one renderer, zero setup. Use the quick path for a first integration or a simple embed; for real apps, share one engine across screens and use the builder, which is everything below.
 
 ## Render a first document
 
@@ -293,6 +293,8 @@ Unknown component types **fail the build by default**: a document using a type y
 
 `build()` is asynchronous and all-or-nothing. The document is parsed and validated in full: schema, vocabulary conformance, expression type checking, limits. If the document declares `state`, your state data provider is awaited and its values are validated against the declarations. Only a document that passes every check produces a view; anything else throws one typed error. See [Guardrails](guardrails) for the full taxonomy.
 
+When your provider has nothing better than a zero-value for some keys, the synthesis the quick path uses is public: `MilanoQuickStart.synthesizedState(for:overriding:)` in Swift, `synthesizedState(declarations, supplied)` in Kotlin and TypeScript. Every synthesized value satisfies its declaration (an enum gets its alphabetically first member, a record is recursed), and supplied values override it per key; the sample apps use it for every document whose state is not fetched.
+
 ## Working samples
 
-The repository contains three complete sample apps, `samples/swiftui` (Tuist project), `samples/compose`, and `samples/react-native` (Expo), demonstrating banners with three layouts, an interstitial, a Milano view embedded between native components, a form with conditional visibility, required markers, and expression-driven errors, a screen that merges app-wide and per-screen context from a live API, a whole user-profile screen, and a catalog of tappable item cards. See them side by side, with screenshots, in [Samples](samples); they follow the architecture described in [Guidelines](guidelines).
+The repository contains four complete sample apps, `samples/swiftui` (Tuist project), `samples/compose` (Android), `samples/compose-desktop` (Compose Multiplatform on the JVM), and `samples/react-native` (Expo), demonstrating banners with three layouts, an interstitial, a Milano view embedded between native components, a form with conditional visibility, required markers, and expression-driven errors, a screen that merges app-wide and per-screen context from a live API, a whole user-profile screen, and a catalog of tappable item cards. See them side by side, with screenshots, in [Samples](samples); they follow the architecture described in [Guidelines](guidelines).

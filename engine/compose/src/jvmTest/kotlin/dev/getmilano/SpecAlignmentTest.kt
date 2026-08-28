@@ -305,6 +305,8 @@ class SpecAlignmentTest {
      * Teardown observed mid-list does not interrupt the list: state and
      * actions spec, Completion. Pinned here because a conformance vector
      * cannot express it (steps run between events, never inside one).
+     *
+     * engine-pinned: teardown-during-action-list
      */
     @Test
     fun teardownDuringAnActionListDoesNotInterruptIt() {

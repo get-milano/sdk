@@ -12,6 +12,7 @@ export type MilanoOccurrenceKind =
   | "duplicateCompletion"
   | "completionAfterTeardown"
   | "rejectedContextUpdate"
+  | "rejectedMutation"
   | "divisionByZero"
   | "saturation";
 
@@ -21,6 +22,17 @@ export interface MilanoOccurrence {
   readonly viewIdentity: string;
   /** The node's id or canonical path, when one applies. */
   readonly node: string | null;
+  /**
+   * What the occurrence is about, when one thing is: the event, action,
+   * property, component type, or context key involved.
+   */
+  readonly name?: string | null;
+  /**
+   * Detail in the gate's own terms, when it applies: the declared type or
+   * shape that was expected, and the kind that arrived (or `missing`).
+   */
+  readonly expected?: string | null;
+  readonly found?: string | null;
 }
 
 export interface MilanoObserver {

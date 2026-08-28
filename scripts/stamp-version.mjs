@@ -42,7 +42,7 @@ if (version === undefined || !/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) 
 }
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const packages = ["engine/ts", "engine/react"];
+const packages = ["engine/ts", "engine/react", "cli"];
 
 for (const directory of packages) {
   const path = join(root, directory, "package.json");

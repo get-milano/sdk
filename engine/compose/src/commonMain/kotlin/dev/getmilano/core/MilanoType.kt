@@ -134,7 +134,6 @@ data class MilanoType(
                     val enumEntry = entries["enum"]
                     when {
                         enumEntry is MilanoValue.ArrayValue -> {
-                            if (!entries.keys.all { it == "enum" || it == "optional" }) return null
                             if (enumEntry.values.isEmpty()) return null
                             val members = LinkedHashSet<String>(enumEntry.values.size)
                             for (entry in enumEntry.values) {
@@ -149,13 +148,11 @@ data class MilanoType(
                         }
 
                         arrayEntry != null -> {
-                            if (!entries.keys.all { it == "array" || it == "optional" }) return null
                             val element = fromDescriptor(arrayEntry) ?: return null
                             MilanoType(Kind.Array(element), optional)
                         }
 
                         recordEntry is MilanoValue.RecordValue -> {
-                            if (!entries.keys.all { it == "record" || it == "optional" }) return null
                             val fields = LinkedHashMap<String, MilanoType>(recordEntry.values.size)
                             for ((name, fieldDescriptor) in recordEntry.values) {
                                 if (!MilanoIdentifier.isValid(name)) return null

@@ -36,7 +36,7 @@ DesignSystem
 
 **One engine per vocabulary, created once.** Engines are immutable and thread-safe; share one instance. Builders are cheap and per-document.
 
-**Route actions in one funnel.** The action handler receives every custom action from every document built by that builder. Route by `action.name` in one place, translating to host behavior (open URL, submit form, dismiss). Throw (or complete with failure) when the action fails: the document may declare `onFailure` follow-ups, and your handler's outcome drives them.
+**Route actions in one funnel.** The action handler receives every custom action from every document built by that builder. Route by `action.name` in one place, translating to host behavior (open URL, submit form, dismiss). Throw (or complete with failure) when the action fails: the document may declare `onFailure` follow-ups, and your handler's outcome drives them. The handler is also the last capability check: the gate proved the parameters have their declared types, not that their values are safe, so validate them before acting (the samples open only `https` URLs with a host, and a real app narrows that to its own hosts) and never route an action name generically into deep links, reflection, or evaluation.
 
 **Share context through a handle.** For values that change while views are on screen (user name, feature flags, consent requirements), create one `MilanoContextHandle`, pass it to every builder, and update it from your session layer. Updates are atomic and validated; views re-evaluate automatically.
 

@@ -10,8 +10,8 @@ Milano carries a first-class stream of user interactions to your app, built for 
 Three properties define the design:
 
 - **Optional from every direction.** Documents declare nothing for analytics, vocabularies declare nothing, and an engine created without an observer captures nothing. Turning analytics on is one constructor argument.
-- **Milano is not a tracker.** Records pass through unredacted — event payloads, action parameters, document metadata — because the receiving host already owns the data. What to forward, sample, or drop is your analytics layer's decision, made in one place.
-- **Unbound interactions still count.** A tap on an element the document never bound to an action reaches analytics anyway (recorded before the binding lookup), so producers never add dummy bindings just to measure engagement — while `droppedEvent` keeps its defect meaning on the observability stream.
+- **Milano is not a tracker.** Records pass through unredacted (event payloads, action parameters, document metadata) because the receiving host already owns the data. What to forward, sample, or drop is your analytics layer's decision, made in one place.
+- **Unbound interactions still count.** A tap on an element the document never bound to an action reaches analytics anyway (recorded before the binding lookup), so producers never add dummy bindings just to measure engagement, while `droppedEvent` keeps its defect meaning on the observability stream.
 
 ## Wiring it up
 
@@ -78,7 +78,7 @@ That is already a full funnel: impression → tap (`event`) → submission (`act
 
 ## Widget signals renderers report
 
-For signals the document does not model as events — focus, visibility, selection — renderers call one method that flows straight to the stream and never touches dispatch or state:
+For signals the document does not model as events (focus, visibility, selection), renderers call one method that flows straight to the stream and never touches dispatch or state:
 
 ```swift
 node.userInteraction(.focusGained)
@@ -92,9 +92,9 @@ node.userInteraction("selectionChanged", MilanoValue.string("weekly"));
 
 The widget kinds are a closed set: `tap`, `doubleTap`, `longPress`, `focusGained`, `focusLost`, `textChanged`, `toggled`, `selectionChanged` (segmented controls, pickers, tabs), `valueChanged` (sliders, steppers), `appeared`, `disappeared`, `scrolled`.
 
-Use them for what dispatch does not see; anything modeled as a document event already arrives as `event`, so a checkbox renderer should *not* also report `toggled` — that would double-count.
+Use them for what dispatch does not see; anything modeled as a document event already arrives as `event`, so a checkbox renderer should *not* also report `toggled`: that would double-count.
 
-The samples wire two worked examples: `LabeledTextField` reports `focusGained` / `focusLost` from its platform focus state on all three platforms, and the banner renderers report `appeared` once on first display — banner impressions, for free, on every banner document ever shipped.
+The samples wire two worked examples: `LabeledTextField` reports `focusGained` / `focusLost` from its platform focus state on every platform, and the banner renderers report `appeared` once on first display: banner impressions, for free, on every banner document ever shipped.
 
 ## Practical notes
 

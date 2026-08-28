@@ -51,6 +51,12 @@ internal object DocumentParser {
             root["root"]
                 ?: throw MilanoBuildException.MalformedDocument("missing root")
         val rootNode = node(rootNodeEntry, "root")
+        // metadata is a JSON object: hosts read it as a map.
+        root["metadata"]?.let { metadata ->
+            if (metadata !is MilanoValue.RecordValue) {
+                throw MilanoBuildException.MalformedDocument("metadata must be an object")
+            }
+        }
 
         return ParsedDocument(
             versionString,
@@ -73,7 +79,9 @@ internal object DocumentParser {
             (entry as? MilanoValue.RecordValue)?.values
                 ?: throw MilanoBuildException.MalformedDocument("$section is not an object")
         val result = LinkedHashMap<String, MilanoType>(obj.size)
-        for ((key, descriptor) in obj) {
+        // Object members in lexicographic key order (document model spec,
+        // Validation): JSON defines no order for them.
+        for ((key, descriptor) in obj.entries.sortedBy { it.key }) {
             val type = MilanoType.fromDescriptor(descriptor)
             if (!MilanoIdentifier.isValid(key) || type == null) {
                 throw MilanoBuildException.SchemaViolation(
@@ -100,9 +108,19 @@ internal object DocumentParser {
 
         val id =
             when (val idEntry = obj["id"]) {
-                null -> null
-                is MilanoValue.StringValue -> idEntry.value
-                else -> throw MilanoBuildException.MalformedDocument("$path id is not a string")
+                null -> {
+                    null
+                }
+
+                // An empty id would be an empty reference in every report
+                // about the node; the envelope requires a non-empty string.
+                is MilanoValue.StringValue -> {
+                    idEntry.value.ifEmpty { throw MilanoBuildException.MalformedDocument("$path id is empty") }
+                }
+
+                else -> {
+                    throw MilanoBuildException.MalformedDocument("$path id is not a string")
+                }
             }
 
         val properties = LinkedHashMap<String, DocValue>()
@@ -110,7 +128,7 @@ internal object DocumentParser {
             null -> {}
 
             is MilanoValue.RecordValue -> {
-                for ((name, value) in propertiesEntry.values) {
+                for ((name, value) in propertiesEntry.values.entries.sortedBy { it.key }) {
                     properties[name] = docValue(value, "$path.$name")
                 }
             }
@@ -140,7 +158,7 @@ internal object DocumentParser {
             null -> {}
 
             is MilanoValue.RecordValue -> {
-                for ((event, actionsEntry) in onEntry.values) {
+                for ((event, actionsEntry) in onEntry.values.entries.sortedBy { it.key }) {
                     events[event] = actionList(actionsEntry, "$path.on.$event")
                 }
             }
@@ -259,7 +277,7 @@ internal object DocumentParser {
                 val parameters = LinkedHashMap<String, DocValue>()
                 var onSuccess: List<ActionSpec> = emptyList()
                 var onFailure: List<ActionSpec> = emptyList()
-                for ((key, value) in obj) {
+                for ((key, value) in obj.entries.sortedBy { it.key }) {
                     when (key) {
                         "action" -> {}
 

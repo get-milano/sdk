@@ -7,6 +7,12 @@ import MilanoSDK
     import AppKit
 #endif
 
+/// What the sample's action funnel refuses. A rejected action completes
+/// with failure, so a document that binds `onFailure` hears about it.
+enum SampleError: Error {
+    case refusedUrl(String)
+}
+
 /// The sample's Milano setup: one engine, the design system registered,
 /// builders per screen. Screens depend on this service, never on engine
 /// internals.
@@ -55,7 +61,7 @@ final class SampleEnvironment {
         }
         return builder
             .context(Self.sharedContext.merging(screenContext) { _, screen in screen })
-            .stateData { declarations in Self.defaults(for: declarations) }
+            .stateData { declarations in MilanoQuickStart.synthesizedState(for: declarations) }
             .actionHandler(Self.handle(_:))
             .label(resource)
     }
@@ -82,24 +88,10 @@ final class SampleEnvironment {
             .context(Self.sharedContext)
             .stateData { declarations in
                 try await Task.sleep(nanoseconds: 700_000_000)
-                return Self.defaults(for: declarations)
+                return MilanoQuickStart.synthesizedState(for: declarations)
             }
             .actionHandler(Self.handle(_:))
             .label("contact-form")
-    }
-
-    // MARK: - Provider defaults
-
-    private static func defaults(for declarations: [String: MilanoType]) -> [String: MilanoValue] {
-        declarations.mapValues { type in
-            if type.optional { return .null }
-            switch type.kind {
-            case .bool: return .bool(false)
-            case .int: return .int(0)
-            case .double: return .double(0)
-            default: return .string("")
-            }
-        }
     }
 
     // MARK: - Action funnel
@@ -112,18 +104,28 @@ final class SampleEnvironment {
     @Sendable private static func handle(_ action: MilanoAction) async throws -> MilanoValue? {
         switch SampleAction(action) {
         case .openUrl(let urlString):
-            if let url = URL(string: urlString) {
-                #if canImport(UIKit)
-                    await MainActor.run { UIApplication.shared.open(url) }
-                #elseif canImport(AppKit)
-                    await MainActor.run { NSWorkspace.shared.open(url) }
-                #endif
+            // The handler is the last capability check (state and actions
+            // spec): the gate proved `url` is a string, not that it is safe
+            // to open. Only https with a host leaves the app; a real app
+            // narrows this to its own hosts. Throwing fails the completion.
+            guard let components = URLComponents(string: urlString),
+                components.scheme?.lowercased() == "https",
+                let host = components.host, !host.isEmpty,
+                let url = components.url
+            else {
+                print("[sample] refused url \(urlString): only https with a host is opened")
+                throw SampleError.refusedUrl(urlString)
             }
+            #if canImport(UIKit)
+                await MainActor.run { UIApplication.shared.open(url) }
+            #elseif canImport(AppKit)
+                await MainActor.run { NSWorkspace.shared.open(url) }
+            #endif
             return nil
         case .submitContact(let name, let surname, let email, let phone):
             // Simulated network call; the returned confirmation number is
             // what a real backend would answer with.
-            print("[sample] submitting \(name) \(surname) <\(email)> \(phone ?? "-")")
+            print("[sample] submitting \(name) \(surname) <\(email)> \(phone)")
             try await Task.sleep(nanoseconds: 1_000_000_000)
             return .string("MC-\(UUID().uuidString.prefix(6))")
         case .dismiss:

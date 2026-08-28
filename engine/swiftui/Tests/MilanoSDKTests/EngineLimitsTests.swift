@@ -66,6 +66,7 @@ struct EngineLimitsTests {
         #expect(limits.maxExpressionLength == 1_024)
     }
 
+    // engine-pinned: default-limits-node-count-and-document-size
     @Test func nodeCountBoundaryAtTheDefault() async throws {
         // Exactly at the limit passes; one over is a typed gate error.
         #expect(try await buildError(wideDocument(nodes: 10_000)) == nil)

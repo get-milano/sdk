@@ -155,12 +155,15 @@ internal class MilanoGate(
             val value =
                 supplied[key]
                     ?: throw MilanoBuildException.SchemaViolation(rule = "context-declaration", expected = key)
-            canonical[key] = type.validated(value)
-                ?: throw MilanoBuildException.SchemaViolation(
-                    rule = "context-declaration",
-                    expected = name(type),
-                    found = name(value),
-                )
+            val validated =
+                type.validated(value)
+                    ?: throw MilanoBuildException.SchemaViolation(
+                        rule = "context-declaration",
+                        expected = name(type),
+                        found = name(value),
+                    )
+            checkValueSize(validated)
+            canonical[key] = validated
         }
         return canonical
     }
@@ -173,14 +176,25 @@ internal class MilanoGate(
         val canonical = LinkedHashMap<String, MilanoValue>()
         for ((key, type) in document.stateDeclarations) {
             val value = provided[key] ?: MilanoValue.Null
-            canonical[key] = type.validated(value)
-                ?: throw MilanoBuildException.SchemaViolation(
-                    rule = "state-declaration",
-                    expected = name(type),
-                    found = name(value),
-                )
+            val validated =
+                type.validated(value)
+                    ?: throw MilanoBuildException.SchemaViolation(
+                        rule = "state-declaration",
+                        expected = name(type),
+                        found = name(value),
+                    )
+            checkValueSize(validated)
+            canonical[key] = validated
         }
         return canonical
+    }
+
+    /** A value entering state or context fits the value size limit. */
+    private fun checkValueSize(value: MilanoValue) {
+        val size = value.size
+        if (size > engine.limits.maxValueSize) {
+            throw MilanoBuildException.LimitExceeded("maxValueSize", engine.limits.maxValueSize, size)
+        }
     }
 
     // Node validation
@@ -224,14 +238,24 @@ internal class MilanoGate(
 
                     MilanoUnknownTypePolicy.SKIP -> {
                         report(
-                            MilanoOccurrence(MilanoOccurrence.Kind.UNKNOWN_TYPE_SKIPPED, viewIdentity, reference),
+                            MilanoOccurrence(
+                                MilanoOccurrence.Kind.UNKNOWN_TYPE_SKIPPED,
+                                viewIdentity,
+                                reference,
+                                name = node.type,
+                            ),
                         )
                         null
                     }
 
                     MilanoUnknownTypePolicy.PLACEHOLDER -> {
                         report(
-                            MilanoOccurrence(MilanoOccurrence.Kind.UNKNOWN_TYPE_PLACEHOLDER, viewIdentity, reference),
+                            MilanoOccurrence(
+                                MilanoOccurrence.Kind.UNKNOWN_TYPE_PLACEHOLDER,
+                                viewIdentity,
+                                reference,
+                                name = node.type,
+                            ),
                         )
                         BuiltNode(
                             type = node.type,
@@ -255,7 +279,7 @@ internal class MilanoGate(
                     throw MilanoBuildException.SchemaViolation(rule = "undeclared-property", node = reference, found = name)
                 }
                 report(
-                    MilanoOccurrence(MilanoOccurrence.Kind.UNDECLARED_PROPERTY, viewIdentity, reference),
+                    MilanoOccurrence(MilanoOccurrence.Kind.UNDECLARED_PROPERTY, viewIdentity, reference, name = name),
                 )
                 continue
             }

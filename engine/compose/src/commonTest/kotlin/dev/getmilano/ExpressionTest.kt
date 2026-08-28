@@ -365,6 +365,14 @@ class ExpressionTest {
             MilanoType(MilanoType.Kind.Text, optional = true),
             inferredType("if(true, 'a', null)"),
         )
+        // Branches agree on optionality: a T? branch beside a T branch is
+        // rejected; the optional is resolved with ?? first.
+        assertFailsWith<ExprException> {
+            inferredType(
+                "if(true, state.maybe, 'x')",
+                state = mapOf("maybe" to MilanoType(MilanoType.Kind.Text, optional = true)),
+            )
+        }
 
         val checker = ExprChecker(emptyMap(), emptyMap(), EventScope.Unavailable)
         assertTrue(checker.accepts(MilanoType(MilanoType.Kind.Double), MilanoType(MilanoType.Kind.Int)))

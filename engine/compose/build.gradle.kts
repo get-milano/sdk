@@ -20,6 +20,31 @@ repositories {
     google()
 }
 
+// The bindings generator's Kotlin golden compiles with the JVM test
+// sources, so a generator change that no longer compiles against this
+// engine fails jvmTest (scripts/verify-bindings.mjs names the check). It
+// is staged from the specs checkout when one is present, found the way
+// the conformance harness finds its vectors: MILANO_SPECS_DIR, or the
+// sibling checkout.
+val specsDirectory: File? =
+    (System.getenv("MILANO_SPECS_DIR")?.takeIf { it.isNotEmpty() }?.let(::File) ?: rootDir.resolve("../../../specs"))
+        .takeIf { it.isDirectory }
+val bindingsGolden: File? = specsDirectory?.resolve("tools/testdata/expected_bindings.kt")?.takeIf { it.isFile }
+val stageBindingsGolden by tasks.registering(Copy::class) {
+    onlyIf { bindingsGolden != null }
+    bindingsGolden?.let { from(it) }
+    into(layout.buildDirectory.dir("bindings-golden"))
+}
+
+// The conformance vectors are read at test time, so they are an input:
+// a changed suite reruns the tests instead of replaying an up-to-date
+// result. Gradle cannot know that on its own.
+tasks.withType<Test>().configureEach {
+    specsDirectory?.resolve("conformance")?.let { suite ->
+        inputs.dir(suite).withPathSensitivity(PathSensitivity.RELATIVE)
+    }
+}
+
 kotlin {
     jvmToolchain(17)
 
@@ -55,6 +80,9 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
+        }
+        jvmTest {
+            kotlin.srcDir(stageBindingsGolden)
         }
     }
 }

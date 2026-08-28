@@ -52,6 +52,27 @@ extension MilanoValue {
     }
 }
 
+// MARK: - Size
+
+extension MilanoValue {
+    /// The document model's value size, the unit of the value size limit:
+    /// one for a scalar or null, one per Unicode scalar for a string, and
+    /// one plus the sizes of the elements or fields for an array or a
+    /// record.
+    public var size: Int {
+        switch self {
+        case .string(let text):
+            return text.unicodeScalars.count
+        case .array(let elements):
+            return elements.reduce(1) { $0 + $1.size }
+        case .record(let fields):
+            return fields.values.reduce(1) { $0 + $1.size }
+        case .null, .bool, .int, .double:
+            return 1
+        }
+    }
+}
+
 // MARK: - JSON bridging
 
 extension MilanoValue {
