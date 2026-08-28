@@ -942,20 +942,20 @@
     "@shikijs/vscode-textmate" "^10.0.2"
 
 "@get-milano/cli@file:/Volumes/EXTDISK01/Users/Kimi/Works/kimi/OSS/get-milano/sdk/cli":
-  version "1.2.1"
+  version "1.3.0"
   resolved "file:cli"
   dependencies:
     "@get-milano/core" "^1.2.1"
 
-"@get-milano/core@^1.2.0", "@get-milano/core@^1.2.1", "@get-milano/core@file:/Volumes/EXTDISK01/Users/Kimi/Works/kimi/OSS/get-milano/sdk/engine/ts":
-  version "1.2.1"
+"@get-milano/core@^1.2.0", "@get-milano/core@^1.3.0", "@get-milano/core@file:/Volumes/EXTDISK01/Users/Kimi/Works/kimi/OSS/get-milano/sdk/engine/ts":
+  version "1.3.0"
   resolved "file:engine/ts"
 
 "@get-milano/react@^1.2.0", "@get-milano/react@file:/Volumes/EXTDISK01/Users/Kimi/Works/kimi/OSS/get-milano/sdk/engine/react":
-  version "1.2.1"
+  version "1.3.0"
   resolved "file:engine/react"
   dependencies:
-    "@get-milano/core" "^1.2.0"
+    "@get-milano/core" "^1.2.1"
 
 "@isaacs/ttlcache@^1.4.1":
   version "1.4.1"
@@ -2600,7 +2600,7 @@ micromatch@^4.0.4:
     picomatch "^2.3.1"
 
 "milano-sample-react-native@file:/Volumes/EXTDISK01/Users/Kimi/Works/kimi/OSS/get-milano/sdk/samples/react-native":
-  version "1.2.1"
+  version "1.3.0"
   resolved "file:samples/react-native"
   dependencies:
     "@get-milano/core" "^1.2.0"
