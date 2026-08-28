@@ -12,7 +12,7 @@ env:
   # this repository is tested against. Adopting a new suite is a deliberate
   # edit here, reviewed with the engine changes it needs; check-consistency
   # keeps the three workflows and the README on the same release.
-  SPECS_RELEASE: "1.3.0"
+  SPECS_RELEASE: "1.3.1"
 
 jobs:
   swift:

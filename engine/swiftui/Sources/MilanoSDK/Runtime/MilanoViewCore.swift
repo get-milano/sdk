@@ -160,7 +160,7 @@ final class MilanoViewCore: @unchecked Sendable {
         // Atomic: all declared keys validate or the whole update is rejected.
         var canonical: [String: MilanoValue] = [:]
         var changed: Set<String> = []
-        for (key, type) in document.contextDeclarations {
+        for (key, type) in document.contextDeclarations.byKey {
             guard let value = supplied[key], let validated = type.validated(value) else {
                 report(
                     .rejectedContextUpdate, node: nil, name: key,
@@ -297,7 +297,7 @@ final class MilanoViewCore: @unchecked Sendable {
 
             case .custom(let name, let parameters, let onSuccess, let onFailure, let resultType):
                 var captured: [String: MilanoValue] = [:]
-                for (parameter, value) in parameters {
+                for (parameter, value) in parameters.byKey {
                     captured[parameter] = evaluate(value, event: event, result: result)
                 }
                 let action = MilanoAction(

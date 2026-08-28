@@ -102,7 +102,7 @@ struct MilanoGate {
         _ document: ParsedDocument, supplied: [String: MilanoValue]
     ) throws -> [String: MilanoValue] {
         var canonical: [String: MilanoValue] = [:]
-        for (key, type) in document.contextDeclarations {
+        for (key, type) in document.contextDeclarations.byKey {
             guard let value = supplied[key] else {
                 throw MilanoBuildError.schemaViolation(
                     rule: "context-declaration", node: nil, expected: key, found: nil)
@@ -124,7 +124,7 @@ struct MilanoGate {
         _ document: ParsedDocument, provided: [String: MilanoValue]
     ) throws -> [String: MilanoValue] {
         var canonical: [String: MilanoValue] = [:]
-        for (key, type) in document.stateDeclarations {
+        for (key, type) in document.stateDeclarations.byKey {
             let value = provided[key] ?? .null
             guard let validated = type.validated(value) else {
                 throw MilanoBuildError.schemaViolation(
@@ -189,7 +189,7 @@ struct MilanoGate {
         // Properties: declared ones type-checked; undeclared ones per strict
         // mode.
         var properties: [String: DocValue] = [:]
-        for (name, value) in node.properties {
+        for (name, value) in node.properties.byKey {
             guard let declaredType = component.properties[name] else {
                 if component.strict {
                     throw MilanoBuildError.schemaViolation(
@@ -214,7 +214,7 @@ struct MilanoGate {
         // Events: bindings against declared events; actions validated with
         // the event's payload type in scope.
         var events: [String: [ActionSpec]] = [:]
-        for (event, actions) in node.events {
+        for (event, actions) in node.events.byKey {
             guard let payload = component.events[event] else {
                 throw MilanoBuildError.schemaViolation(
                     rule: "event-binding", node: reference, expected: "declared event", found: event)
@@ -289,7 +289,7 @@ struct MilanoGate {
                     rule: "action-capability", node: node, expected: "granted action", found: name)
             }
             var checkedParameters: [String: DocValue] = [:]
-            for (parameter, value) in parameters {
+            for (parameter, value) in parameters.byKey {
                 guard let parameterType = declaration.parameters[parameter] else {
                     throw MilanoBuildError.schemaViolation(
                         rule: "action-encoding", node: node,
@@ -300,7 +300,7 @@ struct MilanoGate {
                     node: node, in: document, eventScope: eventScope,
                     resultScope: resultScope)
             }
-            for (parameter, parameterType) in declaration.parameters
+            for (parameter, parameterType) in declaration.parameters.byKey
             where checkedParameters[parameter] == nil {
                 guard parameterType.optional else {
                     throw MilanoBuildError.schemaViolation(

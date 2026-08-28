@@ -79,7 +79,9 @@ internal object DocumentParser {
             (entry as? MilanoValue.RecordValue)?.values
                 ?: throw MilanoBuildException.MalformedDocument("$section is not an object")
         val result = LinkedHashMap<String, MilanoType>(obj.size)
-        for ((key, descriptor) in obj) {
+        // Object members in lexicographic key order (document model spec,
+        // Validation): JSON defines no order for them.
+        for ((key, descriptor) in obj.entries.sortedBy { it.key }) {
             val type = MilanoType.fromDescriptor(descriptor)
             if (!MilanoIdentifier.isValid(key) || type == null) {
                 throw MilanoBuildException.SchemaViolation(
@@ -126,7 +128,7 @@ internal object DocumentParser {
             null -> {}
 
             is MilanoValue.RecordValue -> {
-                for ((name, value) in propertiesEntry.values) {
+                for ((name, value) in propertiesEntry.values.entries.sortedBy { it.key }) {
                     properties[name] = docValue(value, "$path.$name")
                 }
             }
@@ -156,7 +158,7 @@ internal object DocumentParser {
             null -> {}
 
             is MilanoValue.RecordValue -> {
-                for ((event, actionsEntry) in onEntry.values) {
+                for ((event, actionsEntry) in onEntry.values.entries.sortedBy { it.key }) {
                     events[event] = actionList(actionsEntry, "$path.on.$event")
                 }
             }
@@ -275,7 +277,7 @@ internal object DocumentParser {
                 val parameters = LinkedHashMap<String, DocValue>()
                 var onSuccess: List<ActionSpec> = emptyList()
                 var onFailure: List<ActionSpec> = emptyList()
-                for ((key, value) in obj) {
+                for ((key, value) in obj.entries.sortedBy { it.key }) {
                     when (key) {
                         "action" -> {}
 

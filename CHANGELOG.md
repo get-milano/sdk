@@ -42,8 +42,11 @@ major, documents, vocabularies, and integrations keep working.
 
 ### Changed
 
+- **Object members are walked in lexicographic key order on every engine**
+  (document model spec, Validation): which defect a multi-defect document
+  reported first was random on Swift, whose parser keeps no key order.
 - **CI checks out the specs at the suite release the SDK is held to**
-  (`SPECS_RELEASE`, 1.3.0), never at `main`; the README names it and the
+  (`SPECS_RELEASE`, 1.3.1), never at `main`; the README names it and the
   consistency check keeps the four places in agreement.
 - **Resolution is incremental on every engine.** An update re-evaluates
   only what reads a changed key and keeps untouched subtrees as they

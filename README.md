@@ -6,7 +6,7 @@ Milano is a client-only, design-system-agnostic **Document-Driven UI (DDUI)** fr
 
 Milano is **not** server-driven UI (it never talks to a server), **not** a SaaS (nothing hosted, nothing to sign up for), and **not** a design system (it draws nothing).
 
-The normative specifications and the conformance suite live in [get-milano/specs](https://github.com/get-milano/specs). **Every engine passes the full conformance suite; that is the definition of correct.** This repository is held to suite release 1.3.0 of the specs (the ref its CI checks out); the contract version every engine implements is 1.0.
+The normative specifications and the conformance suite live in [get-milano/specs](https://github.com/get-milano/specs). **Every engine passes the full conformance suite; that is the definition of correct.** This repository is held to suite release 1.3.1 of the specs (the ref its CI checks out); the contract version every engine implements is 1.0.
 
 Consumer documentation lives in [`docs/`](docs/index.md), published at [get-milano.dev/sdk](https://get-milano.dev/sdk/): getting started, philosophy, guidelines, creating a bridge, writing documents, expressions, and guardrails.
 

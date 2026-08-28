@@ -48,7 +48,7 @@ enum MilanoResolver {
         report: @escaping Report
     ) -> ResolvedNode {
         var values: [String: MilanoValue] = [:]
-        for (name, value) in node.properties {
+        for (name, value) in node.properties.byKey {
             switch value {
             case .literal(let literal):
                 values[name] = literal
@@ -73,7 +73,7 @@ enum MilanoResolver {
     static func index(_ node: BuiltNode) -> DependencyNode {
         var own: [String: Set<String>] = [:]
         var subtree: Set<String> = []
-        for (name, value) in node.properties {
+        for (name, value) in node.properties.byKey {
             guard case .typedExpression(_, let expr, _) = value else { continue }
             let keys = expr.dependencies
             own[name] = keys
@@ -97,7 +97,7 @@ enum MilanoResolver {
         guard !index.subtree.isDisjoint(with: changed) else { return nil }
 
         var values = resolved.values
-        for (name, keys) in index.own where !keys.isDisjoint(with: changed) {
+        for (name, keys) in index.own.byKey where !keys.isDisjoint(with: changed) {
             guard case .typedExpression(_, let expr, let expected)? = node.properties[name] else { continue }
             values[name] = evaluate(
                 expr, expected: expected, reference: node.reference, name: name,

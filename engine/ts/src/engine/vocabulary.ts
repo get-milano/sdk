@@ -2,6 +2,7 @@ import { emptyRecord } from "../core/lookup.ts";
 import { isValidIdentifier } from "../core/identifier.ts";
 import { MilanoJsonError, parseJson } from "../core/json.ts";
 import { MilanoType } from "../core/type.ts";
+import { sortedEntries } from "../document/parser.ts";
 import type { MilanoValue } from "../core/value.ts";
 import { MilanoEngineError } from "../document/errors.ts";
 import { parseSemver } from "../document/model.ts";
@@ -119,7 +120,7 @@ export class MilanoVocabulary {
       throw MilanoEngineError.invalidVocabulary("components", "missing components");
     }
     const components = emptyRecord<MilanoComponent>();
-    for (const [typeName, declaration] of Object.entries(componentsEntry)) {
+    for (const [typeName, declaration] of sortedEntries(componentsEntry)) {
       if (!isValidIdentifier(typeName)) {
         throw MilanoEngineError.invalidVocabulary("component-name", typeName);
       }
