@@ -73,7 +73,7 @@ tasks.named("compileKotlin") {
 
 dependencies {
     // Substituted from source by the composite build in settings.gradle.kts.
-    implementation("dev.get-milano:engine-compose:1.2.1")
+    implementation("dev.get-milano:engine-compose:1.3.0")
 
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
@@ -88,7 +88,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "MilanoSample"
-            packageVersion = "1.2.1"
+            packageVersion = "1.3.0"
             description = "Milano SDK demos"
             vendor = "get-milano.dev"
         }
