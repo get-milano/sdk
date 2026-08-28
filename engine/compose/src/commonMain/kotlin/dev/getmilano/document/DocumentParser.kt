@@ -51,6 +51,12 @@ internal object DocumentParser {
             root["root"]
                 ?: throw MilanoBuildException.MalformedDocument("missing root")
         val rootNode = node(rootNodeEntry, "root")
+        // metadata is a JSON object: hosts read it as a map.
+        root["metadata"]?.let { metadata ->
+            if (metadata !is MilanoValue.RecordValue) {
+                throw MilanoBuildException.MalformedDocument("metadata must be an object")
+            }
+        }
 
         return ParsedDocument(
             versionString,
@@ -100,9 +106,19 @@ internal object DocumentParser {
 
         val id =
             when (val idEntry = obj["id"]) {
-                null -> null
-                is MilanoValue.StringValue -> idEntry.value
-                else -> throw MilanoBuildException.MalformedDocument("$path id is not a string")
+                null -> {
+                    null
+                }
+
+                // An empty id would be an empty reference in every report
+                // about the node; the envelope requires a non-empty string.
+                is MilanoValue.StringValue -> {
+                    idEntry.value.ifEmpty { throw MilanoBuildException.MalformedDocument("$path id is empty") }
+                }
+
+                else -> {
+                    throw MilanoBuildException.MalformedDocument("$path id is not a string")
+                }
             }
 
         val properties = LinkedHashMap<String, DocValue>()

@@ -60,7 +60,8 @@ struct MilanoTypeTests {
                     .record(["id": MilanoType(.int), "title": MilanoType(.string, optional: true)]),
                     optional: true))
 
-        #expect(MilanoType(descriptor: try jsonValue(#"{"array": "string", "extra": 1}"#)) == nil)
+        // Unknown keys are ignored, per the tolerance rule.
+        #expect(MilanoType(descriptor: try jsonValue(#"{"array": "string", "extra": 1}"#)) != nil)
         #expect(MilanoType(descriptor: try jsonValue(#"{"record": {"1bad": "int"}}"#)) == nil)
     }
 
@@ -110,7 +111,7 @@ struct MilanoTypeTests {
         #expect(MilanoType(descriptor: try jsonValue(#"{"enum": ["a", "a"]}"#)) == nil)
         #expect(MilanoType(descriptor: try jsonValue(#"{"enum": ["with-dash"]}"#)) == nil)
         #expect(MilanoType(descriptor: try jsonValue(#"{"enum": [1]}"#)) == nil)
-        #expect(MilanoType(descriptor: try jsonValue(#"{"enum": ["a"], "extra": 1}"#)) == nil)
+        #expect(MilanoType(descriptor: try jsonValue(#"{"enum": ["a"], "extra": 1}"#)) != nil)
     }
 
     @Test func enumsValidateMembership() throws {

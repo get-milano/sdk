@@ -1,10 +1,5 @@
-import { MilanoEngine, MilanoValue } from "@get-milano/core";
-import type {
-  MilanoAction,
-  MilanoObserver,
-  MilanoType,
-  MilanoUserInteractionObserver,
-} from "@get-milano/core";
+import { MilanoEngine, MilanoValue, synthesizedState } from "@get-milano/core";
+import type { MilanoAction, MilanoObserver, MilanoUserInteractionObserver } from "@get-milano/core";
 import type {
   MilanoPlaceholderRenderer,
   MilanoReactBuilder,
@@ -70,33 +65,12 @@ export function document(name: DocumentName): string {
   return DOCUMENTS[name];
 }
 
-/** The zero-value of a declaration: what the sample uses for instant state. */
-function defaults(
-  declarations: Readonly<Record<string, MilanoType>>,
-): Record<string, MilanoValue> {
-  const values: Record<string, MilanoValue> = {};
-  for (const [key, type] of Object.entries(declarations)) {
-    if (type.optional) {
-      values[key] = MilanoValue.null;
-      continue;
-    }
-    switch (type.kind.kind) {
-      case "bool":
-        values[key] = MilanoValue.bool(false);
-        break;
-      case "int":
-        values[key] = MilanoValue.int(0n);
-        break;
-      case "double":
-        values[key] = MilanoValue.double(0);
-        break;
-      default:
-        values[key] = MilanoValue.string("");
-        break;
-    }
-  }
-  return values;
-}
+/**
+ * Only https with a host leaves the app. Hermes' URL is partial, so a
+ * strict pattern does the parsing; the host part refuses userinfo (`@`)
+ * so `https://trusted@evil` cannot pass as trusted.
+ */
+const SAFE_URL = /^https:\/\/[^\s/?#@]+(?:[/?#]|$)/i;
 
 /**
  * Self-contained documents (banners, the tip calculator): context
@@ -115,7 +89,7 @@ export function documentBuilder(
   if (resource.startsWith("banner")) builder.unknownTypePolicy("skip");
   return builder
     .context({ ...sharedContext, ...screenContext })
-    .stateData(defaults)
+    .stateData((declarations) => synthesizedState(declarations))
     .actionHandler(handle)
     .label(resource);
 }
@@ -150,7 +124,7 @@ export function formBuilder(): MilanoReactBuilder {
       await new Promise<void>((resolve) => {
         setTimeout(() => resolve(), 700);
       });
-      return defaults(declarations);
+      return synthesizedState(declarations);
     })
     .actionHandler(handle)
     .label("contact-form");
@@ -165,8 +139,16 @@ export function formBuilder(): MilanoReactBuilder {
 async function handle(action: MilanoAction): Promise<MilanoValue | null> {
   switch (action.name) {
     case "openUrl": {
-      const url = action.parameters["url"]?.stringValue;
-      if (url !== undefined && url !== null) await Linking.openURL(url);
+      // The handler is the last capability check (state and actions spec):
+      // the gate proved `url` is a string, not that it is safe to open. A
+      // real app narrows this to its own hosts. Throwing fails the
+      // completion, so a document that binds onFailure hears about it.
+      const url = action.parameters["url"]?.stringValue ?? "";
+      if (!SAFE_URL.test(url)) {
+        console.log(`[sample] refused url ${url}: only https with a host is opened`);
+        throw new Error(`refused url ${url}`);
+      }
+      await Linking.openURL(url);
       return null;
     }
     case "submitContact": {

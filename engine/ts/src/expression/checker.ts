@@ -243,10 +243,14 @@ export class ExprChecker {
         }
         if (thenType === null) return new MilanoType((elseType as MilanoType).kind, true);
         if (elseType === null) return new MilanoType(thenType.kind, true);
-        if (!MilanoType.sameKind(thenType.kind, elseType.kind)) {
+        // Exactly the same type, optionality included: `T?` and `T` are
+        // two types, and a `T?` branch is resolved with `??` before it can
+        // sit beside a `T` one. The null literal above is the only way an
+        // `if` makes an optional out of a non-optional branch.
+        if (!thenType.equals(elseType)) {
           throw new ExprError("if branches must have the same type");
         }
-        return new MilanoType(thenType.kind, thenType.optional || elseType.optional);
+        return thenType;
       }
       default:
         throw new ExprError(`unknown function '${name}'`);

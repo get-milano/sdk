@@ -76,7 +76,8 @@ class MilanoTypeTest {
             ),
             type("""{"record": {"id": "int", "title": "string?"}, "optional": true}"""),
         )
-        assertNull(MilanoType.fromDescriptor(jsonValue("""{"array": "string", "extra": 1}""")))
+        // Unknown keys are ignored, per the tolerance rule.
+        assertNotNull(MilanoType.fromDescriptor(jsonValue("""{"array": "string", "extra": 1}""")))
         assertNull(MilanoType.fromDescriptor(jsonValue("""{"record": {"1bad": "int"}}""")))
     }
 
@@ -158,7 +159,7 @@ class MilanoTypeTest {
         assertNull(MilanoType.fromDescriptor(jsonValue("""{"enum": ["a", "a"]}""")))
         assertNull(MilanoType.fromDescriptor(jsonValue("""{"enum": ["with-dash"]}""")))
         assertNull(MilanoType.fromDescriptor(jsonValue("""{"enum": [1]}""")))
-        assertNull(MilanoType.fromDescriptor(jsonValue("""{"enum": ["a"], "extra": 1}""")))
+        assertNotNull(MilanoType.fromDescriptor(jsonValue("""{"enum": ["a"], "extra": 1}""")))
     }
 
     @Test

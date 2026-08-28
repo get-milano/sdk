@@ -7,7 +7,8 @@ import { parseJson } from "../src/core/json.ts";
 import { MilanoType } from "../src/core/type.ts";
 import { MilanoValue } from "../src/core/value.ts";
 import { MilanoBuildError, MilanoEngineError } from "../src/document/errors.ts";
-import type { MilanoUnknownTypePolicy } from "../src/engine/configuration.ts";
+import { defaultLimits } from "../src/engine/configuration.ts";
+import type { MilanoLimits, MilanoUnknownTypePolicy } from "../src/engine/configuration.ts";
 import { MilanoEngine, MilanoRegistry } from "../src/engine/engine.ts";
 import type { MilanoUserInteraction } from "../src/engine/interaction.ts";
 import type { MilanoOccurrence } from "../src/engine/observer.ts";
@@ -102,12 +103,20 @@ async function runVector(
       | MilanoUnknownTypePolicy
       | undefined) ?? "fail";
 
+  // Engine limits: the defaults, overridden by name from the vector's config.
+  const limits: Record<string, number> = { ...defaultLimits };
+  for (const [limit, value] of Object.entries(asRecord(config["limits"]) ?? {})) {
+    assert.ok(limit in limits, `unknown limit ${limit} in config.limits`);
+    limits[limit] = Number(value.intValue);
+  }
+
   const occurrences: MilanoOccurrence[] = [];
   const interactions: MilanoUserInteraction[] = [];
   const engine = new MilanoEngine<string>({
     vocabularyJson,
     registry,
     defaultUnknownTypePolicy: policy,
+    limits: limits as unknown as MilanoLimits,
     observer: { occurrence: (occurrence) => occurrences.push(occurrence) },
     userInteractionObserver: {
       interaction: (interaction) => interactions.push(interaction),
@@ -151,13 +160,14 @@ async function runVector(
     }
   }
 
-  builder.actionHandler(neverCompletingHandler);
+  // The surface's inputs: present unless the vector's config says not.
+  if (config["actionHandler"]?.boolValue !== false) builder.actionHandler(neverCompletingHandler);
 
   const contextHandle = new MilanoContextHandle(asRecord(vector["context"]) ?? {});
   builder.contextSource(contextHandle);
 
-  const suppliedState = asRecord(vector["state"]);
-  if (suppliedState !== null) builder.stateData(() => suppliedState);
+  const suppliedState = asRecord(vector["state"]) ?? {};
+  if (config["stateDataProvider"]?.boolValue !== false) builder.stateData(() => suppliedState);
 
   const expect = asRecord(vector["expect"]) as Record_;
   const expectedError = asRecord(expect["error"]);
@@ -270,9 +280,15 @@ async function runVector(
         kind: MilanoValue.string(occurrence.kind),
       };
       if (occurrence.node !== null) produced["node"] = MilanoValue.string(occurrence.node);
+      for (const field of ["name", "expected", "found"] as const) {
+        const value = occurrence[field];
+        if (value !== undefined && value !== null) produced[field] = MilanoValue.string(value);
+      }
       assert.ok(
         matches(produced, expectedItem.recordValue as Record_),
-        `${name}: occurrence ${index} mismatch, got ${occurrence.kind}`,
+        `${name}: occurrence ${index} mismatch, got ${occurrence.kind} ${JSON.stringify(
+          Object.fromEntries(Object.entries(produced).map(([k, v]) => [k, String(v)])),
+        )}`,
       );
     });
   }
@@ -292,7 +308,8 @@ async function runVector(
       };
       if (interaction.node !== null) produced["node"] = MilanoValue.string(interaction.node);
       if (interaction.name !== null) produced["name"] = MilanoValue.string(interaction.name);
-      if (interaction.value !== null) produced["value"] = interaction.value;
+      // An absent value is null, so a vector may pin it as such.
+      produced["value"] = interaction.value ?? MilanoValue.null;
       assert.ok(
         matches(produced, expectedItem.recordValue as Record_),
         `${name}: interaction ${index} mismatch, got ${interaction.kind}`,

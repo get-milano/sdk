@@ -82,15 +82,18 @@ struct QuickStartTests {
             "count": MilanoType(.int),
             "ratio": MilanoType(.double),
             "label": MilanoType(.string),
+            "tone": MilanoType(.enumeration(["warm", "cool"])),
             "items": MilanoType(.array(MilanoType(.int))),
             "pair": MilanoType(.record(["a": MilanoType(.bool)])),
             "maybe": MilanoType(.string, optional: true)
         ]
-        let values = MilanoQuickStart.synthesized(declarations, overriding: [:])
+        let values = MilanoQuickStart.synthesizedState(for: declarations)
         #expect(values["flag"] == .bool(false))
         #expect(values["count"] == .int(0))
         #expect(values["ratio"] == .double(0))
         #expect(values["label"] == .string(""))
+        // The alphabetically first member: deterministic, always a member.
+        #expect(values["tone"] == .string("cool"))
         #expect(values["items"] == .array([]))
         #expect(values["pair"] == .record(["a": .bool(false)]))
         #expect(values["maybe"] == .null)

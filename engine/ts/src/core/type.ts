@@ -104,12 +104,12 @@ export class MilanoType {
       optional = flag;
     }
 
-    const keys = Object.keys(object);
+    // Unknown keys are ignored: the tolerance rule (Foundations) lets a
+    // descriptor grow in a minor contract version.
     const enumEntry = object["enum"];
     if (enumEntry !== undefined) {
       const members = enumEntry.arrayValue;
       if (members === null || members.length === 0) return null;
-      if (!keys.every((key) => key === "enum" || key === "optional")) return null;
       const names = new Set<string>();
       for (const member of members) {
         const name = member.stringValue;
@@ -121,7 +121,6 @@ export class MilanoType {
 
     const arrayEntry = object["array"];
     if (arrayEntry !== undefined) {
-      if (!keys.every((key) => key === "array" || key === "optional")) return null;
       const element = MilanoType.fromDescriptor(arrayEntry);
       return element === null ? null : MilanoType.array(element, optional);
     }
@@ -130,7 +129,6 @@ export class MilanoType {
     if (recordEntry !== undefined) {
       const fieldDescriptors = recordEntry.recordValue;
       if (fieldDescriptors === null) return null;
-      if (!keys.every((key) => key === "record" || key === "optional")) return null;
       const fields = emptyRecord<MilanoType>();
       for (const [name, fieldDescriptor] of Object.entries(fieldDescriptors)) {
         if (!isValidIdentifier(name)) return null;

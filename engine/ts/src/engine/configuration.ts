@@ -15,6 +15,13 @@ export interface MilanoLimits {
   readonly maxDocumentBytes: number;
   /** Counted in Unicode scalars. */
   readonly maxExpressionLength: number;
+  /**
+   * The largest value that may enter state or context, at the gate and at
+   * runtime, in the document model's units: one per scalar, one per
+   * Unicode scalar of a string, one plus the contents for an array or a
+   * record (`MilanoValue.size`).
+   */
+  readonly maxValueSize: number;
 }
 
 export const defaultLimits: MilanoLimits = Object.freeze({
@@ -22,4 +29,5 @@ export const defaultLimits: MilanoLimits = Object.freeze({
   maxNodeCount: 10_000,
   maxDocumentBytes: 1_048_576,
   maxExpressionLength: 1_024,
+  maxValueSize: 65_536,
 });

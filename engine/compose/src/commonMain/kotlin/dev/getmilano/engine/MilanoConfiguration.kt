@@ -21,4 +21,11 @@ data class MilanoLimits(
     val maxNodeCount: Int = 10_000,
     val maxDocumentBytes: Int = 1_048_576,
     val maxExpressionLength: Int = 1_024,
+    /**
+     * The largest value that may enter state or context, at the gate and at
+     * runtime, in the document model's units: one per scalar, one per
+     * Unicode scalar of a string, one plus the contents for an array or a
+     * record ([MilanoValue.size]).
+     */
+    val maxValueSize: Int = 65_536,
 )

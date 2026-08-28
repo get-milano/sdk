@@ -8,6 +8,8 @@ final class MilanoViewCore: @unchecked Sendable {
     let engine: MilanoEngine
     let document: ParsedDocument
     let root: BuiltNode
+    /// What every expression reads, indexed once: the update path's map.
+    private let dependencies: DependencyNode
     let dispatcher: any MilanoDispatcher
     let handler: (any MilanoActionHandler)?
     let occurrencesAtBuild: [MilanoOccurrence]
@@ -55,6 +57,7 @@ final class MilanoViewCore: @unchecked Sendable {
         self.engine = engine
         self.document = document
         self.root = root
+        self.dependencies = MilanoResolver.index(root)
         self.resolvedRoot = resolvedRoot
         self.context = context
         self.state = state
@@ -105,20 +108,29 @@ final class MilanoViewCore: @unchecked Sendable {
 
     private func processEmission(node: String, event: String, payload: MilanoValue?) {
         guard !tornDown else { return }
-        guard let info = nodeEvents[node], let declaredPayload = info.declared[event] else {
-            report(.invalidEmission, node: node)
+        guard let info = nodeEvents[node] else {
+            report(.invalidEmission, node: node, name: event, expected: "declared event", found: "unknown node")
+            return
+        }
+        guard let declaredPayload = info.declared[event] else {
+            report(.invalidEmission, node: node, name: event, expected: "declared event", found: "undeclared event")
             return
         }
         // Payload against the declared type: payload-less events take none.
         var eventValue: MilanoValue?
         if let payloadType = declaredPayload {
-            guard let payload, let validated = payloadType.validated(payload) else {
-                report(.invalidEmission, node: node)
+            guard let supplied = payload, let validated = payloadType.validated(supplied) else {
+                report(
+                    .invalidEmission, node: node, name: event,
+                    expected: MilanoGate.name(of: payloadType),
+                    found: payload.map { MilanoGate.name(of: $0) } ?? "null")
                 return
             }
             eventValue = validated
-        } else if payload != nil {
-            report(.invalidEmission, node: node)
+        } else if let supplied = payload {
+            report(
+                .invalidEmission, node: node, name: event,
+                expected: "no payload", found: MilanoGate.name(of: supplied))
             return
         }
         // Analytics sees every declared emission with a valid payload,
@@ -126,7 +138,7 @@ final class MilanoViewCore: @unchecked Sendable {
         // even while droppedEvent keeps its defect meaning.
         record(.event, node: node, name: event, value: eventValue)
         guard let actions = info.bindings[event], !actions.isEmpty else {
-            report(.droppedEvent, node: node)
+            report(.droppedEvent, node: node, name: event)
             return
         }
         let payload = eventValue
@@ -147,27 +159,43 @@ final class MilanoViewCore: @unchecked Sendable {
         guard !tornDown else { return }
         // Atomic: all declared keys validate or the whole update is rejected.
         var canonical: [String: MilanoValue] = [:]
+        var changed: Set<String> = []
         for (key, type) in document.contextDeclarations {
             guard let value = supplied[key], let validated = type.validated(value) else {
-                report(.rejectedContextUpdate, node: nil)
+                report(
+                    .rejectedContextUpdate, node: nil, name: key,
+                    expected: MilanoGate.name(of: type),
+                    found: supplied[key].map { MilanoGate.name(of: $0) } ?? "missing")
+                return
+            }
+            // A value past the value size limit rejects the update whole.
+            let size = validated.size
+            if size > engine.limits.maxValueSize {
+                report(
+                    .rejectedContextUpdate, node: nil, name: key,
+                    expected: "\(engine.limits.maxValueSize)", found: "\(size)")
                 return
             }
             canonical[key] = validated
+            if context[key] != validated { changed.insert("context.\(key)") }
         }
         context = canonical
-        reResolve()
+        // Only what reads a changed key re-evaluates; an update that changes
+        // no value changes nothing.
+        if !changed.isEmpty { reResolve(changed: changed) }
     }
 
     /// Internal completion path; the async funnel lands here, and the
     /// conformance harness drives it directly.
     func complete(dispatchIndex: Int, success: Bool, payload: MilanoValue? = nil) {
         guard dispatchIndex < dispatched.count else { return }
+        let action = dispatched[dispatchIndex].action.name
         if tornDown {
-            report(.completionAfterTeardown, node: nil)
+            report(.completionAfterTeardown, node: nil, name: action)
             return
         }
         if dispatched[dispatchIndex].completed {
-            report(.duplicateCompletion, node: nil)
+            report(.duplicateCompletion, node: nil, name: action)
             return
         }
         dispatched[dispatchIndex].completed = true
@@ -180,12 +208,18 @@ final class MilanoViewCore: @unchecked Sendable {
         var resultValue: MilanoValue?
         if success, let resultType = record.resultType {
             guard let validated = resultType.validated(payload ?? .null) else {
-                report(.invalidCompletion, node: nil)
+                report(
+                    .invalidCompletion, node: nil, name: action,
+                    expected: MilanoGate.name(of: resultType),
+                    found: MilanoGate.name(of: payload ?? .null))
                 return
             }
             resultValue = validated
-        } else if payload != nil {
-            report(.invalidCompletion, node: nil)
+        } else if let supplied = payload {
+            report(
+                .invalidCompletion, node: nil, name: action,
+                expected: success ? "no result" : "no payload",
+                found: MilanoGate.name(of: supplied))
             return
         }
 
@@ -220,27 +254,46 @@ final class MilanoViewCore: @unchecked Sendable {
         }
     }
 
+    /// Runs an action list. Returns false when the list ended early: a
+    /// `$set` past the value size limit assigns nothing, is reported, and
+    /// stops the remaining actions of the dispatch; what the list already
+    /// applied stays.
+    @discardableResult
     private func execute(
         _ actions: [ActionSpec], event: MilanoValue?, result: MilanoValue?,
         sourceNode: String?
-    ) {
+    ) -> Bool {
         for action in actions {
             switch action {
             case .set(let key, let value):
                 let declared = document.stateDeclarations[key]
                 let evaluated = evaluate(value, event: event, result: result)
-                state[key] = declared?.validated(evaluated) ?? evaluated
-                // Visible immediately: re-resolution before the next action.
-                reResolve()
+                let next = declared?.validated(evaluated) ?? evaluated
+                let size = next.size
+                if size > engine.limits.maxValueSize {
+                    report(
+                        .rejectedMutation, node: sourceNode, name: key,
+                        expected: "\(engine.limits.maxValueSize)", found: "\(size)")
+                    return false
+                }
+                let previous = state[key]
+                state[key] = next
+                // Visible immediately: the properties that read this key
+                // re-resolve before the next action. A value that did not
+                // change re-resolves nothing.
+                if previous != next { reResolve(changed: ["state.\(key)"]) }
 
             case .sequence(let nested):
-                execute(nested, event: event, result: result, sourceNode: sourceNode)
+                guard execute(nested, event: event, result: result, sourceNode: sourceNode) else {
+                    return false
+                }
 
             case .when(let condition, let then, let otherwise):
                 let takeThen = evaluate(condition, event: event, result: result).boolValue == true
-                execute(
+                guard execute(
                     takeThen ? then : otherwise, event: event, result: result,
                     sourceNode: sourceNode)
+                else { return false }
 
             case .custom(let name, let parameters, let onSuccess, let onFailure, let resultType):
                 var captured: [String: MilanoValue] = [:]
@@ -278,7 +331,7 @@ final class MilanoViewCore: @unchecked Sendable {
                         guard let self else {
                             observer?.occurrence(MilanoOccurrence(
                                 kind: .completionAfterTeardown,
-                                viewIdentity: identity, node: nil))
+                                viewIdentity: identity, node: nil, name: action.name))
                             return
                         }
                         self.dispatcher.dispatch {
@@ -289,6 +342,7 @@ final class MilanoViewCore: @unchecked Sendable {
                 }
             }
         }
+        return true
     }
 
     private func evaluate(
@@ -308,16 +362,26 @@ final class MilanoViewCore: @unchecked Sendable {
         }
     }
 
-    private func reResolve() {
-        resolvedRoot = MilanoResolver.resolve(
-            root, state: state, context: context,
-            report: { [weak self] kind, node in self?.report(kind, node: node) })
+    private func reResolve(changed: Set<String>) {
+        // Nothing depended on the change: the tree stays, and there is
+        // nothing to tell the host.
+        guard let next = MilanoResolver.refresh(
+            root, index: dependencies, resolved: resolvedRoot, changed: changed,
+            state: state, context: context,
+            report: { [weak self] kind, node, name in self?.report(kind, node: node, name: name) })
+        else { return }
+        resolvedRoot = next
         onChange?()
     }
 
-    private func report(_ kind: MilanoOccurrence.Kind, node: String?) {
+    private func report(
+        _ kind: MilanoOccurrence.Kind, node: String?,
+        name: String? = nil, expected: String? = nil, found: String? = nil
+    ) {
         engine.observer?.occurrence(
-            MilanoOccurrence(kind: kind, viewIdentity: identity, node: node))
+            MilanoOccurrence(
+                kind: kind, viewIdentity: identity, node: node,
+                name: name, expected: expected, found: found))
     }
 
     /// The product-analytics seam: a no-op without an observer.

@@ -23,7 +23,7 @@ Every Milano check that could fail happens before a view exists: parsing, schema
 
 Milano owns mechanics and stays out of appearance. What Milano fixes exactly: expression evaluation to the bit, dispatch ordering, error taxonomy, validation rules. What Milano never touches: colors, fonts, spacing, animation, layout conventions. Two apps rendering the same document can look completely different and behave identically.
 
-## Two engines, one contract
+## Three engines, one contract
 
 The SwiftUI, Compose, and TypeScript engines are independent implementations of one specification, kept honest by a shared conformance suite of executable vectors. No engine is the reference; the specification is. A behavior difference between the engines is by definition a bug in at least one of them.
 

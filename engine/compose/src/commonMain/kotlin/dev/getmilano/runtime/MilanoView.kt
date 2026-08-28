@@ -24,6 +24,9 @@ class MilanoView internal constructor(
 ) {
     internal var resolvedRoot: ResolvedNode = resolvedRoot
         private set
+
+    /** What every expression reads, indexed once: the update path's map. */
+    private val dependencies = MilanoResolver.index(root)
     internal var context: Map<String, MilanoValue> = context
         private set
     internal var state: Map<String, MilanoValue> = state
@@ -135,8 +138,24 @@ class MilanoView internal constructor(
     ) {
         if (tornDown) return
         val info = nodeEvents[node]
-        if (info == null || event !in info.declared) {
-            report(MilanoOccurrence.Kind.INVALID_EMISSION, node)
+        if (info == null) {
+            report(
+                MilanoOccurrence.Kind.INVALID_EMISSION,
+                node,
+                name = event,
+                expected = "declared event",
+                found = "unknown node",
+            )
+            return
+        }
+        if (event !in info.declared) {
+            report(
+                MilanoOccurrence.Kind.INVALID_EMISSION,
+                node,
+                name = event,
+                expected = "declared event",
+                found = "undeclared event",
+            )
             return
         }
         val payloadType = info.declared[event]
@@ -144,12 +163,24 @@ class MilanoView internal constructor(
         if (payloadType != null) {
             val validated = payload?.let { payloadType.validated(it) }
             if (validated == null) {
-                report(MilanoOccurrence.Kind.INVALID_EMISSION, node)
+                report(
+                    MilanoOccurrence.Kind.INVALID_EMISSION,
+                    node,
+                    name = event,
+                    expected = MilanoGate.name(payloadType),
+                    found = payload?.let { MilanoGate.name(it) } ?: "null",
+                )
                 return
             }
             eventValue = validated
         } else if (payload != null) {
-            report(MilanoOccurrence.Kind.INVALID_EMISSION, node)
+            report(
+                MilanoOccurrence.Kind.INVALID_EMISSION,
+                node,
+                name = event,
+                expected = "no payload",
+                found = MilanoGate.name(payload),
+            )
             return
         }
         // Analytics sees every declared emission with a valid payload,
@@ -158,7 +189,7 @@ class MilanoView internal constructor(
         record(MilanoUserInteraction.Kind.EVENT, node, event, eventValue)
         val actions = info.bindings[event]
         if (actions.isNullOrEmpty()) {
-            report(MilanoOccurrence.Kind.DROPPED_EVENT, node)
+            report(MilanoOccurrence.Kind.DROPPED_EVENT, node, name = event)
             return
         }
         enqueue { execute(actions, eventValue, null, sourceNode = node) }
@@ -174,16 +205,38 @@ class MilanoView internal constructor(
         if (tornDown) return
         // Atomic: all declared keys validate or the whole update is rejected.
         val canonical = LinkedHashMap<String, MilanoValue>()
+        val changed = LinkedHashSet<String>()
         for ((key, type) in document.contextDeclarations) {
             val validated = supplied[key]?.let { type.validated(it) }
             if (validated == null) {
-                report(MilanoOccurrence.Kind.REJECTED_CONTEXT_UPDATE, null)
+                report(
+                    MilanoOccurrence.Kind.REJECTED_CONTEXT_UPDATE,
+                    null,
+                    name = key,
+                    expected = MilanoGate.name(type),
+                    found = supplied[key]?.let { MilanoGate.name(it) } ?: "missing",
+                )
+                return
+            }
+            // A value past the value size limit rejects the update whole.
+            val size = validated.size
+            if (size > engine.limits.maxValueSize) {
+                report(
+                    MilanoOccurrence.Kind.REJECTED_CONTEXT_UPDATE,
+                    null,
+                    name = key,
+                    expected = engine.limits.maxValueSize.toString(),
+                    found = size.toString(),
+                )
                 return
             }
             canonical[key] = validated
+            if (context[key] != validated) changed.add("context.$key")
         }
         context = canonical
-        reResolve()
+        // Only what reads a changed key re-evaluates; an update that changes
+        // no value changes nothing.
+        if (changed.isNotEmpty()) reResolve(changed)
     }
 
     /**
@@ -196,13 +249,14 @@ class MilanoView internal constructor(
         payload: MilanoValue? = null,
     ) {
         if (dispatchIndex >= dispatched.size) return
+        val action = dispatched[dispatchIndex].action.name
         if (tornDown) {
-            report(MilanoOccurrence.Kind.COMPLETION_AFTER_TEARDOWN, null)
+            report(MilanoOccurrence.Kind.COMPLETION_AFTER_TEARDOWN, null, name = action)
             return
         }
         val record = dispatched[dispatchIndex]
         if (record.completed) {
-            report(MilanoOccurrence.Kind.DUPLICATE_COMPLETION, null)
+            report(MilanoOccurrence.Kind.DUPLICATE_COMPLETION, null, name = action)
             return
         }
         record.completed = true
@@ -216,11 +270,23 @@ class MilanoView internal constructor(
         if (success && resultType != null) {
             resultValue = resultType.validated(payload ?: MilanoValue.Null)
             if (resultValue == null) {
-                report(MilanoOccurrence.Kind.INVALID_COMPLETION, null)
+                report(
+                    MilanoOccurrence.Kind.INVALID_COMPLETION,
+                    null,
+                    name = action,
+                    expected = MilanoGate.name(resultType),
+                    found = MilanoGate.name(payload ?: MilanoValue.Null),
+                )
                 return
             }
         } else if (payload != null) {
-            report(MilanoOccurrence.Kind.INVALID_COMPLETION, null)
+            report(
+                MilanoOccurrence.Kind.INVALID_COMPLETION,
+                null,
+                name = action,
+                expected = if (success) "no result" else "no payload",
+                found = MilanoGate.name(payload),
+            )
             return
         }
 
@@ -261,29 +327,50 @@ class MilanoView internal constructor(
         }
     }
 
+    /**
+     * Runs an action list. Returns false when the list ended early: a `$set`
+     * past the value size limit assigns nothing, is reported, and stops the
+     * remaining actions of the dispatch; what the list already applied
+     * stays.
+     */
     private fun execute(
         actions: List<ActionSpec>,
         event: MilanoValue?,
         result: MilanoValue?,
         sourceNode: String?,
-    ) {
+    ): Boolean {
         for (action in actions) {
             when (action) {
                 is ActionSpec.Set -> {
                     val declared = document.stateDeclarations[action.key]
                     val evaluated = evaluate(action.value, event, result)
-                    state = state + (action.key to (declared?.validated(evaluated) ?: evaluated))
-                    // Visible immediately: re-resolution before the next action.
-                    reResolve()
+                    val next = declared?.validated(evaluated) ?: evaluated
+                    val size = next.size
+                    if (size > engine.limits.maxValueSize) {
+                        report(
+                            MilanoOccurrence.Kind.REJECTED_MUTATION,
+                            sourceNode,
+                            name = action.key,
+                            expected = engine.limits.maxValueSize.toString(),
+                            found = size.toString(),
+                        )
+                        return false
+                    }
+                    val previous = state[action.key]
+                    state = state + (action.key to next)
+                    // Visible immediately: the properties that read this key
+                    // re-resolve before the next action. A value that did not
+                    // change re-resolves nothing.
+                    if (previous != next) reResolve(setOf("state.${action.key}"))
                 }
 
                 is ActionSpec.Sequence -> {
-                    execute(action.actions, event, result, sourceNode)
+                    if (!execute(action.actions, event, result, sourceNode)) return false
                 }
 
                 is ActionSpec.When -> {
                     val takeThen = evaluate(action.condition, event, result).boolOrNull == true
-                    execute(if (takeThen) action.then else action.otherwise, event, result, sourceNode)
+                    if (!execute(if (takeThen) action.then else action.otherwise, event, result, sourceNode)) return false
                 }
 
                 is ActionSpec.Custom -> {
@@ -328,6 +415,7 @@ class MilanoView internal constructor(
                 }
             }
         }
+        return true
     }
 
     private fun evaluate(
@@ -351,11 +439,15 @@ class MilanoView internal constructor(
             }
         }
 
-    private fun reResolve() {
-        resolvedRoot =
-            MilanoResolver.resolve(root, state, context) { kind, node ->
-                report(kind, node)
+    private fun reResolve(changed: Set<String>) {
+        val next =
+            MilanoResolver.refresh(root, dependencies, resolvedRoot, changed, state, context) { kind, node, name ->
+                report(kind, node, name = name)
             }
+        // Nothing depended on the change: the tree is the same instance, and
+        // there is nothing to tell the host.
+        if (next === resolvedRoot) return
+        resolvedRoot = next
         invalidations.value += 1
         onChange?.invoke()
     }
@@ -375,7 +467,10 @@ class MilanoView internal constructor(
     private fun report(
         kind: MilanoOccurrence.Kind,
         node: String?,
+        name: String? = null,
+        expected: String? = null,
+        found: String? = null,
     ) {
-        engine.observer?.occurrence(MilanoOccurrence(kind, identity, node))
+        engine.observer?.occurrence(MilanoOccurrence(kind, identity, node, name, expected, found))
     }
 }

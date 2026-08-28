@@ -192,8 +192,8 @@ export class MilanoViewBuilder<R = unknown, P = R> {
     }
 
     // Initial resolution: every property expression evaluated.
-    const resolvedRoot = resolve(root, state, context, (kind, node) => {
-      pending.push({ kind, viewIdentity: identity, node });
+    const resolvedRoot = resolve(root, state, context, (kind, node, name) => {
+      pending.push({ kind, viewIdentity: identity, node, name, expected: null, found: null });
     });
 
     // Only a successful build reports its occurrences.

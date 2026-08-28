@@ -5,7 +5,7 @@ nav_order: 2
 
 # Samples
 
-The three sample apps, `samples/swiftui`, `samples/compose`, and `samples/react-native`, ship the same demos rendered from the same documents: what differs is only the design system doing the drawing. The screenshots below are two of the apps running the identical JSON, side by side.
+The four sample apps, `samples/swiftui`, `samples/compose`, `samples/compose-desktop`, and `samples/react-native`, ship the same demos rendered from the same documents: what differs is only the design system doing the drawing. The screenshots below are two of the apps running the identical JSON, side by side.
 
 Every demo can be opened directly, which is also how these screenshots were taken:
 
@@ -44,7 +44,7 @@ This is the pattern for any screen that owns its data: fetch first, hand Milano 
 
 ## The rest of the catalog
 
-Also in all three apps, without screenshots here:
+Also in all four apps, without screenshots here:
 
 - **Quick start**: the one-view quick path from [Getting started](getting-started): inline vocabulary, inline document, one renderer, and the `MilanoHost` quick overload, with no shared engine.
 - **Banner · Strip**: the third declared layout of the same `Banner` component.
@@ -56,7 +56,9 @@ Also in all three apps, without screenshots here:
 - **Profile**: a whole user-profile screen as one document: identity from context (avatar, name, membership), settings as state behind `Checkbox` and `$set`, and a summary line computed by an expression. Declares `vocabulary.min: 1.1.0`, so an app holding an older vocabulary fails the build instead of rendering a half-understood profile.
 - **Catalog**: an intermediate screen: a list of item `Card`s (image, name, blurb), each bound to `tap` with `openUrl`, so tapping an item opens its page through the host's action handler. Documents are data, so the producer enumerates the items; changing the catalog is publishing a new document. Each card also carries the sample's [accessibility](accessibility) set: a label and hint collapsing the card into one announced button, with the artwork marked decorative.
 
-The React Native app adds one wrinkle the other two do not have: its documents are bundled as **text**, generated into `src/documents.generated.ts` by `npm run documents`. Milano distinguishes `int` from `double` and `JSON.parse` does not, so a JSON import would quietly retype a document on the way in.
+The Compose Desktop app is the Android sample's renderers on the JVM, with a URL image loader in place of Coil and a Back button in place of the system gesture; it is the engine's JVM target consumed from source, and it demonstrates that the engine's default dispatcher on the desktop is bound to the AWT event thread with nothing to configure. Run it with `./gradlew run` in `samples/compose-desktop`.
+
+The React Native app adds one wrinkle the others do not have: its documents are bundled as **text**, generated into `src/documents.generated.ts` by `npm run documents`. Milano distinguishes `int` from `double` and `JSON.parse` does not, so a JSON import would quietly retype a document on the way in.
 
 ## The web: the playground
 

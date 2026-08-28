@@ -24,14 +24,15 @@ try {
   run("npm", ["run", "build"]);
 
   const tarballs = {};
-  for (const workspace of ["@get-milano/core", "@get-milano/react"]) {
+  for (const workspace of ["@get-milano/core", "@get-milano/react", "@get-milano/cli"]) {
     run("npm", ["pack", "--workspace", workspace, "--pack-destination", scratch]);
   }
   for (const file of readdirSync(scratch)) {
     if (file.startsWith("get-milano-core-")) tarballs.core = join(scratch, file);
     if (file.startsWith("get-milano-react-")) tarballs.react = join(scratch, file);
+    if (file.startsWith("get-milano-cli-")) tarballs.cli = join(scratch, file);
   }
-  if (tarballs.core === undefined || tarballs.react === undefined) {
+  if (tarballs.core === undefined || tarballs.react === undefined || tarballs.cli === undefined) {
     throw new Error("npm pack produced no tarballs");
   }
 
@@ -44,7 +45,36 @@ try {
 
   // Installed the way a consumer installs them, from the tarballs, with
   // react present because the binding declares it as a peer.
-  run("npm", ["install", "--no-audit", "--no-fund", tarballs.core, tarballs.react, "react"], project);
+  run("npm", ["install", "--no-audit", "--no-fund", tarballs.core, tarballs.react, tarballs.cli, "react"], project);
+
+  // The CLI, the way a producer's build runs it: the installed bin, on a
+  // document and a vocabulary, with the exit status carrying the verdict.
+  writeFileSync(
+    join(project, "vocabulary.json"),
+    JSON.stringify({
+      milano: "1.0.0", name: "packaged", version: "1.0.0",
+      components: { Text: { properties: { text: "string" } } }, actions: {},
+    }),
+  );
+  writeFileSync(
+    join(project, "valid.json"),
+    JSON.stringify({ version: "1.0.0", root: { type: "Text", id: "t", properties: { text: "hi" } } }),
+  );
+  writeFileSync(
+    join(project, "invalid.json"),
+    JSON.stringify({ version: "1.0.0", root: { type: "Text", id: "t", properties: { text: 1 } } }),
+  );
+  const milano = join(project, "node_modules", ".bin", "milano");
+  const verdict = run(milano, ["validate", "valid.json", "--vocabulary", "vocabulary.json"], project);
+  if (!verdict.includes("valid.json: valid")) throw new Error(`milano validate: unexpected output ${verdict}`);
+  let rejected = false;
+  try {
+    run(milano, ["validate", "invalid.json", "--vocabulary", "vocabulary.json"], project);
+  } catch (error) {
+    rejected = error.status === 1 && String(error.stderr).includes("SchemaViolation");
+  }
+  if (!rejected) throw new Error("milano validate accepted an invalid document or failed the wrong way");
+  console.log("cli ok");
 
   // ESM: build a document end to end through the published entry point.
   writeFileSync(
@@ -95,7 +125,7 @@ assert.equal(typeof react.MilanoHost, "function");
 // unreachable, and the manifest is the subpath tools reach for most
 // (version probes, bundler plugins, doc generators). It went unlisted
 // through 1.2.0, where reading it threw ERR_PACKAGE_PATH_NOT_EXPORTED.
-for (const name of ["@get-milano/core", "@get-milano/react"]) {
+for (const name of ["@get-milano/core", "@get-milano/react", "@get-milano/cli"]) {
   const manifest = require(name + "/package.json");
   assert.equal(manifest.name, name);
   assert.ok(manifest.version, name + " has no version");

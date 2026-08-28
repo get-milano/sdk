@@ -128,11 +128,28 @@ struct VectorRunnerTests {
             policy = parsed
         }
 
+        // Engine limits: the defaults, overridden by name from the vector's config.
+        var limits = MilanoLimits()
+        if case .record(let config)? = vector["config"],
+            case .record(let overrides)? = config["limits"] {
+            for (limit, value) in overrides {
+                guard case .int(let configured) = value else { continue }
+                switch limit {
+                case "maxTreeDepth": limits.maxTreeDepth = Int(configured)
+                case "maxNodeCount": limits.maxNodeCount = Int(configured)
+                case "maxDocumentBytes": limits.maxDocumentBytes = Int(configured)
+                case "maxExpressionLength": limits.maxExpressionLength = Int(configured)
+                case "maxValueSize": limits.maxValueSize = Int(configured)
+                default: Issue.record("unknown limit \(limit) in config.limits")
+                }
+            }
+        }
+
         let collector = OccurrenceCollector()
         let interactions = InteractionCollector()
         let engine = try MilanoEngine(
             vocabularyJSON: vocabularyJSON, registry: registry,
-            defaultUnknownTypePolicy: policy, observer: collector,
+            defaultUnknownTypePolicy: policy, limits: limits, observer: collector,
             userInteractionObserver: interactions)
 
         let builder: MilanoViewBuilder
@@ -173,7 +190,11 @@ struct VectorRunnerTests {
             }
         }
         builder.dispatcher(pump)
-        builder.actionHandler(NeverCompletingHandler())
+        // The surface's inputs: present unless the vector's config says not.
+        let surface = vector["config"]?.recordValue ?? [:]
+        if surface["actionHandler"] != .bool(false) {
+            builder.actionHandler(NeverCompletingHandler())
+        }
 
         let contextHandle: MilanoContextHandle
         if case .record(let context)? = vector["context"] {
@@ -183,7 +204,8 @@ struct VectorRunnerTests {
         }
         builder.contextSource(contextHandle)
 
-        if case .record(let state)? = vector["state"] {
+        if surface["stateDataProvider"] != .bool(false) {
+            let state = vector["state"]?.recordValue ?? [:]
             builder.stateData { _ in state }
         }
 
@@ -268,7 +290,8 @@ struct VectorRunnerTests {
                     ]
                     if let node = produced.node { snapshot["node"] = .string(node) }
                     if let name = produced.name { snapshot["name"] = .string(name) }
-                    if let value = produced.value { snapshot["value"] = value }
+                    // An absent value is null, so a vector may pin it as such.
+                    snapshot["value"] = produced.value ?? .null
                     #expect(
                         matches(snapshot, expected: fields),
                         "\(name): interaction \(index) mismatch, got \(snapshot)")
@@ -286,9 +309,12 @@ struct VectorRunnerTests {
                         "kind": .string(produced.kind.rawValue)
                     ]
                     if let node = produced.node { producedFields["node"] = .string(node) }
+                    if let value = produced.name { producedFields["name"] = .string(value) }
+                    if let value = produced.expected { producedFields["expected"] = .string(value) }
+                    if let value = produced.found { producedFields["found"] = .string(value) }
                     #expect(
                         matches(producedFields, expected: fields),
-                        "\(name): occurrence \(index) mismatch")
+                        "\(name): occurrence \(index) mismatch: \(producedFields) vs \(fields)")
                 }
             }
         } catch let error as MilanoBuildError {

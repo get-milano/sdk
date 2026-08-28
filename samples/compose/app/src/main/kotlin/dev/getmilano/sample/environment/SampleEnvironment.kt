@@ -9,7 +9,6 @@ import dev.getmilano.MilanoActionHandler
 import dev.getmilano.MilanoEngine
 import dev.getmilano.MilanoMainDispatcher
 import dev.getmilano.MilanoObserver
-import dev.getmilano.MilanoType
 import dev.getmilano.MilanoUnknownTypePolicy
 import dev.getmilano.MilanoUserInteractionObserver
 import dev.getmilano.MilanoValue
@@ -18,6 +17,7 @@ import dev.getmilano.sample.milanobridge.ExamplesAction
 import dev.getmilano.sample.milanobridge.ExamplesVocabulary
 import dev.getmilano.sample.milanobridge.milanoRegistry
 import dev.getmilano.sample.ui.Screen
+import dev.getmilano.synthesizedState
 import dev.getmilano.viewBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -138,7 +138,7 @@ class SampleEnvironment(
                 // The form and the interstitial keep the fail default.
                 if (resource.startsWith("banner")) unknownTypePolicy(MilanoUnknownTypePolicy.SKIP)
             }.context(sharedContext + screenContext)
-            .stateDataProvider { declarations -> defaults(declarations) }
+            .stateDataProvider { declarations -> synthesizedState(declarations) }
             .actionHandler(handler)
             .dispatcher(MilanoMainDispatcher())
             .label(resource)
@@ -153,21 +153,10 @@ class SampleEnvironment(
             .context(sharedContext)
             .stateDataProvider { declarations ->
                 delay(700)
-                defaults(declarations)
+                synthesizedState(declarations)
             }.actionHandler(handler)
             .dispatcher(MilanoMainDispatcher())
             .label("contact-form")
-
-    private fun defaults(declarations: Map<String, MilanoType>): Map<String, MilanoValue> =
-        declarations.mapValues { (_, type) ->
-            when {
-                type.optional -> MilanoValue.Null
-                type.kind is MilanoType.Kind.Bool -> MilanoValue.BoolValue(false)
-                type.kind is MilanoType.Kind.Int -> MilanoValue.IntValue(0)
-                type.kind is MilanoType.Kind.Double -> MilanoValue.DoubleValue(0.0)
-                else -> MilanoValue.StringValue("")
-            }
-        }
 
     /**
      * The returned value is the completion result: submitContact declares
@@ -178,7 +167,16 @@ class SampleEnvironment(
         // Generated bindings make the dispatch typed and exhaustive.
         when (val decoded = ExamplesAction.from(action)) {
             is ExamplesAction.OpenUrl -> {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(decoded.url))
+                // The handler is the last capability check (state and actions
+                // spec): the gate proved `url` is a string, not that it is
+                // safe to open. Only https with a host leaves the app; a real
+                // app narrows this to its own hosts. Throwing fails the
+                // completion, so a document that binds onFailure hears it.
+                val uri = Uri.parse(decoded.url)
+                require(uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrEmpty()) {
+                    "refused url ${decoded.url}: only https with a host is opened"
+                }
+                val intent = Intent(Intent.ACTION_VIEW, uri)
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(intent)
             }

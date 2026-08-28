@@ -60,6 +60,11 @@ export function parseDocument(text: string): ParsedDocument {
 
   const rootNodeEntry = root["root"];
   if (rootNodeEntry === undefined) throw MilanoBuildError.malformedDocument("missing root");
+  // metadata is a JSON object: hosts read it as a map.
+  const metadata = root["metadata"] ?? null;
+  if (metadata !== null && metadata.recordValue === null) {
+    throw MilanoBuildError.malformedDocument("metadata must be an object");
+  }
 
   return {
     versionString,
@@ -69,7 +74,7 @@ export function parseDocument(text: string): ParsedDocument {
     contextDeclarations,
     stateDeclarations,
     root: parseNode(rootNodeEntry, "root"),
-    metadata: root["metadata"] ?? null,
+    metadata,
   };
 }
 
@@ -110,6 +115,9 @@ function parseNode(entry: MilanoValue, path: string): RawNode {
   if (idEntry !== undefined) {
     id = idEntry.stringValue;
     if (id === null) throw MilanoBuildError.malformedDocument(`${path} id is not a string`);
+    // An empty id would be an empty reference in every report about the
+    // node; the envelope requires a non-empty string.
+    if (id.length === 0) throw MilanoBuildError.malformedDocument(`${path} id is empty`);
   }
 
   const properties = emptyRecord<DocValue>();

@@ -14,6 +14,7 @@ public struct MilanoOccurrence: Equatable, Sendable {
         case duplicateCompletion
         case completionAfterTeardown
         case rejectedContextUpdate
+        case rejectedMutation
         case divisionByZero
         case saturation
     }
@@ -23,11 +24,24 @@ public struct MilanoOccurrence: Equatable, Sendable {
     public let viewIdentity: String
     /// The node's id or canonical path, when one applies.
     public let node: String?
+    /// What the occurrence is about, when one thing is: the event, action,
+    /// property, component type, or context key involved.
+    public let name: String?
+    /// Detail in the gate's own terms, when it applies: the declared type
+    /// or shape that was expected, and the kind that arrived (or `missing`).
+    public let expected: String?
+    public let found: String?
 
-    public init(kind: Kind, viewIdentity: String, node: String?) {
+    public init(
+        kind: Kind, viewIdentity: String, node: String?,
+        name: String? = nil, expected: String? = nil, found: String? = nil
+    ) {
         self.kind = kind
         self.viewIdentity = viewIdentity
         self.node = node
+        self.name = name
+        self.expected = expected
+        self.found = found
     }
 }
 

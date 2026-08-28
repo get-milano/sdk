@@ -160,4 +160,24 @@ struct EngineCreationTests {
             """#
         #expect(creation(badEvent) == .invalidVocabulary(rule: "component-event", detail: "Button.tap"))
     }
+
+    /// An engine holds its own copy of the registry: registering or
+    /// replacing a renderer afterwards changes nothing an existing engine
+    /// renders. Value semantics give Swift this for free; Kotlin and
+    /// TypeScript copy explicitly, and this pins the shared guarantee.
+    @Test func registrationsAfterCreationDoNotReachTheEngine() throws {
+        var registry = MilanoRegistry()
+        let original = StubRenderer()
+        registry.register(original, for: "Text")
+        let engine = try MilanoEngine(
+            vocabularyJSON: Data(#"""
+                {"milano": "1.0.0", "name": "x", "version": "1.0.0",
+                 "components": {"Text": {"properties": {"text": "string"}}}}
+                """#.utf8),
+            registry: registry)
+        registry.register(StubRenderer(), for: "Text")
+        registry.registerPlaceholder(StubPlaceholder())
+        #expect(engine.registry.renderers["Text"] === original)
+        #expect(engine.registry.placeholder == nil)
+    }
 }

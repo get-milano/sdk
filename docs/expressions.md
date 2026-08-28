@@ -19,11 +19,12 @@ Anything not wrapped is a literal. There is no string interpolation and no expre
 
 ## References
 
-Three reserved roots, and only these:
+Four reserved roots, and only these:
 
 - `state.key` reads a declared state key.
 - `context.key` reads a declared context key.
 - `event` reads the payload of the event being handled, only inside `on` bindings of events that declare a payload type.
+- `result` reads the value the action handler returned, only inside the `onSuccess` bindings of a custom action that declares a `result` type. It rebinds at each nesting (inside a nested action's `onSuccess` it is that action's result) and is never available in `onFailure`, since failures carry no data.
 
 Record fields are read with a dot. Field access requires a non-optional record; resolve optionals with `??` first. This rule is checked at the gate, which is what makes null dereference impossible at runtime. There is no array indexing in v1.0.
 
@@ -69,12 +70,12 @@ The complete v1.0 set. All functions are pure. Arguments are evaluated eagerly, 
 | `startsWith(s, p)` | string, string to bool | |
 | `endsWith(s, p)` | string, string to bool | |
 | `trim(s)` | string to string | Removes Unicode White_Space characters at both ends, from a fixed shared table |
-| `if(c, a, b)` | bool, T, T to T | Both branches type-check to the same T; only the taken branch is evaluated |
+| `if(c, a, b)` | bool, T, T to T | Both branches type-check to exactly the same T, optionality included (resolve a `T?` branch with `??` first; a single `null` branch makes the result `T?`); only the taken branch is evaluated |
 
 There are no regular expressions and no case-mapping functions in v1.0. Validation beyond these functions belongs to the producer or the host; case rules are locale matters and belong to renderers.
 
 ## Typing and totality
 
-Every expression has a static type, determined at the gate. A property expression must type-check to the property's declared type; a mismatch is a `SchemaViolation` before any view exists. A non-optional `T` is accepted wherever `T?` is expected; the reverse never holds. The practical idiom for an optional result is `if(condition, value, null)`.
+Every expression has a static type, determined at the gate. A property expression must type-check to the property's declared type; a mismatch is a `SchemaViolation` before any view exists. A non-optional `T` is accepted wherever `T?` is expected, and an `int` expression wherever a `double` is declared (it is promoted at evaluation); neither holds in reverse. The practical idiom for an optional result is `if(condition, value, null)`; to combine an optional with a non-optional inside `if`, resolve the optional first: `if(c, state.note ?? '', 'x')`.
 
 After the gate, evaluation is total: no type errors, no null dereference, no failures. The conformance suite exercises every boundary above, on every engine.

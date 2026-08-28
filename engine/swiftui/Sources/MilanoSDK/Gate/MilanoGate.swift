@@ -112,6 +112,7 @@ struct MilanoGate {
                     rule: "context-declaration", node: nil,
                     expected: Self.name(of: type), found: Self.name(of: value))
             }
+            try checkValueSize(validated)
             canonical[key] = validated
         }
         // Extra supplied keys are ignored: the document reads only what it declares.
@@ -130,9 +131,19 @@ struct MilanoGate {
                     rule: "state-declaration", node: nil,
                     expected: Self.name(of: type), found: Self.name(of: value))
             }
+            try checkValueSize(validated)
             canonical[key] = validated
         }
         return canonical
+    }
+
+    /// A value entering state or context fits the value size limit.
+    private func checkValueSize(_ value: MilanoValue) throws {
+        let size = value.size
+        if size > engine.limits.maxValueSize {
+            throw MilanoBuildError.limitExceeded(
+                limit: "maxValueSize", value: engine.limits.maxValueSize, actual: size)
+        }
     }
 
     // MARK: - Node validation
@@ -162,11 +173,13 @@ struct MilanoGate {
                 throw MilanoBuildError.unknownComponentType(node: reference, unknownType: node.type)
             case .skip:
                 report(MilanoOccurrence(
-                    kind: .unknownTypeSkipped, viewIdentity: viewIdentity, node: reference))
+                    kind: .unknownTypeSkipped, viewIdentity: viewIdentity, node: reference,
+                    name: node.type))
                 return nil
             case .placeholder:
                 report(MilanoOccurrence(
-                    kind: .unknownTypePlaceholder, viewIdentity: viewIdentity, node: reference))
+                    kind: .unknownTypePlaceholder, viewIdentity: viewIdentity, node: reference,
+                    name: node.type))
                 return BuiltNode(
                     type: node.type, reference: reference, isPlaceholder: true,
                     rawSubtree: node.raw, properties: [:], children: [], events: [:])
@@ -183,7 +196,8 @@ struct MilanoGate {
                         rule: "undeclared-property", node: reference, expected: nil, found: name)
                 }
                 report(MilanoOccurrence(
-                    kind: .undeclaredProperty, viewIdentity: viewIdentity, node: reference))
+                    kind: .undeclaredProperty, viewIdentity: viewIdentity, node: reference,
+                    name: name))
                 continue
             }
             properties[name] = try checked(

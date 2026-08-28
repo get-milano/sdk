@@ -283,6 +283,13 @@ struct ExpressionTests {
                 == MilanoType(.string))
         // if with a null branch produces an optional.
         #expect(try inferredType("if(true, 'a', null)") == MilanoType(.string, optional: true))
+        // Branches agree on optionality: a T? branch beside a T branch is
+        // rejected; the optional is resolved with ?? first. This is the
+        // rule every engine follows; pinned by the conformance suite.
+        #expect(throws: ExprError.self) {
+            _ = try inferredType(
+                "if(true, state.maybe, 'x')", state: ["maybe": MilanoType(.string, optional: true)])
+        }
         let checker = ExprChecker(state: [:], context: [:], eventScope: .unavailable)
         // int accepted where double declared; reverse rejected.
         #expect(checker.accepts(MilanoType(.double), actual: MilanoType(.int)))

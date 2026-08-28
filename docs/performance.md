@@ -9,7 +9,7 @@ What Milano costs at build and at update, measured, plus the threading model and
 
 ## Safety limits are not performance budgets
 
-The resource limits in the document model spec (10,000 nodes, 1 MiB, 32 depth, 1,024-character expressions) are **denial-of-service bounds for untrusted input**, not supported working sizes. A document can be within every limit and still be a poor fit for an interactive surface. The budgets below are the numbers to design against.
+The resource limits in the document model spec (10,000 nodes, 1 MiB, 32 depth, 1,024-scalar expressions, 65,536-unit values) are **denial-of-service bounds for untrusted input**, not supported working sizes. A document can be within every limit and still be a poor fit for an interactive surface. The budgets below are the numbers to design against.
 
 ## What runs where
 
@@ -27,7 +27,7 @@ The consequence: **cold build cost never blocks a frame** (await it, show the lo
 
 ## Measured baselines
 
-Synthetic wide trees: one input field plus N text nodes, half bound to state through expressions, half literal. Cold build is parse + full gate + first resolution; update is one event dispatch (`$set` from the event payload) plus re-resolution of the whole tree. Medians, Apple M-series laptop; expect low-end phones to be several times slower.
+Synthetic wide trees: one input field plus N text nodes, half bound to state through expressions, half literal. Cold build is parse + full gate + first resolution; update is one event dispatch (`$set` from the event payload) plus re-resolution of every expression that reads the changed key, which in this shape is half the nodes. The numbers predate incremental resolution and are the whole-tree cost; re-measure before budgeting against them. Medians, Apple M-series laptop; expect low-end phones to be several times slower.
 
 | Nodes | Swift build | Swift update | Kotlin/JVM build | Kotlin/JVM update |
 |---|---|---|---|---|
@@ -38,15 +38,19 @@ Synthetic wide trees: one input field plus N text nodes, half bound to state thr
 
 Swift numbers are release-mode (`swift test -c release`); debug builds are roughly 2 to 3 times slower. Kotlin numbers are JVM after warmup; Android (ART) sits between the two.
 
+The TypeScript engine has no row yet. Its benchmark exists and prints the same table, but numbers belong beside the others only when all three engines are measured on the same machine in one sitting, which is how the rows above were produced; a column taken on different hardware would read as a ranking it is not.
+
 ## Working budgets
 
 - **v1.0's target surfaces (banners, interstitials, forms) are tens of nodes**: build well under a millisecond, updates in the tens of microseconds. Performance is not a consideration at this scale.
 - **Up to ~1,000 nodes**, updates stay near 0.2 ms on a laptop; with a generous 10x device factor that still fits comfortably inside a 16 ms frame. Builds of a few milliseconds are absorbed by the loading view.
 - **Above that**, measure on your slowest target device before committing. The 5,000-node update (~1 ms laptop, worst-case a few ms on device) still fits a frame, but you are spending budget the rest of your UI may want.
 
-## How the engine currently works, and the licensed optimization
+## How resolution works
 
-Today every engine re-resolves the **entire tree** on every update and invalidates the host once: the simplest correct implementation, and the numbers above show it is comfortably fast at v1.0's scales. If future surfaces demand more, the designed upgrade path is incremental resolution: the gate already statically resolves every expression's state and context references, so it can emit an exact dependency index, making update cost proportional to what changed rather than tree size, with node-scoped invalidation to the renderers. Because the conformance suite pins observable semantics, that rewrite is contract-invisible: any engine can adopt it independently, and the suite proves nothing changed.
+Every engine resolves incrementally. At build, each expression's state and context references are indexed; an update re-evaluates only the expressions that read a key whose value changed, rebuilds only the path from those nodes to the root, and leaves untouched subtrees as they were, the same objects where the language can show it. An update that changes no value re-resolves nothing and does not notify the host. Update cost is therefore proportional to what the change reaches, not to tree size: the benchmark's update touches every other node by design and is the worst case for this document shape.
+
+The host is still invalidated once per update, at the root, on SwiftUI and Compose; their diffing keeps actual UI work small. Node-scoped invalidation in those two bindings is the next step if measurement on a low-end device shows the binding, not the engine, is now the cost. The React binding already benefits: unchanged subtrees keep their object identity, so keyed renderers reconcile without re-rendering.
 
 ## Running the benchmarks
 
@@ -56,6 +60,9 @@ swift test -c release --filter PerformanceBenchmarks
 
 # Kotlin
 cd engine/compose && ./gradlew jvmTest --tests "dev.getmilano.PerformanceBenchmark" -i
+
+# TypeScript
+npm run benchmark --workspace @get-milano/core
 ```
 
-Both print a table and assert only order-of-magnitude ceilings, so CI catches regressions without flaking on runner noise.
+All three print the same table. The Swift and Kotlin suites also assert order-of-magnitude ceilings, so CI catches regressions without flaking on runner noise; the TypeScript benchmark only measures and is not part of `npm test`.
