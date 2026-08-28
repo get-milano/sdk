@@ -12,7 +12,7 @@
   },
   "type": "module",
   "bin": {
-    "milano": "./dist/bin.js"
+    "milano": "dist/bin.js"
   },
   "exports": {
     ".": {
