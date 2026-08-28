@@ -97,7 +97,7 @@ class ValueSizeTest {
         built.view.emit("t", "tap")
         assertEquals(MilanoValue.StringValue("abcde"), built.view.state["s"])
         assertEquals(MilanoValue.IntValue(1), built.view.state["n"])
-        assertEquals(listOf(listOf("REJECTED_MUTATION", "t", "s", "8", "10")), built.occurrences.map(::detail))
+        assertEquals(listOf(listOf("REJECTED_MUTATION", "t", "s", "maxValueSize", "10")), built.occurrences.map(::detail))
     }
 
     @Test
@@ -133,7 +133,10 @@ class ValueSizeTest {
             )
         handle.update(mapOf("who" to MilanoValue.StringValue("a very long name"), "n" to MilanoValue.IntValue(2)))
         assertEquals(MilanoValue.StringValue("Ada1"), built.view.resolvedRoot.values["text"])
-        assertEquals(listOf(listOf("REJECTED_CONTEXT_UPDATE", null, "who", "8", "16")), built.occurrences.map(::detail))
+        assertEquals(
+            listOf(listOf("REJECTED_CONTEXT_UPDATE", null, "who", "maxValueSize", "16")),
+            built.occurrences.map(::detail),
+        )
     }
 
     @Test

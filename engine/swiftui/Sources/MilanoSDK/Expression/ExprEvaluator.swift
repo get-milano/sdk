@@ -9,9 +9,12 @@ struct ExprEvaluator {
     var result: MilanoValue?
     let node: String?
     let report: (MilanoOccurrence.Kind) -> Void
+    /// `$repeat` bindings in scope: the element and its index, by name.
+    var bindings: [String: MilanoValue] = [:]
 
-    /// Only `event` and `result` reach evaluation as bare roots.
+    /// Bare roots: a `$repeat` binding, or `event` and `result`.
     private func rootValue(_ name: String) -> MilanoValue {
+        if let bound = bindings[name] { return bound }
         switch name {
         case "event": return event ?? .null
         case "result": return result ?? .null

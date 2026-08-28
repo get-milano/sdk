@@ -9,11 +9,11 @@ Milano is a client-only, design-system-agnostic **Document-Driven UI (DDUI)** fr
 
 This site documents the engines and how to consume them. The normative contract lives in the [specification](https://github.com/get-milano/specs): the document model, the vocabulary schema, the expression language, the runtime semantics, and the conformance suite every engine is green against.
 
-## What v1.0 does
+## What the contract does
 
 - **Banners and interstitials.** Documents describing promotional or informational surfaces, rendered with your components, with expressions binding text and visibility to injected context.
 - **Simple forms.** Documents defining fields, required markers, validation errors, conditional visibility, and a submit action, with all values flowing through state the host provides.
-- **Whole screens beyond those targets.** The same mechanics carry user profile screens, and intermediate screens like a catalog, whose structure changes more often than their components. The sample apps ship both: a profile screen driven by context and state, and a catalog of tappable item cards whose taps open each item's page through `openUrl`.
+- **Whole screens beyond those targets.** The same mechanics carry user profile screens, and intermediate screens like a catalog, whose structure changes more often than their components. The sample apps ship both: a profile screen driven by context and state, and a catalog of tappable item cards, one `$repeat` over the items the host supplies, whose taps open each item's page through `openUrl`.
 
 ## What Milano is not
 
@@ -30,7 +30,7 @@ This site documents the engines and how to consume them. The normative contract 
 | Package | `import MilanoSDK` | `dev.getmilano` | `@get-milano/react` (the binding; no React Native package needed) |
 | Runs on | iPhone, iPad, macOS, watchOS | Android, JVM | Browsers, React Native (iOS, Android), Node |
 
-From 1.0.0 the SDK follows semantic versioning: within a major version, releases are additive. Every engine implements the same contract (v1.0 of the specs) and passes the same conformance suite. Mechanics are identical to the bit: expression results, error taxonomy, dispatch ordering, and reporting behave the same everywhere. The TypeScript packages arrived in 1.1.0; they implement the same contract v1.0.
+From 1.0.0 the SDK follows semantic versioning: within a major version, releases are additive. Every engine implements the same contract (contract 2.0 of the specs, which keeps every 1.x document valid unchanged) and passes the same conformance suite. Mechanics are identical to the bit: expression results, error taxonomy, dispatch ordering, and reporting behave the same everywhere. The TypeScript packages arrived in 1.1.0; they implement the same contract.
 
 ## Where to go next
 
@@ -40,13 +40,15 @@ From 1.0.0 the SDK follows semantic versioning: within a major version, releases
 4. [Philosophy](philosophy): the ideas the design follows.
 5. [Guidelines](guidelines): the recommended app architecture.
 6. [Creating a bridge](bridge): connect Milano to your design system.
-7. [Writing documents](documents): the document format from a producer's view.
-8. [Expressions](expressions): the expression language reference.
-9. [Guardrails](guardrails): errors, policies, limits, and observability.
-10. [Performance](performance): measured baselines, threading model, and working budgets.
-11. [Accessibility](accessibility): assistive-technology semantics as vocabulary design, with the sample mappings for each platform.
-12. [Coverage](coverage): how much of each engine its tests reach, regenerated on every docs build.
-13. [User interaction analytics](analytics): the engine-captured interaction stream (impressions, taps, dispatches, outcomes) plus renderer-reported widget signals, delivered to one host sink.
+7. [Producing documents](producing): the producer's workflow, from `milano init` to CI, vocabulary evolution, and working with an AI agent.
+8. [Writing documents](documents): the document format from a producer's view.
+9. [Expressions](expressions): the expression language reference.
+10. [Guardrails](guardrails): errors, policies, limits, and observability, with every rule and occurrence detail.
+11. [Performance](performance): measured baselines, threading model, and working budgets.
+12. [Accessibility](accessibility): assistive-technology semantics as vocabulary design, with the sample mappings for each platform.
+13. [Coverage](coverage): how much of each engine its tests reach, regenerated on every docs build.
+14. [User interaction analytics](analytics): the engine-captured interaction stream (impressions, taps, dispatches, outcomes) plus renderer-reported widget signals, delivered to one host sink.
+15. [Migrating](migrating): what changes for consumers between major versions, by audience.
 
 ## License
 

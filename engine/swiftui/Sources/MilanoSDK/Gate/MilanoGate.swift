@@ -9,8 +9,17 @@ struct BuiltNode: Sendable {
     let isPlaceholder: Bool
     let rawSubtree: MilanoValue?
     let properties: [String: DocValue]
+    /// For a `$repeat`, the template.
     let children: [BuiltNode]
     let events: [String: [ActionSpec]]
+    /// Present exactly when the node is a `$repeat` construct.
+    var repeatSpec: BuiltRepeat?
+}
+
+/// A validated `$repeat`: its typed `items` expression and binding name.
+struct BuiltRepeat: Sendable {
+    let items: DocValue
+    let `as`: String
 }
 
 /// The construction gate: the five-step validation order from the document
@@ -18,7 +27,19 @@ struct BuiltNode: Sendable {
 /// builder awaits the state data provider and completes the cross-checks.
 struct MilanoGate {
     /// The contract majors this runtime supports.
-    static let supportedMajors: [Int] = [1]
+    /// Per contract major, the highest minor this engine implements
+    /// (Foundations, Versioning). A document's patch never matters.
+    static let supportedVersions: [Int: Int] = [1: 0, 2: 0]
+
+    /// The supported ranges as the error detail spells them: "1.0", "2.0".
+    static var supportedRanges: [String] {
+        supportedVersions.sorted { $0.key < $1.key }.map { "\($0.key).\($0.value)" }
+    }
+
+    static func isSupported(major: Int, minor: Int) -> Bool {
+        guard let ceiling = supportedVersions[major] else { return false }
+        return minor <= ceiling
+    }
 
     let engine: MilanoEngine
     let policy: MilanoUnknownTypePolicy
@@ -48,9 +69,9 @@ struct MilanoGate {
         let document = try DocumentParser.parse(data)
 
         // Step 2: version.
-        guard Self.supportedMajors.contains(document.major) else {
+        guard Self.isSupported(major: document.major, minor: document.minor) else {
             throw MilanoBuildError.unsupportedVersion(
-                declared: document.versionString, supported: Self.supportedMajors)
+                declared: document.versionString, supported: Self.supportedRanges)
         }
 
         // Step 3: vocabulary requirement, when the document declares one.
@@ -148,8 +169,11 @@ struct MilanoGate {
 
     // MARK: - Node validation
 
+    private static let reservedRoots: Set<String> = ["state", "context", "event", "result"]
+
     private func validate(
-        _ node: RawNode, in document: ParsedDocument, path: String, seenIds: inout Set<String>
+        _ node: RawNode, in document: ParsedDocument, path: String, seenIds: inout Set<String>,
+        bindings: [String: MilanoType] = [:]
     ) throws -> BuiltNode? {
         let reference = node.id ?? path
 
@@ -160,8 +184,13 @@ struct MilanoGate {
             }
         }
 
-        // v1 documents contain no construct nodes at all.
+        // Constructs live in the `$` namespace; contract 2.0 admits `$repeat`.
         if node.type.hasPrefix("$") {
+            if node.type == "$repeat", document.major >= 2 {
+                return try validateRepeat(
+                    node, in: document, path: path, reference: reference,
+                    seenIds: &seenIds, bindings: bindings)
+            }
             throw MilanoBuildError.schemaViolation(
                 rule: "construct", node: reference, expected: "component type", found: node.type)
         }
@@ -202,7 +231,7 @@ struct MilanoGate {
             }
             properties[name] = try checked(
                 value, against: declaredType, rule: "property-type",
-                node: reference, in: document)
+                node: reference, in: document, bindings: bindings)
         }
 
         // Children acceptance is declared by the vocabulary schema.
@@ -223,14 +252,15 @@ struct MilanoGate {
             events[event] = try actions.map {
                 try validateAction(
                     $0, in: document, node: reference, eventScope: scope,
-                    resultScope: .unavailable)
+                    resultScope: .unavailable, bindings: bindings)
             }
         }
 
         var children: [BuiltNode] = []
         for (index, child) in node.children.enumerated() {
             if let built = try validate(
-                child, in: document, path: "\(path)/children[\(index)]", seenIds: &seenIds) {
+                child, in: document, path: "\(path)/children[\(index)]", seenIds: &seenIds,
+                bindings: bindings) {
                 children.append(built)
             }
         }
@@ -240,9 +270,81 @@ struct MilanoGate {
             properties: properties, children: children, events: events)
     }
 
+    /// The `$repeat` construct (document model spec, Constructs): never the
+    /// root, no properties or bindings, an array expression as `items`, a
+    /// fresh identifier as `as`, and a template validated with the element
+    /// and its index in scope.
+    private func validateRepeat(
+        _ node: RawNode, in document: ParsedDocument, path: String, reference: String,
+        seenIds: inout Set<String>, bindings: [String: MilanoType]
+    ) throws -> BuiltNode {
+        func violation(_ expected: String, _ found: String?) -> MilanoBuildError {
+            MilanoBuildError.schemaViolation(rule: "repeat", node: reference, expected: expected, found: found)
+        }
+        if path == "root" { throw violation("child position", "root") }
+        if !node.properties.isEmpty { throw violation("items, as, children", "properties") }
+        if !node.events.isEmpty { throw violation("items, as, children", "on") }
+        guard let spec = node.repeatSpec, let items = spec.items else {
+            throw violation("items expression", nil)
+        }
+        if case .literal(let literal) = items {
+            throw violation("items expression", Self.name(of: literal))
+        }
+        guard let alias = spec.as, MilanoIdentifier.isValid(alias), !Self.reservedRoots.contains(alias) else {
+            throw violation("binding identifier", spec.as)
+        }
+        if bindings[alias] != nil || bindings["\(alias)_index"] != nil {
+            throw violation("distinct binding", alias)
+        }
+        if node.children.isEmpty { throw violation("template", "no children") }
+
+        // items: an expression typing to a non-optional array, in the
+        // enclosing bindings' scope.
+        guard case .expression(let source) = items else { throw violation("items expression", nil) }
+        if source.unicodeScalars.count > engine.limits.maxExpressionLength {
+            throw MilanoBuildError.limitExceeded(
+                limit: "maxExpressionLength",
+                value: engine.limits.maxExpressionLength,
+                actual: source.unicodeScalars.count)
+        }
+        let expr: Expr
+        let itemsType: MilanoType?
+        do {
+            expr = try ExprParser.parse(source)
+            var checker = ExprChecker(
+                state: document.stateDeclarations, context: document.contextDeclarations,
+                eventScope: .unavailable)
+            checker.bindings = bindings
+            itemsType = try checker.infer(expr)
+        } catch is ExprError {
+            throw MilanoBuildError.schemaViolation(
+                rule: "expression", node: reference, expected: "array", found: nil)
+        }
+        guard let itemsType, case .array(let element) = itemsType.kind, !itemsType.optional else {
+            throw violation("array items", itemsType.map { Self.name(of: $0) } ?? "null")
+        }
+
+        var inner = bindings
+        inner[alias] = element
+        inner["\(alias)_index"] = MilanoType(.int)
+        var template: [BuiltNode] = []
+        for (index, child) in node.children.enumerated() {
+            if let built = try validate(
+                child, in: document, path: "\(path)/children[\(index)]", seenIds: &seenIds,
+                bindings: inner) {
+                template.append(built)
+            }
+        }
+        return BuiltNode(
+            type: node.type, reference: reference, isPlaceholder: false, rawSubtree: nil,
+            properties: [:], children: template, events: [:],
+            repeatSpec: BuiltRepeat(items: .typedExpression(source: source, expr: expr, expected: itemsType), as: alias))
+    }
+
     private func validateAction(
         _ action: ActionSpec, in document: ParsedDocument, node: String,
-        eventScope: EventScope, resultScope: EventScope
+        eventScope: EventScope, resultScope: EventScope,
+        bindings: [String: MilanoType] = [:]
     ) throws -> ActionSpec {
         switch action {
         case .set(let key, let value):
@@ -255,31 +357,31 @@ struct MilanoGate {
                 value: try checked(
                     value, against: stateType, rule: "action-encoding",
                     node: node, in: document, eventScope: eventScope,
-                    resultScope: resultScope))
+                    resultScope: resultScope, bindings: bindings))
 
         case .sequence(let actions):
             return .sequence(
                 try actions.map {
                     try validateAction(
                         $0, in: document, node: node, eventScope: eventScope,
-                        resultScope: resultScope)
+                        resultScope: resultScope, bindings: bindings)
                 })
 
         case .when(let condition, let then, let otherwise):
             let checkedCondition = try checked(
                 condition, against: MilanoType(.bool), rule: "action-encoding",
-                node: node, in: document, eventScope: eventScope, resultScope: resultScope)
+                node: node, in: document, eventScope: eventScope, resultScope: resultScope, bindings: bindings)
             return .when(
                 condition: checkedCondition,
                 then: try then.map {
                     try validateAction(
                         $0, in: document, node: node, eventScope: eventScope,
-                        resultScope: resultScope)
+                        resultScope: resultScope, bindings: bindings)
                 },
                 otherwise: try otherwise.map {
                     try validateAction(
                         $0, in: document, node: node, eventScope: eventScope,
-                        resultScope: resultScope)
+                        resultScope: resultScope, bindings: bindings)
                 })
 
         case .custom(let name, let parameters, let onSuccess, let onFailure, _):
@@ -298,7 +400,7 @@ struct MilanoGate {
                 checkedParameters[parameter] = try checked(
                     value, against: parameterType, rule: "action-encoding",
                     node: node, in: document, eventScope: eventScope,
-                    resultScope: resultScope)
+                    resultScope: resultScope, bindings: bindings)
             }
             for (parameter, parameterType) in declaration.parameters.byKey
             where checkedParameters[parameter] == nil {
@@ -319,12 +421,12 @@ struct MilanoGate {
                 onSuccess: try onSuccess.map {
                     try validateAction(
                         $0, in: document, node: node, eventScope: eventScope,
-                        resultScope: successScope)
+                        resultScope: successScope, bindings: bindings)
                 },
                 onFailure: try onFailure.map {
                     try validateAction(
                         $0, in: document, node: node, eventScope: eventScope,
-                        resultScope: .unavailable)
+                        resultScope: .unavailable, bindings: bindings)
                 },
                 result: declaration.result)
         }
@@ -335,7 +437,7 @@ struct MilanoGate {
     private func checked(
         _ value: DocValue, against type: MilanoType, rule: String, node: String,
         in document: ParsedDocument, eventScope: EventScope = .unavailable,
-        resultScope: EventScope = .unavailable
+        resultScope: EventScope = .unavailable, bindings: [String: MilanoType] = [:]
     ) throws -> DocValue {
         switch value {
         case .literal(let literal):
@@ -358,10 +460,11 @@ struct MilanoGate {
             let inferred: MilanoType?
             do {
                 expr = try ExprParser.parse(source)
-                let checker = ExprChecker(
+                var checker = ExprChecker(
                     state: document.stateDeclarations,
                     context: document.contextDeclarations,
                     eventScope: eventScope, resultScope: resultScope)
+                checker.bindings = bindings
                 inferred = try checker.infer(expr, expecting: type)
                 guard checker.accepts(type, actual: inferred) else {
                     throw ExprError(detail: "type mismatch")

@@ -12,4 +12,7 @@ object MilanoInfo {
      * supports is declared by the gate.
      */
     const val VERSION: String = "0.0.0-dev"
+
+    /** The highest contract version this engine implements. */
+    const val CONTRACT: String = "2.0"
 }

@@ -11,8 +11,17 @@ internal class BuiltNode(
     val isPlaceholder: Boolean,
     val rawSubtree: MilanoValue?,
     val properties: Map<String, DocValue>,
+    /** For a `$repeat`, the template. */
     val children: List<BuiltNode>,
     val events: Map<String, List<ActionSpec>>,
+    /** Present exactly when the node is a `$repeat` construct. */
+    val repeatSpec: BuiltRepeat? = null,
+)
+
+/** A validated `$repeat`: its typed `items` expression and binding name. */
+internal class BuiltRepeat(
+    val items: DocValue,
+    val alias: String,
 )
 
 /**
@@ -40,8 +49,19 @@ internal class MilanoGate(
         private set
 
     companion object {
-        /** The contract majors this runtime supports. */
-        val SUPPORTED_MAJORS = listOf(1)
+        // Per contract major, the highest minor this engine implements
+        // (Foundations, Versioning). A document's patch never matters.
+        val SUPPORTED_VERSIONS: Map<Int, Int> = mapOf(1 to 0, 2 to 0)
+
+        // The supported ranges as the error detail spells them: "1.0", "2.0".
+        fun supportedRanges(): List<String> = SUPPORTED_VERSIONS.entries.map { (major, minor) -> "$major.$minor" }
+
+        fun isSupportedVersion(
+            major: Int,
+            minor: Int,
+        ): Boolean = SUPPORTED_VERSIONS[major]?.let { minor <= it } ?: false
+
+        private val RESERVED_ROOTS = setOf("state", "context", "event", "result")
 
         fun name(type: MilanoType): String {
             val base =
@@ -85,8 +105,8 @@ internal class MilanoGate(
         val document = DocumentParser.parse(text)
 
         // Step 2: version.
-        if (document.major !in SUPPORTED_MAJORS) {
-            throw MilanoBuildException.UnsupportedVersion(document.versionString, SUPPORTED_MAJORS)
+        if (!isSupportedVersion(document.major, document.minor)) {
+            throw MilanoBuildException.UnsupportedVersion(document.versionString, supportedRanges())
         }
 
         // Step 3: vocabulary requirement, when the document declares one.
@@ -204,6 +224,7 @@ internal class MilanoGate(
         document: ParsedDocument,
         path: String,
         seenIds: MutableSet<String>,
+        bindings: Map<String, MilanoType> = emptyMap(),
     ): BuiltNode? {
         val reference = node.id ?: path
 
@@ -218,8 +239,11 @@ internal class MilanoGate(
             }
         }
 
-        // v1 documents contain no construct nodes at all.
+        // Constructs live in the `$` namespace; contract 2.0 admits `$repeat`.
         if (node.type.startsWith("$")) {
+            if (node.type == "\$repeat" && document.major >= 2) {
+                return validateRepeat(node, document, path, reference, seenIds, bindings)
+            }
             throw MilanoBuildException.SchemaViolation(
                 rule = "construct",
                 node = reference,
@@ -283,7 +307,7 @@ internal class MilanoGate(
                 )
                 continue
             }
-            properties[name] = checked(value, declaredType, "property-type", reference, document)
+            properties[name] = checked(value, declaredType, "property-type", reference, document, bindings = bindings)
         }
 
         // Children acceptance is declared by the vocabulary schema.
@@ -311,12 +335,12 @@ internal class MilanoGate(
             val scope =
                 component.events[event]?.let { EventScope.Payload(it) }
                     ?: EventScope.Unavailable
-            events[event] = actions.map { validateAction(it, document, reference, scope, EventScope.Unavailable) }
+            events[event] = actions.map { validateAction(it, document, reference, scope, EventScope.Unavailable, bindings) }
         }
 
         val children = ArrayList<BuiltNode>()
         for ((index, child) in node.children.withIndex()) {
-            validate(child, document, "$path/children[$index]", seenIds)?.let { children.add(it) }
+            validate(child, document, "$path/children[$index]", seenIds, bindings)?.let { children.add(it) }
         }
 
         return BuiltNode(
@@ -330,12 +354,83 @@ internal class MilanoGate(
         )
     }
 
+    /**
+     * The `$repeat` construct (document model spec, Constructs): never the
+     * root, no properties or bindings, an array expression as `items`, a
+     * fresh identifier as `as`, and a template validated with the element
+     * and its index in scope.
+     */
+    private fun validateRepeat(
+        node: RawNode,
+        document: ParsedDocument,
+        path: String,
+        reference: String,
+        seenIds: MutableSet<String>,
+        bindings: Map<String, MilanoType>,
+    ): BuiltNode {
+        fun violation(
+            expected: String,
+            found: String?,
+        ) = MilanoBuildException.SchemaViolation(rule = "repeat", node = reference, expected = expected, found = found)
+        if (path == "root") throw violation("child position", "root")
+        if (node.properties.isNotEmpty()) throw violation("items, as, children", "properties")
+        if (node.events.isNotEmpty()) throw violation("items, as, children", "on")
+        val spec = node.repeatSpec
+        val items = spec?.items ?: throw violation("items expression", null)
+        if (items is DocValue.Literal) throw violation("items expression", name(items.value))
+        val alias = spec.alias
+        if (alias == null || !MilanoIdentifier.isValid(alias) || alias in RESERVED_ROOTS) {
+            throw violation("binding identifier", alias)
+        }
+        if (alias in bindings || "${alias}_index" in bindings) throw violation("distinct binding", alias)
+        if (node.children.isEmpty()) throw violation("template", "no children")
+
+        // items: an expression typing to a non-optional array, in the
+        // enclosing bindings' scope.
+        val source = (items as? DocValue.Expression)?.source ?: throw violation("items expression", null)
+        val scalarLength = source.unicodeScalarCount()
+        if (scalarLength > engine.limits.maxExpressionLength) {
+            throw MilanoBuildException.LimitExceeded("maxExpressionLength", engine.limits.maxExpressionLength, scalarLength)
+        }
+        val expr: Expr
+        val itemsType: MilanoType?
+        try {
+            expr = ExprParser.parse(source)
+            val checker =
+                ExprChecker(document.stateDeclarations, document.contextDeclarations, EventScope.Unavailable, bindings = bindings)
+            itemsType = checker.infer(expr)
+        } catch (_: ExprException) {
+            throw MilanoBuildException.SchemaViolation(rule = "expression", node = reference, expected = "array", found = null)
+        }
+        val element = (itemsType?.kind as? MilanoType.Kind.Array)?.element
+        if (itemsType == null || element == null || itemsType.optional) {
+            throw violation("array items", itemsType?.let { name(it) } ?: "null")
+        }
+
+        val inner = bindings + (alias to element) + ("${alias}_index" to MilanoType(MilanoType.Kind.Int))
+        val template = ArrayList<BuiltNode>()
+        for ((index, child) in node.children.withIndex()) {
+            validate(child, document, "$path/children[$index]", seenIds, inner)?.let { template.add(it) }
+        }
+        return BuiltNode(
+            type = node.type,
+            reference = reference,
+            isPlaceholder = false,
+            rawSubtree = null,
+            properties = emptyMap(),
+            children = template,
+            events = emptyMap(),
+            repeatSpec = BuiltRepeat(DocValue.TypedExpression(source, expr, itemsType), alias),
+        )
+    }
+
     private fun validateAction(
         action: ActionSpec,
         document: ParsedDocument,
         node: String,
         eventScope: EventScope,
         resultScope: EventScope,
+        bindings: Map<String, MilanoType> = emptyMap(),
     ): ActionSpec =
         when (action) {
             is ActionSpec.Set -> {
@@ -349,13 +444,13 @@ internal class MilanoGate(
                         )
                 ActionSpec.Set(
                     action.key,
-                    checked(action.value, stateType, "action-encoding", node, document, eventScope, resultScope),
+                    checked(action.value, stateType, "action-encoding", node, document, eventScope, resultScope, bindings),
                 )
             }
 
             is ActionSpec.Sequence -> {
                 ActionSpec.Sequence(
-                    action.actions.map { validateAction(it, document, node, eventScope, resultScope) },
+                    action.actions.map { validateAction(it, document, node, eventScope, resultScope, bindings) },
                 )
             }
 
@@ -370,9 +465,10 @@ internal class MilanoGate(
                             document,
                             eventScope,
                             resultScope,
+                            bindings,
                         ),
-                    then = action.then.map { validateAction(it, document, node, eventScope, resultScope) },
-                    otherwise = action.otherwise.map { validateAction(it, document, node, eventScope, resultScope) },
+                    then = action.then.map { validateAction(it, document, node, eventScope, resultScope, bindings) },
+                    otherwise = action.otherwise.map { validateAction(it, document, node, eventScope, resultScope, bindings) },
                 )
             }
 
@@ -397,7 +493,7 @@ internal class MilanoGate(
                                 found = parameter,
                             )
                     checkedParameters[parameter] =
-                        checked(value, parameterType, "action-encoding", node, document, eventScope, resultScope)
+                        checked(value, parameterType, "action-encoding", node, document, eventScope, resultScope, bindings)
                 }
                 for ((parameter, parameterType) in declaration.parameters) {
                     if (parameter !in checkedParameters) {
@@ -423,11 +519,11 @@ internal class MilanoGate(
                     parameters = checkedParameters,
                     onSuccess =
                         action.onSuccess.map {
-                            validateAction(it, document, node, eventScope, successScope)
+                            validateAction(it, document, node, eventScope, successScope, bindings)
                         },
                     onFailure =
                         action.onFailure.map {
-                            validateAction(it, document, node, eventScope, EventScope.Unavailable)
+                            validateAction(it, document, node, eventScope, EventScope.Unavailable, bindings)
                         },
                     result = declaration.result,
                 )
@@ -446,6 +542,7 @@ internal class MilanoGate(
         document: ParsedDocument,
         eventScope: EventScope = EventScope.Unavailable,
         resultScope: EventScope = EventScope.Unavailable,
+        bindings: Map<String, MilanoType> = emptyMap(),
     ): DocValue =
         when (value) {
             is DocValue.Literal -> {
@@ -478,6 +575,7 @@ internal class MilanoGate(
                             document.contextDeclarations,
                             eventScope,
                             resultScope,
+                            bindings,
                         )
                     val inferred = checker.infer(expr, expecting = type)
                     if (!checker.accepts(type, inferred)) throw ExprException("type mismatch")

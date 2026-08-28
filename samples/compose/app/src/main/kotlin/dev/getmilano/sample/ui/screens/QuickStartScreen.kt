@@ -62,14 +62,14 @@ private object GreetingRenderer : MilanoRenderer {
 
 private val QUICKSTART_VOCABULARY =
     """
-    {"milano": "1.0.0", "name": "quickstart", "version": "1.0.0",
+    {"milano": "2.0.0", "name": "quickstart", "version": "2.0.0",
      "components": {"Greeting": {"properties": {"text": "string"}, "events": {"tap": null}}},
      "actions": {"celebrate": {}}}
     """.trimIndent()
 
 private val QUICKSTART_DOCUMENT =
     """
-    {"version": "1.0.0",
+    {"version": "2.0.0",
      "context": {"userName": "string"},
      "state": {"taps": "int"},
      "root": {"type": "Greeting", "id": "hello",

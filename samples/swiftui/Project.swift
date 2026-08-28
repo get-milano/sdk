@@ -33,7 +33,7 @@ let project = Project(
                 // The three sample apps carry the SDK's version, so a
                 // screenshot or a TestFlight build says which release it
                 // demonstrates. Checked by scripts/check-consistency.mjs.
-                "CFBundleShortVersionString": "1.3.0"
+                "CFBundleShortVersionString": "2.0.0"
             ]),
             sources: ["Sources/**"],
             resources: ["Resources/**"],
@@ -41,25 +41,27 @@ let project = Project(
                 // Producer tooling as build steps, mirroring the Compose
                 // sample's Gradle tasks: typed bindings and the editor
                 // schema are regenerated from the vocabulary, and every
-                // bundled document is validated through the reference
-                // gate, so none of them can drift. The tools live in the
-                // specs repository (sibling checkout, or MILANO_SPECS_DIR).
+                // bundled document is validated with the gate the engines
+                // run, so none of them can drift. The Milano CLI does all
+                // three; inside this repository it is the workspace package
+                // (`npm ci && npm run build` at the repository root), a
+                // consumer project runs `npx milano` from @get-milano/cli.
                 .pre(
                     script: """
-                    SPECS_DIR="${MILANO_SPECS_DIR:-$SRCROOT/../../../specs}"
-                    python3 "$SPECS_DIR/tools/generate_bindings.py" \
-                        "$SRCROOT/Resources/vocabulary.json" \
+                    MILANO_CLI="${MILANO_CLI:-$SRCROOT/../../cli/dist/bin.js}"
+                    export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+                    command -v node >/dev/null || { echo "error: node is not on PATH; the Milano CLI runs on Node" >&2; exit 1; }
+                    [ -f "$MILANO_CLI" ] || { echo "error: Milano CLI not built at $MILANO_CLI: run npm ci && npm run build at the repository root" >&2; exit 1; }
+                    node "$MILANO_CLI" bindings "$SRCROOT/Resources/vocabulary.json" \
                         --swift-prefix Sample \
                         --swift-out "$SRCROOT/Sources/MilanoBridge/GeneratedBindings.swift"
-                    python3 "$SPECS_DIR/tools/generate_document_schema.py" \
-                        "$SRCROOT/Resources/vocabulary.json" \
+                    node "$MILANO_CLI" schema "$SRCROOT/Resources/vocabulary.json" \
                         --out "$SRCROOT/documents.schema.json"
+                    set --
                     for doc in "$SRCROOT"/Resources/*.json; do
-                        [ "$(basename "$doc")" = "vocabulary.json" ] && continue
-                        python3 "$SPECS_DIR/tools/reference_check.py" \
-                            --document "$doc" \
-                            --vocabulary "$SRCROOT/Resources/vocabulary.json"
+                        [ "$(basename "$doc")" = "vocabulary.json" ] || set -- "$@" "$doc"
                     done
+                    node "$MILANO_CLI" validate "$@" --vocabulary "$SRCROOT/Resources/vocabulary.json"
                     """,
                     name: "Generate Milano bindings and validate documents",
                     basedOnDependencyAnalysis: false

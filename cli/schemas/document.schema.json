@@ -1,0 +1,330 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "document.schema.json",
+  "title": "Milano Document",
+  "description": "Validates the canonical JSON encoding of a Milano document per the document model spec: top-level structure, node envelope, values and expressions, and action encoding. Every object the contract may grow (the top level, the node envelope, the vocabulary section, type descriptors) is open, matching the contract's tolerance rules; only the $expr wrapper is closed, since the model defines it as exactly single-key. Semantic rules (vocabulary resolution, expression typing, id uniqueness, resource limits) belong to the gate, not this schema.",
+  "type": "object",
+  "required": [
+    "version",
+    "root"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "vocabulary": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "min": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/type"
+      }
+    },
+    "state": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/type"
+      }
+    },
+    "root": {
+      "$ref": "#/$defs/node"
+    },
+    "metadata": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+    },
+    "node": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^\\$?[A-Za-z][A-Za-z0-9_]*$"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "properties": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/identifier"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/value"
+          }
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        },
+        "items": {
+          "description": "$repeat only: the array expression the template is instantiated over.",
+          "$ref": "#/$defs/value"
+        },
+        "as": {
+          "description": "$repeat only: the name that binds each element inside the template; <as>_index binds its position.",
+          "type": "string",
+          "minLength": 1
+        },
+        "on": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/identifier"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/actionOrList"
+          }
+        }
+      }
+    },
+    "value": {
+      "description": "A literal of the declared type, or an expression wrapper. An object carrying $expr must be exactly the single-key wrapper.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/expression"
+        },
+        {
+          "not": {
+            "type": "object",
+            "required": [
+              "$expr"
+            ]
+          }
+        }
+      ]
+    },
+    "expression": {
+      "type": "object",
+      "required": [
+        "$expr"
+      ],
+      "properties": {
+        "$expr": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "actionOrList": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/action"
+        },
+        {
+          "$ref": "#/$defs/actionList"
+        }
+      ]
+    },
+    "actionList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/action"
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": [
+        "action"
+      ],
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+      },
+      "properties": {
+        "action": {
+          "type": "string",
+          "pattern": "^(\\$set|\\$sequence|\\$when|[A-Za-z][A-Za-z0-9_]*)$"
+        },
+        "onSuccess": {
+          "$ref": "#/$defs/actionOrList"
+        },
+        "onFailure": {
+          "$ref": "#/$defs/actionOrList"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/value"
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "$set"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "key",
+              "value"
+            ],
+            "properties": {
+              "key": {
+                "$ref": "#/$defs/identifier"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "$sequence"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "actions"
+            ],
+            "properties": {
+              "actions": {
+                "$ref": "#/$defs/actionList"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "$when"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "condition"
+            ],
+            "properties": {
+              "then": {
+                "$ref": "#/$defs/actionList"
+              },
+              "else": {
+                "$ref": "#/$defs/actionList"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "pattern": "^\\$"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "onSuccess"
+                  ]
+                },
+                {
+                  "required": [
+                    "onFailure"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "type": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^(bool|int|double|string)\\??$"
+        },
+        {
+          "type": "object",
+          "required": [
+            "enum"
+          ],
+          "properties": {
+            "enum": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/identifier"
+              }
+            },
+            "optional": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "array"
+          ],
+          "properties": {
+            "array": {
+              "$ref": "#/$defs/type"
+            },
+            "optional": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "record"
+          ],
+          "properties": {
+            "record": {
+              "type": "object",
+              "propertyNames": {
+                "$ref": "#/$defs/identifier"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/type"
+              }
+            },
+            "optional": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -6,8 +6,9 @@ import Foundation
 public enum MilanoBuildError: Error, Equatable, Sendable {
     /// Input is not well-formed JSON or violates envelope structure.
     case malformedDocument(detail: String)
-    /// Declared major is outside the runtime's supported set.
-    case unsupportedVersion(declared: String, supported: [Int])
+    /// The declared version is above what the runtime implements; `supported`
+    /// lists the ranges as `major.minor`: "1.0", "2.0".
+    case unsupportedVersion(declared: String, supported: [String])
     /// Vocabulary, typing, action encoding, event, id, or namespace rules
     /// violated; supplied context or initial-state values not matching
     /// declarations.
@@ -28,7 +29,7 @@ extension MilanoBuildError {
             return [
                 "type": .string("UnsupportedVersion"),
                 "declared": .string(declared),
-                "supported": .array(supported.map { .int(Int64($0)) })
+                "supported": .array(supported.map { .string($0) })
             ]
         case .schemaViolation(let rule, let node, let expected, let found):
             var fields: [String: MilanoValue] = [

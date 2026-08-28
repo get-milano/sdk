@@ -95,6 +95,42 @@ export function documentBuilder(
 }
 
 /**
+ * What the catalog service answers: one record per item, in the shape the
+ * document declares for `items`.
+ */
+const SPRITES = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork";
+
+function catalogItem(name: string, blurb: string, sprite: number, slug: string): MilanoValue {
+  return MilanoValue.record({
+    name: MilanoValue.string(name),
+    blurb: MilanoValue.string(blurb),
+    imageUrl: MilanoValue.string(`${SPRITES}/${sprite}.png`),
+    url: MilanoValue.string(`https://www.pokemon.com/us/pokedex/${slug}`),
+  });
+}
+
+const CATALOG_ITEMS: readonly MilanoValue[] = [
+  catalogItem("Bulbasaur", "Grass and poison. Loves the sun.", 1, "bulbasaur"),
+  catalogItem("Charmander", "Fire type. Keep it dry.", 4, "charmander"),
+  catalogItem("Squirtle", "Water type. Shell first.", 7, "squirtle"),
+  catalogItem("Pikachu", "Electric type. The famous one.", 25, "pikachu"),
+];
+
+/**
+ * The catalog: one `$repeat` over `state.items`, so the document is the
+ * template and the list is data the state data provider supplies, here as
+ * a catalog service would answer.
+ */
+export function catalogBuilder(): MilanoReactBuilder {
+  return engine
+    .viewBuilder(document("catalog"))
+    .context(sharedContext)
+    .stateData(() => ({ items: MilanoValue.array(CATALOG_ITEMS) }))
+    .actionHandler(handle)
+    .label("catalog");
+}
+
+/**
  * The interstitial: the document's `dismiss` action is interpreted by the
  * presenting screen; every other action takes the shared path.
  */

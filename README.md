@@ -6,7 +6,7 @@ Milano is a client-only, design-system-agnostic **Document-Driven UI (DDUI)** fr
 
 Milano is **not** server-driven UI (it never talks to a server), **not** a SaaS (nothing hosted, nothing to sign up for), and **not** a design system (it draws nothing).
 
-The normative specifications and the conformance suite live in [get-milano/specs](https://github.com/get-milano/specs). **Every engine passes the full conformance suite; that is the definition of correct.** This repository is held to suite release 1.3.1 of the specs (the ref its CI checks out); the contract version every engine implements is 1.0.
+The normative specifications and the conformance suite live in [get-milano/specs](https://github.com/get-milano/specs). **Every engine passes the full conformance suite; that is the definition of correct.** This repository is held to suite release 2.0.0 of the specs (the ref its CI checks out); every engine implements contract 2.0, and accepts 1.x documents, which 2.0 keeps valid unchanged.
 
 Consumer documentation lives in [`docs/`](docs/index.md), published at [get-milano.dev/sdk](https://get-milano.dev/sdk/): getting started, philosophy, guidelines, creating a bridge, writing documents, expressions, and guardrails.
 
@@ -41,7 +41,7 @@ From source (works on any ref, no credentials), in `settings.gradle.kts`:
 includeBuild("path/to/sdk/engine/compose")
 ```
 
-then depend on `dev.get-milano:engine-compose:1.3.0`; the composite build substitutes it. Your build's Gradle drives the engine's, so this path needs **Gradle 9.6 or newer** (the engine builds with AGP 9, which does not run on older Gradle). Consuming the published artifact has no such requirement. On tagged releases the same coordinate is published to GitHub Packages Maven (note: GitHub Packages requires an authenticated Gradle repository even for public packages).
+then depend on `dev.get-milano:engine-compose:2.0.0`; the composite build substitutes it. Your build's Gradle drives the engine's, so this path needs **Gradle 9.6 or newer** (the engine builds with AGP 9, which does not run on older Gradle). Consuming the published artifact has no such requirement. On tagged releases the same coordinate is published to GitHub Packages Maven (note: GitHub Packages requires an authenticated Gradle repository even for public packages).
 
 ```kotlin
 val engine = MilanoEngine(
@@ -105,13 +105,13 @@ Exit status `1` names every rejected document with the typed error an engine wou
 | `engine/compose` | The Kotlin engine (Kotlin Multiplatform: engine core in `commonMain`; Android + JVM targets) |
 | `engine/ts` | The TypeScript engine, `@get-milano/core` (zero dependencies) |
 | `engine/react` | The React binding, `@get-milano/react` |
-| `cli` | The producer's command line, `@get-milano/cli` (`milano validate`) |
+| `cli` | The producer's command line, `@get-milano/cli` (`milano validate`, `schema`, `diff`, `bindings`) |
 | `samples/swiftui` | iOS sample app (Tuist; run `tuist generate` there) |
 | `samples/compose` | Android sample app (consumes the engine from source via the composite build) |
 | `samples/compose-desktop` | Desktop sample app (Compose Multiplatform on the JVM; same composite build) |
 | `samples/react-native` | React Native sample app (Expo; consumes the packages through the npm workspace) |
 
-The four samples render the same documents and demonstrate every v1.0 capability and beyond: three banner layouts, an interstitial, a Milano fragment embedded between native components, a form with document-driven validation, a whole user-profile screen, and a catalog of tappable item cards, all through a pure design system bridged to Milano in a single bridging module. That split, design system with zero Milano imports plus one bridging module, is the recommended integration architecture.
+The four samples render the same documents and demonstrate every capability of the contract and beyond: three banner layouts, an interstitial, a Milano fragment embedded between native components, a form with document-driven validation, a whole user-profile screen, and a catalog of tappable item cards repeated from state, all through a pure design system bridged to Milano in a single bridging module. That split, design system with zero Milano imports plus one bridging module, is the recommended integration architecture.
 
 ## Development
 

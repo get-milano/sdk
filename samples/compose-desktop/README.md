@@ -19,4 +19,4 @@ The engine is consumed **from source** through the composite build in `settings.
 
 ## Build steps
 
-Before every compile, Gradle regenerates `GeneratedBindings.kt` from `vocabulary.json`, validates every bundled document through the specs repository's reference gate (a document the engines would reject fails the build here, with the same typed error), and refreshes `documents.schema.json` for editors. The specs checkout is found at `../../../specs` or `MILANO_SPECS_DIR`.
+Before every compile, Gradle regenerates `GeneratedBindings.kt` from `vocabulary.json` (`milano bindings`), validates every bundled document with the gate the engines run (`milano validate`: a document the engines would reject fails the build here, with the same typed error), and refreshes `documents.schema.json` for editors (`milano schema`). The three commands come from `@get-milano/cli`; inside this repository they run from the workspace build of the CLI, so `npm ci && npm run build` at the repository root comes first.

@@ -12,7 +12,7 @@ env:
   # this repository is tested against. Adopting a new suite is a deliberate
   # edit here, reviewed with the engine changes it needs; check-consistency
   # keeps the three workflows and the README on the same release.
-  SPECS_RELEASE: "1.3.1"
+  SPECS_RELEASE: "2.0.0"
 
 jobs:
   swift:
@@ -59,6 +59,11 @@ jobs:
       # reaches every descriptor form, against the engine.
       - name: The bindings golden compiles against the engine
         run: node scripts/verify-bindings.mjs typescript
+      # `milano schema`, `milano diff`, and `milano bindings` are ports of
+      # the specs tools; the Python is the reference, and this runs both
+      # over every vocabulary in the checkout and compares the bytes.
+      - name: The CLI reproduces the specs tools byte for byte
+        run: node scripts/verify-cli-parity.mjs
       # Regenerates the sample's bindings from the vocabulary and compiles
       # them, the way a consumer's build does.
       - name: Types (strict, packages and sample)

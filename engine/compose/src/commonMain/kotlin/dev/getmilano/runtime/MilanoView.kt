@@ -52,6 +52,8 @@ class MilanoView internal constructor(
     private class NodeEvents(
         val declared: Map<String, MilanoType?>,
         val bindings: Map<String, List<ActionSpec>>,
+        /** The enclosing `$repeat` constructs, outermost first. */
+        val repeats: List<BuiltNode>,
     )
 
     internal class DispatchRecord(
@@ -60,8 +62,20 @@ class MilanoView internal constructor(
         val onSuccess: List<ActionSpec>,
         val onFailure: List<ActionSpec>,
         val capturedEvent: MilanoValue?,
+        /** The `$repeat` bindings in scope at dispatch, kept for follow-ups. */
+        val capturedBindings: Map<String, MilanoValue>,
         val resultType: MilanoType?,
         val sourceNode: String?,
+    )
+
+    /**
+     * A tree an update would produce, with the reports it raised held back
+     * until the update is accepted.
+     */
+    private class Materialized(
+        val tree: ResolvedNode,
+        val count: Int,
+        val reports: List<Triple<MilanoOccurrence.Kind, String, String>>,
     )
 
     private val nodeEvents = HashMap<String, NodeEvents>()
@@ -84,13 +98,61 @@ class MilanoView internal constructor(
         indexNodes(root)
     }
 
-    private fun indexNodes(node: BuiltNode) {
+    private fun indexNodes(
+        node: BuiltNode,
+        repeats: List<BuiltNode> = emptyList(),
+    ) {
+        if (node.repeatSpec != null) {
+            for (template in node.children) indexNodes(template, repeats + node)
+            return
+        }
         if (!node.isPlaceholder) {
             engine.vocabulary.components[node.type]?.let { component ->
-                nodeEvents[node.reference] = NodeEvents(component.events, node.events)
+                nodeEvents[node.reference] = NodeEvents(component.events, node.events, repeats)
             }
         }
-        for (child in node.children) indexNodes(child)
+        for (child in node.children) indexNodes(child, repeats)
+    }
+
+    /**
+     * An instance reference split into its template reference and the
+     * element index per enclosing `$repeat`, outermost first: `line[2][0]`
+     * is `line` at 2 then 0. A plain reference has no indices.
+     */
+    private fun splitInstanceReference(reference: String): Pair<String, List<Int>> {
+        var base = reference
+        val indices = ArrayList<Int>()
+        while (base.endsWith("]")) {
+            val open = base.lastIndexOf('[')
+            val index = if (open < 0) null else base.substring(open + 1, base.length - 1).toIntOrNull()
+            if (index == null) break
+            indices.add(0, index)
+            base = base.substring(0, open)
+        }
+        return base to indices
+    }
+
+    /**
+     * The `$repeat` bindings an instance's emission dispatches with: the
+     * element at each index, evaluated now, outermost repeat first. Null
+     * when an index no longer exists.
+     */
+    private fun bindingsFor(
+        info: NodeEvents,
+        indices: List<Int>,
+    ): Map<String, MilanoValue>? {
+        var bindings: Map<String, MilanoValue> = emptyMap()
+        var suffix = ""
+        for ((level, repeatNode) in info.repeats.withIndex()) {
+            val index = indices[level]
+            val elements =
+                MilanoResolver.repeatElements(repeatNode, repeatNode.reference + suffix, state, context, { _, _, _ -> }, bindings)
+            val spec = repeatNode.repeatSpec
+            if (index >= elements.size || spec == null) return null
+            bindings = MilanoResolver.elementBindings(spec.alias, elements[index], index, bindings)
+            suffix += "[$index]"
+        }
+        return bindings
     }
 
     // Renderer-facing surface
@@ -137,7 +199,20 @@ class MilanoView internal constructor(
         payload: MilanoValue?,
     ) {
         if (tornDown) return
-        val info = nodeEvents[node]
+        // A plain reference, or an instance reference: the template's
+        // reference with one index per enclosing repeat.
+        var info = nodeEvents[node]
+        var indices: List<Int> = emptyList()
+        if (info == null || info.repeats.isNotEmpty()) {
+            val (base, split) = splitInstanceReference(node)
+            val candidate = nodeEvents[base]
+            if (candidate != null && candidate.repeats.size == split.size) {
+                info = candidate
+                indices = split
+            } else {
+                info = null
+            }
+        }
         if (info == null) {
             report(
                 MilanoOccurrence.Kind.INVALID_EMISSION,
@@ -145,6 +220,17 @@ class MilanoView internal constructor(
                 name = event,
                 expected = "declared event",
                 found = "unknown node",
+            )
+            return
+        }
+        val bindings = bindingsFor(info, indices)
+        if (bindings == null) {
+            report(
+                MilanoOccurrence.Kind.INVALID_EMISSION,
+                node,
+                name = event,
+                expected = "repeat element",
+                found = "index ${indices.lastOrNull() ?: 0}",
             )
             return
         }
@@ -192,7 +278,7 @@ class MilanoView internal constructor(
             report(MilanoOccurrence.Kind.DROPPED_EVENT, node, name = event)
             return
         }
-        enqueue { execute(actions, eventValue, null, sourceNode = node) }
+        enqueue { execute(actions, eventValue, null, sourceNode = node, bindings = bindings) }
     }
 
     internal fun applyContextUpdate(supplied: Map<String, MilanoValue>) {
@@ -206,6 +292,7 @@ class MilanoView internal constructor(
         // Atomic: all declared keys validate or the whole update is rejected.
         val canonical = LinkedHashMap<String, MilanoValue>()
         val changed = LinkedHashSet<String>()
+        var lastKey: String? = null
         for ((key, type) in document.contextDeclarations) {
             val validated = supplied[key]?.let { type.validated(it) }
             if (validated == null) {
@@ -225,18 +312,35 @@ class MilanoView internal constructor(
                     MilanoOccurrence.Kind.REJECTED_CONTEXT_UPDATE,
                     null,
                     name = key,
-                    expected = engine.limits.maxValueSize.toString(),
+                    expected = "maxValueSize",
                     found = size.toString(),
                 )
                 return
             }
             canonical[key] = validated
             if (context[key] != validated) changed.add("context.$key")
+            lastKey = key
+        }
+        // Only what reads a changed key re-evaluates; an update that changes
+        // no value changes nothing. A tree materialized past the node count
+        // limit rejects the update whole.
+        if (changed.isEmpty()) {
+            context = canonical
+            return
+        }
+        val materialized = materialize(changed, state, canonical)
+        if (materialized.count > engine.limits.maxNodeCount) {
+            report(
+                MilanoOccurrence.Kind.REJECTED_CONTEXT_UPDATE,
+                null,
+                name = lastKey,
+                expected = "maxNodeCount",
+                found = materialized.count.toString(),
+            )
+            return
         }
         context = canonical
-        // Only what reads a changed key re-evaluates; an update that changes
-        // no value changes nothing.
-        if (changed.isNotEmpty()) reResolve(changed)
+        commit(materialized)
     }
 
     /**
@@ -304,8 +408,9 @@ class MilanoView internal constructor(
         val followUps = if (success) record.onSuccess else record.onFailure
         if (followUps.isNotEmpty()) {
             val captured = record.capturedEvent
+            val bindings = record.capturedBindings
             val source = record.sourceNode
-            enqueue { execute(followUps, captured, resultValue, sourceNode = source) }
+            enqueue { execute(followUps, captured, resultValue, sourceNode = source, bindings = bindings) }
         }
     }
 
@@ -338,12 +443,13 @@ class MilanoView internal constructor(
         event: MilanoValue?,
         result: MilanoValue?,
         sourceNode: String?,
+        bindings: Map<String, MilanoValue> = emptyMap(),
     ): Boolean {
         for (action in actions) {
             when (action) {
                 is ActionSpec.Set -> {
                     val declared = document.stateDeclarations[action.key]
-                    val evaluated = evaluate(action.value, event, result)
+                    val evaluated = evaluate(action.value, event, result, bindings)
                     val next = declared?.validated(evaluated) ?: evaluated
                     val size = next.size
                     if (size > engine.limits.maxValueSize) {
@@ -351,32 +457,46 @@ class MilanoView internal constructor(
                             MilanoOccurrence.Kind.REJECTED_MUTATION,
                             sourceNode,
                             name = action.key,
-                            expected = engine.limits.maxValueSize.toString(),
+                            expected = "maxValueSize",
                             found = size.toString(),
                         )
                         return false
                     }
-                    val previous = state[action.key]
-                    state = state + (action.key to next)
+                    // A value that did not change re-resolves nothing.
+                    if (state[action.key] == next) continue
+                    val nextState = state + (action.key to next)
                     // Visible immediately: the properties that read this key
-                    // re-resolve before the next action. A value that did not
-                    // change re-resolves nothing.
-                    if (previous != next) reResolve(setOf("state.${action.key}"))
+                    // re-resolve before the next action. A tree materialized
+                    // past the node count limit rejects the mutation instead.
+                    val materialized = materialize(setOf("state.${action.key}"), nextState, context)
+                    if (materialized.count > engine.limits.maxNodeCount) {
+                        report(
+                            MilanoOccurrence.Kind.REJECTED_MUTATION,
+                            sourceNode,
+                            name = action.key,
+                            expected = "maxNodeCount",
+                            found = materialized.count.toString(),
+                        )
+                        return false
+                    }
+                    state = nextState
+                    commit(materialized)
                 }
 
                 is ActionSpec.Sequence -> {
-                    if (!execute(action.actions, event, result, sourceNode)) return false
+                    if (!execute(action.actions, event, result, sourceNode, bindings)) return false
                 }
 
                 is ActionSpec.When -> {
-                    val takeThen = evaluate(action.condition, event, result).boolOrNull == true
-                    if (!execute(if (takeThen) action.then else action.otherwise, event, result, sourceNode)) return false
+                    val takeThen = evaluate(action.condition, event, result, bindings).boolOrNull == true
+                    val branch = if (takeThen) action.then else action.otherwise
+                    if (!execute(branch, event, result, sourceNode, bindings)) return false
                 }
 
                 is ActionSpec.Custom -> {
                     val captured = LinkedHashMap<String, MilanoValue>()
                     for ((parameter, value) in action.parameters) {
-                        captured[parameter] = evaluate(value, event, result)
+                        captured[parameter] = evaluate(value, event, result, bindings)
                     }
                     val milanoAction = MilanoAction(action.name, captured, identity)
                     record(
@@ -393,6 +513,7 @@ class MilanoView internal constructor(
                             action.onSuccess,
                             action.onFailure,
                             event,
+                            bindings,
                             action.result,
                             sourceNode,
                         ),
@@ -422,6 +543,7 @@ class MilanoView internal constructor(
         value: DocValue,
         event: MilanoValue?,
         result: MilanoValue?,
+        bindings: Map<String, MilanoValue> = emptyMap(),
     ): MilanoValue =
         when (value) {
             is DocValue.Literal -> {
@@ -429,7 +551,7 @@ class MilanoView internal constructor(
             }
 
             is DocValue.TypedExpression -> {
-                val evaluator = ExprEvaluator(state, context, event, result) { kind -> report(kind, null) }
+                val evaluator = ExprEvaluator(state, context, event, result, bindings) { kind -> report(kind, null) }
                 val evaluated = evaluator.evaluate(value.expr)
                 value.expected.validated(evaluated) ?: evaluated
             }
@@ -439,15 +561,32 @@ class MilanoView internal constructor(
             }
         }
 
-    private fun reResolve(changed: Set<String>) {
-        val next =
+    /**
+     * The tree an update would produce, with the arithmetic reports it
+     * raised held back: nothing reaches the observer until the update is
+     * accepted, and a rejected one leaves no trace.
+     */
+    private fun materialize(
+        changed: Set<String>,
+        state: Map<String, MilanoValue>,
+        context: Map<String, MilanoValue>,
+    ): Materialized {
+        val reports = ArrayList<Triple<MilanoOccurrence.Kind, String, String>>()
+        val tree =
             MilanoResolver.refresh(root, dependencies, resolvedRoot, changed, state, context) { kind, node, name ->
-                report(kind, node, name = name)
+                reports.add(Triple(kind, node, name))
             }
+        val count = if (tree === resolvedRoot) 0 else MilanoResolver.countNodes(tree)
+        return Materialized(tree, count, reports)
+    }
+
+    /** Adopts a materialized tree, flushes its reports, notifies the host. */
+    private fun commit(materialized: Materialized) {
+        for ((kind, node, name) in materialized.reports) report(kind, node, name = name)
         // Nothing depended on the change: the tree is the same instance, and
         // there is nothing to tell the host.
-        if (next === resolvedRoot) return
-        resolvedRoot = next
+        if (materialized.tree === resolvedRoot) return
+        resolvedRoot = materialized.tree
         invalidations.value += 1
         onChange?.invoke()
     }

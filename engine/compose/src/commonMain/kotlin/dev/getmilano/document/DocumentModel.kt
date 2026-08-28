@@ -57,6 +57,18 @@ internal class RawNode(
     val events: Map<String, List<ActionSpec>>,
     /** The node's whole subtree as raw data, kept for the placeholder policy. */
     val raw: MilanoValue,
+    /** Present exactly when [type] is `$repeat`. */
+    val repeatSpec: RepeatSpec? = null,
+)
+
+/**
+ * The `$repeat` construct's own keys, as parsed: `items` (a value, which
+ * the gate requires to be an array expression) and `as` (the binding name).
+ * Null where the document omitted them; the gate reports.
+ */
+internal class RepeatSpec(
+    val items: DocValue?,
+    val alias: String?,
 )
 
 /** Parses "major.minor.patch" into a comparable triple; null when malformed. */

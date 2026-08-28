@@ -1,6 +1,6 @@
 ---
 title: Writing documents
-nav_order: 6
+nav_order: 7
 ---
 
 # Writing documents
@@ -11,7 +11,7 @@ A practical guide for document producers. The normative definition is the [docum
 
 ```json
 {
-  "version": "1.0.0",
+  "version": "2.0.0",
   "context": { "userName": "string" },
   "state": { "consent": "bool" },
   "vocabulary": { "name": "shop", "min": "1.2.0" },
@@ -20,7 +20,7 @@ A practical guide for document producers. The normative definition is the [docum
 }
 ```
 
-- `version` (required): the contract version, `major.minor.patch`. Engines accept documents whose major version they support.
+- `version` (required): the contract version, `major.minor.patch`. An engine declares, per major, the highest minor it implements (2.0 and 1.0 today) and rejects a document above that with `UnsupportedVersion` naming the supported ranges; the patch never matters. Declare the lowest version whose features the document uses, the same discipline as `vocabulary.min`.
 - `context` (optional): declares the names and types of values the host injects. Context is read-only to the document and can change while the view is on screen.
 - `state` (optional): declares the names and types of the view's state. Initial values come from the host's state data provider; the document itself never contains values.
 - `vocabulary` (optional): the vocabulary this document requires, by name and minimum version; a mismatched engine fails the build instead of rendering with the wrong semantics. Documents never declare actions or components: every name a document may use comes from the app's vocabulary, possibly narrowed or overridden per surface by the builder.
@@ -61,6 +61,36 @@ Adding a member to a published vocabulary is an additive (minor) change; removin
 - A property value is either a literal or an expression, marked by the single-key wrapper `{ "$expr": "..." }`. Either way it must type-check against the property's declared type at the gate.
 - `on` binds event names (declared in the vocabulary for that component) to lists of actions, run in order. If the event declares a payload type, the payload is available in expressions as `event`.
 - `children` is allowed only on components the vocabulary marks as accepting children.
+
+## Lists with `$repeat`
+
+A list whose length is data uses the `$repeat` construct (contract 2.0): the document carries one template, and the engine instantiates it once per element of an array expression.
+
+```json
+{
+  "type": "$repeat",
+  "id": "rows",
+  "items": { "$expr": "state.rows" },
+  "as": "row",
+  "children": [
+    {
+      "type": "Card",
+      "id": "card",
+      "properties": { "title": { "$expr": "row.name" } },
+      "on": { "tap": [ { "action": "openUrl", "url": { "$expr": "row.url" } } ] }
+    }
+  ]
+}
+```
+
+- `items` is an expression typing to a non-optional array. `as` names the element inside the template, and `<as>_index` is its zero-based position as an `int`; both are readable in every property, action, and nested `$repeat` of the template, and nowhere else.
+- The construct is transparent: the instances take its place in the parent's children, in element order. An empty array renders nothing.
+- An instance is referenced by its template's reference plus the element index per enclosing repeat: `card[2]`, or `line[2][0]` when nested. Reports and emissions use these references; an emission from an index that no longer exists is an `invalidEmission`.
+- A `$repeat` carries only `type`, `id`, `items`, `as`, and `children`. It is never the root, and `as` must be a fresh identifier (`state`, `context`, `event`, `result`, and any enclosing binding are taken). Each rule is a `SchemaViolation` with rule `repeat`.
+- The node count limit is measured on the materialized tree. At build it is a `LimitExceeded`; at runtime a `$set` or a context update that would grow the tree past it is rejected whole and reported (`rejectedMutation` or `rejectedContextUpdate`, with `maxNodeCount` as `expected`).
+- Only documents declaring `2.x` can use it; a `1.x` document with a `$repeat` is a `SchemaViolation` (`construct`).
+
+The catalog sample is one `$repeat` over `state.items`, with the items supplied by the state data provider.
 
 ## Actions
 
@@ -134,11 +164,11 @@ The patterns the sample apps use, all expressible without host code:
 - **All-or-nothing validation.** One schema violation anywhere and the whole document is rejected with a typed error naming the rule, the node, and what was expected versus found.
 - **Limits.** Depth at most 32, at most 10,000 nodes, at most 1 MiB of document, at most 1,024 Unicode scalars per expression (an emoji counts once, whatever `string.length` says). Exceeding any is a gate error. Values entering state or context are bounded too, at 65,536 units each (a scalar per unit for strings, one plus the contents for arrays and records): at the gate as an error, at runtime as a rejected update or mutation; see [Guardrails](guardrails#limits).
 - **Namespaces.** `state`, `context`, `event`, and `result` are distinct roots; a state key never shadows a context key.
-- **Unknown root fields are ignored** by engines of the same major version, which is what lets minor versions add fields compatibly.
+- **Unknown root fields are ignored** within a version the engine implements, which is what lets minor versions add fields compatibly; a version above what the engine implements is rejected typed instead.
 
 ## Shipping documents
 
-Documents are data, so shipping them safely is a pipeline problem, and every check the device performs can run earlier. The sample apps wire all of this into their builds; the pieces work anywhere.
+Documents are data, so shipping them safely is a pipeline problem, and every check the device performs can run earlier. [Producing documents](producing) walks the whole workflow, from `milano init` to CI; this section is the summary. The sample apps wire all of this into their builds; the pieces work anywhere, and `npx @get-milano/cli init` scaffolds a producer folder with them wired: a starter vocabulary, a first document, the editor schema, `npm run check`, and an authoring skill plus `AGENTS.md` so an AI agent working in the folder knows the rules and runs the gate.
 
 **Validate before shipping.** `@get-milano/cli` runs documents through the full gate, the engine's own, with declared context and state synthesized (or supplied with `--context` and `--state`) so it is a single command:
 
@@ -148,9 +178,9 @@ documents/banner.json: valid
 documents/form.json: SchemaViolation: schema violation (property-type) at email: expected string, found int
 ```
 
-A rejected document prints the typed error the engines throw and the status is nonzero, so one command over your documents is a complete CI gate; `--json` gives tooling the report, and `validate()` from the same package does it from a build script. The specs repository's `tools/reference_check.py --document` does the same job in Python with no engine installed, which is what the SwiftUI and Compose sample apps run as a build step: a document the engines would reject fails the build on the developer's machine.
+A rejected document prints the typed error the engines throw and the status is nonzero, so one command over your documents is a complete CI gate; `--json` gives tooling the report, and `validate()` from the same package does it from a build script. The four sample apps run it as a build step, so a document the engines would reject fails the build on the developer's machine. The specs repository's `tools/reference_check.py --document` does the same job in Python with no engine installed.
 
-**Validate while authoring.** `tools/generate_document_schema.py` specializes the official document schema to your vocabulary: component types become an enum, properties get typed value schemas, event names constrain `on`. Commit the output next to your documents and point your editor at it (the SDK repo's `.vscode/settings.json` maps the sample documents to their generated schemas), and typos get red squiggles before anything runs. Regenerate it in the same build step as your typed bindings so it never drifts.
+**Validate while authoring.** `npx milano schema vocabulary.json --out documents.schema.json` specializes the official document schema to your vocabulary: component types become an enum, properties get typed value schemas, event names constrain `on`. Commit the output next to your documents and point your editor at it (the SDK repo's `.vscode/settings.json` maps the sample documents to their generated schemas), and typos get red squiggles before anything runs. Regenerate it in the same build step as your typed bindings so it never drifts.
 
 **Roll out with a version floor.** A document that depends on newer vocabulary declarations should say so: `"vocabulary": { "name": "shop", "min": "1.2.0" }` makes an app still holding 1.1 fail the build with a typed error instead of rendering with the wrong semantics. Publish documents for the *oldest* vocabulary you still support, and raise `min` only when you actually use the newer declarations.
 

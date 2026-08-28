@@ -136,9 +136,17 @@ enum DocumentParser {
             throw MilanoBuildError.malformedDocument(detail: "\(path) on is not an object")
         }
 
+        // The construct's own keys travel as parsed; the gate applies its rules.
+        var repeatSpec: RepeatSpec?
+        if type == "$repeat" {
+            repeatSpec = RepeatSpec(
+                items: try object["items"].map { try docValue($0, at: "\(path).items") },
+                as: object["as"]?.stringValue)
+        }
+
         return RawNode(
             type: type, id: id, properties: properties,
-            children: children, events: events, raw: entry)
+            children: children, events: events, raw: entry, repeatSpec: repeatSpec)
     }
 
     /// A value is dynamic only when written as the reserved single-key

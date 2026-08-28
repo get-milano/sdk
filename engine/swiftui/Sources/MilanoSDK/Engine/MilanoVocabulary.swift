@@ -60,12 +60,13 @@ extension MilanoVocabulary {
             throw MilanoEngineError.invalidVocabulary(
                 rule: "milano", detail: "expected major.minor.patch, found \(milano)")
         }
-        // Same versioning rule as documents: an artifact targeting an
-        // unsupported contract major fails fast at engine creation.
-        guard MilanoGate.supportedMajors.contains(major) else {
+        // Same versioning rule as documents: an artifact targeting a contract
+        // version the engine does not implement fails fast at creation.
+        guard MilanoGate.isSupported(major: major, minor: minor) else {
             throw MilanoEngineError.invalidVocabulary(
                 rule: "milano-version",
-                detail: "unsupported contract major \(major); supported: \(MilanoGate.supportedMajors)")
+                detail: "unsupported contract version \(milano); supported: "
+                    + MilanoGate.supportedRanges.joined(separator: ", "))
         }
 
         guard case .string(let name)? = root["name"], MilanoIdentifier.isValid(name) else {

@@ -13,11 +13,12 @@ sealed class MilanoBuildException(
         val detail: String,
     ) : MilanoBuildException("malformed document: $detail")
 
-    /** Declared major is outside the runtime's supported set. */
+    /** The declared version is above what the runtime implements. */
     class UnsupportedVersion(
         val declared: String,
-        val supported: List<Int>,
-    ) : MilanoBuildException("unsupported version $declared, supported majors: $supported")
+        /** The supported ranges as `major.minor`: "1.0", "2.0". */
+        val supported: List<String>,
+    ) : MilanoBuildException("unsupported contract version $declared; supported: ${supported.joinToString()}")
 
     /**
      * Vocabulary, typing, action encoding, event, id, or namespace rules
@@ -58,7 +59,7 @@ sealed class MilanoBuildException(
                 mapOf(
                     "type" to MilanoValue.StringValue("UnsupportedVersion"),
                     "declared" to MilanoValue.StringValue(declared),
-                    "supported" to MilanoValue.ArrayValue(supported.map { MilanoValue.IntValue(it.toLong()) }),
+                    "supported" to MilanoValue.ArrayValue(supported.map { MilanoValue.StringValue(it) }),
                 )
             }
 

@@ -335,6 +335,67 @@ check("every engine pins the engine-pinned statements", () => {
   return `${registry.statements.length} statements`;
 });
 
+// --- The CLI ships the official document schema.
+//
+// `milano schema` specializes schemas/document.schema.json from the specs,
+// and the copy travels in the npm package so producers need no checkout.
+// It has to be the specs' bytes, or the CLI would specialize a schema the
+// contract no longer has.
+check("the CLI's vendored document schema is the specs' own", () => {
+  const specs = process.env["MILANO_SPECS_DIR"] ?? join(root, "..", "specs");
+  const official = join(specs, "schemas", "document.schema.json");
+  if (!existsSync(official)) {
+    throw new Error(`specs checkout not found at ${specs}; set MILANO_SPECS_DIR`);
+  }
+  if (readFileSync(official, "utf8") !== read("cli/schemas/document.schema.json")) {
+    throw new Error("cli/schemas/document.schema.json differs from the specs' schemas/document.schema.json; copy it over");
+  }
+});
+
+// --- The guardrails guide surfaces the specs' detail tables.
+//
+// The `SchemaViolation` rule table and the occurrence detail table are
+// contract, and hosts read them next to the engine docs rather than in
+// the specs. A copy drifts, so the names in both tables are compared to
+// the specs' own: a rule or a kind in one place and not the other fails.
+check("the guardrails guide lists the specs' rules and occurrence kinds", () => {
+  const specs = process.env["MILANO_SPECS_DIR"] ?? join(root, "..", "specs");
+  const model = join(specs, "01-document-model.md");
+  if (!existsSync(model)) {
+    throw new Error(`specs checkout not found at ${specs}; set MILANO_SPECS_DIR`);
+  }
+  const names = (text, header, where) => {
+    const start = text.indexOf(header);
+    if (start < 0) throw new Error(`${where}: table "${header}" not found`);
+    const found = new Set();
+    for (const row of text.slice(start).split("\n").slice(2)) {
+      if (!row.startsWith("|")) break;
+      for (const match of (row.split("|")[1] ?? "").matchAll(/`([^`]+)`/g)) found.add(match[1]);
+    }
+    return found;
+  };
+  const guide = read("docs/guardrails.md");
+  const compare = (what, expected, actual) => {
+    const missing = [...expected].filter((name) => !actual.has(name));
+    const extra = [...actual].filter((name) => !expected.has(name));
+    if (missing.length > 0 || extra.length > 0) {
+      throw new Error(`${what}: missing from the guide: ${missing.join(", ") || "none"}; not in the specs: ${extra.join(", ") || "none"}`);
+    }
+    return expected.size;
+  };
+  const rules = compare(
+    "rules",
+    names(readFileSync(model, "utf8"), "| Rule | Violation |", "specs"),
+    names(guide, "| Rule | Violation |", "guardrails.md"),
+  );
+  const kinds = compare(
+    "occurrence kinds",
+    names(readFileSync(join(specs, "06-runtime-api.md"), "utf8"), "| Kind | `node` |", "specs"),
+    names(guide, "| Kind | `node` |", "guardrails.md"),
+  );
+  return `${rules} rules, ${kinds} kinds`;
+});
+
 // --- Prose style: no em dashes, the rule the specs repository enforces in
 // its own CI. Two repositories with one voice should share the rule.
 check("the prose holds the no-em-dash rule", () => {

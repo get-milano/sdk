@@ -29,7 +29,7 @@ struct EngineCreationTests {
 
     @Test func examplesVocabularyParses() throws {
         let vocabulary = try MilanoVocabulary(artifactJSON: examplesVocabularyJSON())
-        #expect(vocabulary.contractMajor == 1)
+        #expect(vocabulary.contractMajor == 2)
         #expect(vocabulary.contractMinor == 0)
         #expect(vocabulary.name == "examples")
         #expect(vocabulary.components.count == 9)
@@ -130,12 +130,18 @@ struct EngineCreationTests {
             creation(#"{"milano": "1", "name": "x", "version": "1", "components": {}}"#)
                 == .invalidVocabulary(rule: "milano", detail: "expected major.minor.patch, found 1"))
 
-        // Contract major outside the supported set.
+        // Contract version outside what the engine implements: an unknown
+        // major, and a minor above the ceiling of a known one.
         #expect(
             creation(#"{"milano": "0.1.0", "name": "x", "version": "1.0.0", "components": {}}"#)
                 == .invalidVocabulary(
                     rule: "milano-version",
-                    detail: "unsupported contract major 0; supported: [1]"))
+                    detail: "unsupported contract version 0.1.0; supported: 1.0, 2.0"))
+        #expect(
+            creation(#"{"milano": "2.1.0", "name": "x", "version": "1.0.0", "components": {}}"#)
+                == .invalidVocabulary(
+                    rule: "milano-version",
+                    detail: "unsupported contract version 2.1.0; supported: 1.0, 2.0"))
 
         // Vocabulary version must be semantic.
         #expect(

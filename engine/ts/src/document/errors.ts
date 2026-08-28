@@ -13,9 +13,9 @@ export class MilanoBuildError extends Error {
   readonly type: MilanoBuildErrorKind;
   /** Location of the defect, when determinable (MalformedDocument). */
   readonly detail: string | null;
-  /** The declared version and the runtime's supported majors. */
+  /** The declared version and the runtime's supported ranges ("1.0", "2.0"). */
   readonly declared: string | null;
-  readonly supported: readonly number[] | null;
+  readonly supported: readonly string[] | null;
   /** The rule violated, and its expected/found detail (SchemaViolation). */
   readonly rule: string | null;
   readonly node: string | null;
@@ -34,7 +34,7 @@ export class MilanoBuildError extends Error {
     fields: Partial<{
       detail: string;
       declared: string;
-      supported: readonly number[];
+      supported: readonly string[];
       rule: string;
       node: string | null;
       expected: string | null;
@@ -68,11 +68,11 @@ export class MilanoBuildError extends Error {
     });
   }
 
-  /** Declared major is outside the runtime's supported set. */
-  static unsupportedVersion(declared: string, supported: readonly number[]): MilanoBuildError {
+  /** The declared version is above what the runtime implements. */
+  static unsupportedVersion(declared: string, supported: readonly string[]): MilanoBuildError {
     return new MilanoBuildError(
       "UnsupportedVersion",
-      `unsupported contract version ${declared}; supported majors: ${supported.join(", ")}`,
+      `unsupported contract version ${declared}; supported: ${supported.join(", ")}`,
       { declared, supported },
     );
   }

@@ -28,6 +28,8 @@ Changing that identifier means changing `app.json` **and** the committed `ios/` 
 |---|---|
 | `documents/` | The documents and the vocabulary, byte-identical to the other samples |
 | `scripts/bundle-documents.mjs` | Inlines `documents/*.json` into `src/documents.generated.ts` as **text** |
+| `scripts/generate-bindings.mjs` | Refreshes `src/bindings.generated.ts` through `milano bindings` before every typecheck |
+| `scripts/validate-documents.mjs` | Runs every document through `milano validate` (`npm test`) |
 | `src/design-system.tsx` | The app's own components. Zero Milano imports |
 | `src/milano-bridge.tsx` | The only doorway: node in, design system component out |
 | `src/environment.ts` | One engine, the console observer and analytics sink, a builder per screen |

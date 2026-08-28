@@ -76,9 +76,7 @@ function errorFields(error: unknown): Record<string, MilanoValue> {
     if (error.value !== null) fields["value"] = MilanoValue.int(BigInt(error.value));
     if (error.actual !== null) fields["actual"] = MilanoValue.int(BigInt(error.actual));
     if (error.supported !== null) {
-      fields["supported"] = MilanoValue.array(
-        error.supported.map((major) => MilanoValue.int(BigInt(major))),
-      );
+      fields["supported"] = MilanoValue.array(error.supported.map((range) => MilanoValue.string(range)));
     }
   }
   return fields;

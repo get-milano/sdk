@@ -12,6 +12,8 @@ struct ExprChecker {
     let context: [String: MilanoType]
     let eventScope: EventScope
     var resultScope: EventScope = .unavailable
+    /// `$repeat` bindings in scope: the element and its index, by name.
+    var bindings: [String: MilanoType] = [:]
 
     /// Infers the static type. `nil` means the null literal: typeless until
     /// an expected type or an operator gives it one. The expected type
@@ -79,8 +81,9 @@ struct ExprChecker {
         }
     }
 
-    /// The scoped scalar roots: available only where their scope binds.
+    /// The scoped roots: available only where their scope binds.
     private func rootType(_ name: String) throws -> MilanoType {
+        if let bound = bindings[name] { return bound }
         switch name {
         case "event":
             guard case .payload(let type) = eventScope else {

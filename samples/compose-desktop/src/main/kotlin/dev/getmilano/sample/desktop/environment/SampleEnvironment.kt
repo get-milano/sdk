@@ -20,6 +20,8 @@ import kotlinx.coroutines.withContext
 import java.awt.Desktop
 import java.net.URI
 
+private const val SPRITES = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork"
+
 /**
  * The sample's Milano setup: one engine, the design system registered,
  * builders per screen. Screens depend on this service, never on engine
@@ -75,6 +77,7 @@ class SampleEnvironment {
     fun builder(screen: Screen): MilanoViewBuilder =
         when (screen) {
             Screen.FORM -> formBuilder()
+            Screen.CATALOG -> catalogBuilder()
             else -> documentBuilder(screen.key)
         }
 
@@ -114,6 +117,46 @@ class SampleEnvironment {
                     MilanoValue.StringValue(
                         "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png",
                     ),
+            ),
+        )
+
+    /**
+     * The catalog: one `$repeat` over `state.items`, so the document is the
+     * template and the list is data the state data provider supplies, here
+     * as a catalog service would answer.
+     */
+    fun catalogBuilder(): MilanoViewBuilder =
+        engine
+            .viewBuilder(document("catalog"))
+            .context(sharedContext)
+            .stateDataProvider { mapOf("items" to MilanoValue.ArrayValue(catalogItems)) }
+            .actionHandler(handler)
+            .label("catalog")
+
+    /**
+     * What the catalog service answers: one record per item, in the shape
+     * the document declares for `items`.
+     */
+    private val catalogItems: List<MilanoValue> =
+        listOf(
+            catalogItem("Bulbasaur", "Grass and poison. Loves the sun.", sprite = 1, slug = "bulbasaur"),
+            catalogItem("Charmander", "Fire type. Keep it dry.", sprite = 4, slug = "charmander"),
+            catalogItem("Squirtle", "Water type. Shell first.", sprite = 7, slug = "squirtle"),
+            catalogItem("Pikachu", "Electric type. The famous one.", sprite = 25, slug = "pikachu"),
+        )
+
+    private fun catalogItem(
+        name: String,
+        blurb: String,
+        sprite: Int,
+        slug: String,
+    ): MilanoValue =
+        MilanoValue.RecordValue(
+            mapOf(
+                "name" to MilanoValue.StringValue(name),
+                "blurb" to MilanoValue.StringValue(blurb),
+                "imageUrl" to MilanoValue.StringValue("$SPRITES/$sprite.png"),
+                "url" to MilanoValue.StringValue("https://www.pokemon.com/us/pokedex/$slug"),
             ),
         )
 

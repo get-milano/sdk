@@ -1,6 +1,6 @@
 ---
 title: Performance
-nav_order: 9
+nav_order: 10
 ---
 
 # Performance
@@ -42,7 +42,7 @@ The TypeScript engine has no row yet. Its benchmark exists and prints the same t
 
 ## Working budgets
 
-- **v1.0's target surfaces (banners, interstitials, forms) are tens of nodes**: build well under a millisecond, updates in the tens of microseconds. Performance is not a consideration at this scale.
+- **The contract's target surfaces (banners, interstitials, forms) are tens of nodes**: build well under a millisecond, updates in the tens of microseconds. Performance is not a consideration at this scale.
 - **Up to ~1,000 nodes**, updates stay near 0.2 ms on a laptop; with a generous 10x device factor that still fits comfortably inside a 16 ms frame. Builds of a few milliseconds are absorbed by the loading view.
 - **Above that**, measure on your slowest target device before committing. The 5,000-node update (~1 ms laptop, worst-case a few ms on device) still fits a frame, but you are spending budget the rest of your UI may want.
 

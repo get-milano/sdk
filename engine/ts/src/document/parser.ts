@@ -9,6 +9,7 @@ import type {
   DocValue,
   ParsedDocument,
   RawNode,
+  RepeatSpec,
   VocabularyRequirement,
 } from "./model.ts";
 import { parseSemver } from "./model.ts";
@@ -164,7 +165,17 @@ function parseNode(entry: MilanoValue, path: string): RawNode {
     }
   }
 
-  return { type, id, properties, children, events, raw: entry };
+  // The construct's own keys travel as parsed; the gate applies its rules.
+  let repeat: RepeatSpec | null = null;
+  if (type === "$repeat") {
+    const itemsEntry = object["items"];
+    repeat = {
+      items: itemsEntry === undefined ? null : docValue(itemsEntry, `${path}.items`),
+      as: object["as"]?.stringValue ?? null,
+    };
+  }
+
+  return { type, id, properties, children, events, repeat, raw: entry };
 }
 
 /**

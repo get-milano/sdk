@@ -8,7 +8,21 @@ import { MilanoEngineError } from "../document/errors.ts";
 import { parseSemver } from "../document/model.ts";
 
 /** The contract majors this runtime supports. */
-export const SUPPORTED_MAJORS: readonly number[] = [1];
+/**
+ * Per contract major, the highest minor this engine implements
+ * (Foundations, Versioning). A document's patch never matters.
+ */
+export const SUPPORTED_VERSIONS: Readonly<Record<number, number>> = Object.freeze({ 1: 0, 2: 0 });
+
+/** The supported ranges as the error detail spells them: "1.0", "2.0". */
+export function supportedRanges(): string[] {
+  return Object.entries(SUPPORTED_VERSIONS).map(([major, minor]) => `${major}.${minor}`);
+}
+
+export function isSupportedVersion(major: number, minor: number): boolean {
+  const ceiling = SUPPORTED_VERSIONS[major];
+  return ceiling !== undefined && minor <= ceiling;
+}
 
 export interface MilanoComponent {
   /** Property name to type. */
@@ -94,11 +108,11 @@ export class MilanoVocabulary {
       );
     }
     // Same versioning rule as documents: an artifact targeting an
-    // unsupported contract major is rejected at creation.
-    if (!SUPPORTED_MAJORS.includes(contract[0])) {
+    // unsupported contract version is rejected at creation.
+    if (!isSupportedVersion(contract[0], contract[1])) {
       throw MilanoEngineError.invalidVocabulary(
         "milano-version",
-        `unsupported contract major ${contract[0]}; supported: ${SUPPORTED_MAJORS.join(", ")}`,
+        `unsupported contract version ${milano}; supported: ${supportedRanges().join(", ")}`,
       );
     }
 

@@ -19,6 +19,8 @@ internal class ExprChecker(
     private val context: Map<String, MilanoType>,
     private val eventScope: EventScope,
     private val resultScope: EventScope = EventScope.Unavailable,
+    /** `$repeat` bindings in scope: the element and its index, by name. */
+    private val bindings: Map<String, MilanoType> = emptyMap(),
 ) {
     /**
      * Infers the static type. Null means the null literal: typeless until
@@ -58,7 +60,7 @@ internal class ExprChecker(
             }
 
             is Expr.Root -> {
-                when (expr.name) {
+                bindings[expr.name] ?: when (expr.name) {
                     "event" -> {
                         (eventScope as? EventScope.Payload)?.type
                             ?: throw ExprException("event is not available here")

@@ -10,24 +10,29 @@ kotlin {
     jvmToolchain(17)
 }
 
-// Typed bindings are generated from the vocabulary as a build step: the
-// committed GeneratedBindings.kt is refreshed before every compile, so it
-// can never drift from vocabulary.json. The generator lives in the specs
-// repository (sibling checkout, or MILANO_SPECS_DIR).
-val specsDir: String =
-    System.getenv("MILANO_SPECS_DIR")
-        ?: rootDir.resolve("../../../specs").canonicalPath
+// Producer tooling as build steps, through the Milano CLI (`milano` from
+// `@get-milano/cli`): typed bindings and the editor schema are regenerated
+// from the vocabulary before every compile, and every bundled document is
+// validated with the gate the engines run, so none of them can drift. A
+// consumer project runs the same three commands as `npx milano ...`; inside
+// this repository the CLI is the workspace package, built by `npm ci &&
+// npm run build` at the repository root.
+val milanoCli: String = rootDir.resolve("../../cli/dist/bin.js").canonicalPath
+val milanoCliMissing =
+    "Milano CLI not built at $milanoCli: run `npm ci && npm run build` at the repository root"
 val documents = "src/main/resources/documents"
 val bindings = "src/main/kotlin/dev/getmilano/sample/desktop/milanobridge/GeneratedBindings.kt"
 
 val generateMilanoBindings =
     tasks.register<Exec>("generateMilanoBindings") {
         inputs.file("$documents/vocabulary.json")
-        inputs.file("$specsDir/tools/generate_bindings.py")
+        inputs.file(milanoCli)
         outputs.file(bindings)
+        doFirst { check(file(milanoCli).exists()) { milanoCliMissing } }
         commandLine(
-            "python3",
-            "$specsDir/tools/generate_bindings.py",
+            "node",
+            milanoCli,
+            "bindings",
             "$documents/vocabulary.json",
             "--kotlin-package",
             "dev.getmilano.sample.desktop.milanobridge",
@@ -36,20 +41,22 @@ val generateMilanoBindings =
         )
     }
 
-// Every bundled document is validated through the reference gate before
+// Every bundled document is validated through the engine's gate before
 // each build: a document the engines would reject fails the build here,
 // with the same typed error. Context and state values are synthesized.
 val validateMilanoDocuments =
     tasks.register<Exec>("validateMilanoDocuments") {
+        val documentFiles =
+            fileTree(documents) {
+                include("*.json")
+                exclude("vocabulary.json")
+            }.files.map { it.path }.sorted()
         inputs.dir(documents)
         outputs.upToDateWhen { false }
+        doFirst { check(file(milanoCli).exists()) { milanoCliMissing } }
         commandLine(
-            "sh",
-            "-c",
-            "for f in $documents/*.json; do " +
-                "[ \"$(basename \"${'$'}f\")\" = vocabulary.json ] && continue; " +
-                "python3 \"$specsDir/tools/reference_check.py\" --document \"${'$'}f\" " +
-                "--vocabulary $documents/vocabulary.json || exit 1; done",
+            listOf("node", milanoCli, "validate") + documentFiles +
+                listOf("--vocabulary", "$documents/vocabulary.json"),
         )
     }
 
@@ -57,10 +64,13 @@ val validateMilanoDocuments =
 val generateMilanoDocumentSchema =
     tasks.register<Exec>("generateMilanoDocumentSchema") {
         inputs.file("$documents/vocabulary.json")
+        inputs.file(milanoCli)
         outputs.file(rootDir.resolve("documents.schema.json"))
+        doFirst { check(file(milanoCli).exists()) { milanoCliMissing } }
         commandLine(
-            "python3",
-            "$specsDir/tools/generate_document_schema.py",
+            "node",
+            milanoCli,
+            "schema",
             "$documents/vocabulary.json",
             "--out",
             rootDir.resolve("documents.schema.json").path,
@@ -73,7 +83,7 @@ tasks.named("compileKotlin") {
 
 dependencies {
     // Substituted from source by the composite build in settings.gradle.kts.
-    implementation("dev.get-milano:engine-compose:1.3.0")
+    implementation("dev.get-milano:engine-compose:2.0.0")
 
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
@@ -88,7 +98,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "MilanoSample"
-            packageVersion = "1.3.0"
+            packageVersion = "2.0.0"
             description = "Milano SDK demos"
             vendor = "get-milano.dev"
         }

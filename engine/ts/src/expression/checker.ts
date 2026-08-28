@@ -36,17 +36,21 @@ export class ExprChecker {
   private readonly context: Readonly<Record<string, MilanoType>>;
   private readonly eventScope: RootScope;
   private readonly resultScope: RootScope;
+  /** `$repeat` bindings in scope: the element and its index, by name. */
+  private readonly bindings: Readonly<Record<string, MilanoType>>;
 
   constructor(
     state: Readonly<Record<string, MilanoType>>,
     context: Readonly<Record<string, MilanoType>>,
     eventScope: RootScope = UNAVAILABLE,
     resultScope: RootScope = UNAVAILABLE,
+    bindings: Readonly<Record<string, MilanoType>> = {},
   ) {
     this.state = state;
     this.context = context;
     this.eventScope = eventScope;
     this.resultScope = resultScope;
+    this.bindings = bindings;
   }
 
   /**
@@ -112,8 +116,10 @@ export class ExprChecker {
     return false;
   }
 
-  /** The scoped scalar roots: available only where their scope binds. */
+  /** The scoped roots: available only where their scope binds. */
   private rootType(name: string): MilanoType {
+    const bound = own(this.bindings, name);
+    if (bound !== undefined) return bound;
     if (name === "event") {
       if (this.eventScope.kind !== "payload") {
         throw new ExprError("event is not available here");

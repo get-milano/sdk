@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { MilanoEngine, MilanoRegistry } from "../src/engine/engine.ts";
-import { MilanoVocabulary, SUPPORTED_MAJORS } from "../src/engine/vocabulary.ts";
+import { MilanoVocabulary, supportedRanges } from "../src/engine/vocabulary.ts";
 import { MilanoEngineError } from "../src/document/errors.ts";
 
 /**
@@ -145,7 +145,7 @@ describe("invalid vocabularies are rejected with the rule they broke", () => {
     );
     assert.ok(error !== null);
     assert.equal(error.rule, "milano-version");
-    assert.ok(error.detail?.includes(SUPPORTED_MAJORS.join(", ")));
+    assert.ok(error.detail?.includes(supportedRanges().join(", ")));
   });
 });
 

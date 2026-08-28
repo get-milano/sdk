@@ -29,6 +29,16 @@ struct RawNode: Sendable {
     let events: [String: [ActionSpec]]
     /// The node's whole subtree as raw data, kept for the placeholder policy.
     let raw: MilanoValue
+    /// Present exactly when `type` is `$repeat`.
+    var repeatSpec: RepeatSpec?
+}
+
+/// The `$repeat` construct's own keys, as parsed: `items` (a value, which
+/// the gate requires to be an array expression) and `as` (the binding
+/// name). Nil where the document omitted them; the gate reports.
+struct RepeatSpec: Sendable {
+    let items: DocValue?
+    let `as`: String?
 }
 
 /// A parsed document: structure and declarations only, never data values.

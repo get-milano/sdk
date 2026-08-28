@@ -136,6 +136,12 @@ class MilanoViewBuilder internal constructor(
                 pending.add(MilanoOccurrence(kind, identity, node, name = name))
             }
 
+        // The node count limit is measured on the materialized tree.
+        val materialized = MilanoResolver.countNodes(resolvedRoot)
+        if (materialized > engine.limits.maxNodeCount) {
+            throw MilanoBuildException.LimitExceeded("maxNodeCount", engine.limits.maxNodeCount, materialized)
+        }
+
         // Only a successful build reports its occurrences.
         val observer = engine.observer
         if (observer != null) {

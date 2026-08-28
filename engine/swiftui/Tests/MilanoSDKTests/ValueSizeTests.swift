@@ -75,7 +75,7 @@ struct ValueSizeTests {
         #expect(view.state["s"] == .string("abcde"))
         #expect(view.state["n"] == .int(1))
         #expect(collector.collected.map { [$0.kind.rawValue, $0.node, $0.name, $0.expected, $0.found] }
-            == [["rejectedMutation", "t", "s", "8", "10"]])
+            == [["rejectedMutation", "t", "s", "maxValueSize", "10"]])
     }
 
     @Test func aSetExactlyAtTheLimitIsAcceptedAndOnePastItIsNot() async throws {
@@ -101,7 +101,7 @@ struct ValueSizeTests {
         handle.update(["who": .string("a very long name"), "n": .int(2)])
         #expect(view.resolvedRoot.values["text"] == .string("Ada1"))
         #expect(collector.collected.map { [$0.kind.rawValue, $0.name, $0.expected, $0.found] }
-            == [["rejectedContextUpdate", "who", "8", "16"]])
+            == [["rejectedContextUpdate", "who", "maxValueSize", "16"]])
     }
 
     @Test func initialValuesPastTheLimitAreRefusedAtTheGate() async throws {

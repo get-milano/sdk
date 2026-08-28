@@ -3,35 +3,32 @@
 // typecheck, so it can never drift from vocabulary.json, and compiling it
 // is what proves the generator's TypeScript emitter still works.
 //
-// The generator lives in the specs repository: a sibling checkout, or
-// MILANO_SPECS_DIR.
+// The generator is `milano bindings` from @get-milano/cli. Inside this
+// repository the CLI is the workspace package, built by `npm run build` at
+// the repository root; a consumer project runs `npx milano bindings`.
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const specs = process.env["MILANO_SPECS_DIR"] ?? resolve(root, "..", "..", "..", "specs");
-const generator = join(specs, "tools", "generate_bindings.py");
+const cli = resolve(root, "..", "..", "cli", "dist", "bin.js");
 
-if (!existsSync(generator)) {
-  console.error(
-    `no generator at ${generator}\n` +
-      "set MILANO_SPECS_DIR, or check out get-milano/specs beside the sdk",
-  );
+if (!existsSync(cli)) {
+  console.error(`Milano CLI not built at ${cli}: run npm ci && npm run build at the repository root`);
   process.exit(1);
 }
 
-const out = join(root, "src", "bindings.generated.ts");
 execFileSync(
-  "python3",
+  process.execPath,
   [
-    generator,
+    cli,
+    "bindings",
     join(root, "documents", "vocabulary.json"),
     "--ts-prefix",
     "Sample",
     "--ts-out",
-    out,
+    join(root, "src", "bindings.generated.ts"),
   ],
   { stdio: "inherit" },
 );
