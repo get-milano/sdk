@@ -31,7 +31,7 @@ export interface ValidateOptions {
 export interface ReportedError {
   readonly type: MilanoBuildErrorKind;
   readonly message: string;
-  readonly detail: Readonly<Record<string, string | number | readonly number[]>>;
+  readonly detail: Readonly<Record<string, string | number | readonly string[]>>;
 }
 
 /** An occurrence a successful build reported, without the view identity. */
@@ -58,6 +58,7 @@ export interface ValidationReport {
 const TOP_LEVEL_KEYS = new Set(["version", "vocabulary", "context", "state", "root", "metadata"]);
 const VOCABULARY_KEYS = new Set(["name", "min"]);
 const ENVELOPE_KEYS = new Set(["type", "id", "properties", "children", "on"]);
+const REPEAT_KEYS = new Set([...ENVELOPE_KEYS, "items", "as"]);
 const DESCRIPTOR_KEYS = new Set(["enum", "array", "record", "optional"]);
 
 export function unknownKeyWarnings(documentText: string): string[] {
@@ -82,8 +83,10 @@ export function unknownKeyWarnings(documentText: string): string[] {
   const node = (entry: MilanoValue | undefined, path: string): void => {
     const object = entry?.recordValue ?? null;
     if (object === null) return;
+    // A $repeat carries its own keys; the gate rules on the rest.
+    const known = object["type"]?.stringValue === "$repeat" ? REPEAT_KEYS : ENVELOPE_KEYS;
     for (const key of Object.keys(object)) {
-      if (!ENVELOPE_KEYS.has(key)) warnings.push(`${path}: unknown envelope key "${key}"`);
+      if (!known.has(key)) warnings.push(`${path}: unknown envelope key "${key}"`);
     }
     (object["children"]?.arrayValue ?? []).forEach((child, index) => {
       node(child, `${path}/children[${index}]`);
@@ -121,7 +124,7 @@ const DETAIL_FIELDS = [
 ] as const;
 
 function describe(error: MilanoBuildError): ReportedError {
-  const detail: Record<string, string | number | readonly number[]> = {};
+  const detail: Record<string, string | number | readonly string[]> = {};
   for (const field of DETAIL_FIELDS) {
     const value = error[field];
     if (value !== null) detail[field] = value;

@@ -13,9 +13,9 @@ The vocabulary is a JSON artifact listing every component type and action your a
 
 ```json
 {
-  "milano": "1.0.0",
+  "milano": "2.0.0",
   "name": "myapp",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "components": {
     "Banner": {
       "properties": { "backgroundImageUrl": "string", "visible": "bool" },
@@ -199,16 +199,16 @@ Under the `placeholder` unknown-type policy, unknown component types route to a 
 
 ## 7. Generated typed bindings
 
-The vocabulary is machine-readable, so the bridge does not have to be stringly-typed. `tools/generate_bindings.py` in the [specs repository](https://github.com/get-milano/specs) turns the artifact into compiler-checked API for Swift, Kotlin, and TypeScript: node wrappers whose accessors carry the gate's guarantees in the type system (a declared non-optional property is a non-optional Swift/Kotlin property, no `?? ""` fallbacks), typed event emitters, an exhaustive action type with an `unrecognized` case for forward compatibility, and a vocabulary identity helper that refuses to run against a mismatched engine.
+The vocabulary is machine-readable, so the bridge does not have to be stringly-typed. `milano bindings` from [`@get-milano/cli`](https://www.npmjs.com/package/@get-milano/cli) turns the artifact into compiler-checked API for Swift, Kotlin, and TypeScript: node wrappers whose accessors carry the gate's guarantees in the type system (a declared non-optional property is a non-optional Swift/Kotlin property, no `?? ""` fallbacks), typed event emitters, an exhaustive action type with an `unrecognized` case for forward compatibility, and a vocabulary identity helper that refuses to run against a mismatched engine.
 
 ```sh
-python3 tools/generate_bindings.py vocabulary.json \
+npx milano bindings vocabulary.json \
     --swift-prefix Shop  --swift-out  Sources/MilanoBridge/GeneratedBindings.swift \
     --kotlin-package com.acme.shop.milano --kotlin-out app/src/main/kotlin/.../GeneratedBindings.kt \
     --ts-prefix Shop --ts-out src/milano/bindings.ts
 ```
 
-`--swift-prefix` namespaces the Swift types (`ShopButtonNode`, `ShopAction`) since Swift has no packages; `--kotlin-package` places the Kotlin file, with an optional `--kotlin-prefix` for teams that prefer prefixed class names over import aliases. Output is deterministic: same artifact, same bytes.
+`--swift-prefix` namespaces the Swift types (`ShopButtonNode`, `ShopAction`) since Swift has no packages; `--kotlin-package` places the Kotlin file, with an optional `--kotlin-prefix` for teams that prefer prefixed class names over import aliases. Output is deterministic: same artifact, same bytes. The command is a port of the specs repository's `tools/generate_bindings.py`, which stays the reference (the SDK's CI compares both byte for byte), so a producer without Node can run the Python instead.
 
 A bridge model then reads `button.label` instead of `node.property("label").stringValue ?? ""`, and the action funnel becomes an exhaustive `switch` over a sealed type: a typo is a compile error, and a vocabulary change turns into a compiler-guided migration instead of a grep.
 
@@ -231,18 +231,16 @@ The generated file imports only `@get-milano/core` and describes the node struct
 
 ### As a build step
 
-Commit the generated file and let the build refresh it, so it can never drift from the vocabulary. The SwiftUI and Compose sample apps wire it this way (the samples resolve the specs checkout at `../../../specs` because of the repository layout; adjust the path to where your checkout lives).
+Commit the generated file and let the build refresh it, so it can never drift from the vocabulary. The four sample apps wire it this way, together with `milano schema` and `milano validate`, so one build step keeps bindings, editor schema, and documents in line. (Inside this repository the samples run the workspace build of the CLI, `cli/dist/bin.js`, after `npm ci && npm run build` at the root; a project of your own runs `npx milano`.)
 
 Gradle (`app/build.gradle.kts`), running before every compile with input/output tracking so it is cached when nothing changed:
 
 ```kotlin
 val generateMilanoBindings by tasks.registering(Exec::class) {
-    val specsDir = System.getenv("MILANO_SPECS_DIR") ?: rootDir.resolve("../specs").canonicalPath
     inputs.file("src/main/assets/vocabulary.json")
-    inputs.file("$specsDir/tools/generate_bindings.py")
     outputs.file("src/main/kotlin/com/acme/shop/milano/GeneratedBindings.kt")
     commandLine(
-        "python3", "$specsDir/tools/generate_bindings.py", "src/main/assets/vocabulary.json",
+        "npx", "milano", "bindings", "src/main/assets/vocabulary.json",
         "--kotlin-package", "com.acme.shop.milano",
         "--kotlin-out", "src/main/kotlin/com/acme/shop/milano/GeneratedBindings.kt",
     )
@@ -256,7 +254,7 @@ npm, as part of the typecheck, which is how `samples/react-native` wires it:
 ```json
 {
   "scripts": {
-    "bindings": "node scripts/generate-bindings.mjs",
+    "bindings": "milano bindings documents/vocabulary.json --ts-prefix Shop --ts-out src/milano/bindings.ts",
     "typecheck": "npm run bindings && tsc --noEmit"
   }
 }
@@ -265,8 +263,8 @@ npm, as part of the typecheck, which is how `samples/react-native` wires it:
 Xcode, as a pre-build script phase (via Tuist's `scripts: [.pre(...)]`, or Build Phases in a plain project; script sandboxing must be off for phases that write into the source tree: `ENABLE_USER_SCRIPT_SANDBOXING = NO`):
 
 ```sh
-SPECS_DIR="${MILANO_SPECS_DIR:-$SRCROOT/../specs}"
-python3 "$SPECS_DIR/tools/generate_bindings.py" "$SRCROOT/Resources/vocabulary.json" \
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"   # Xcode's PATH has no Node
+npx milano bindings "$SRCROOT/Resources/vocabulary.json" \
     --swift-prefix Shop \
     --swift-out "$SRCROOT/Sources/MilanoBridge/GeneratedBindings.swift"
 ```
@@ -275,4 +273,4 @@ For CI honesty, add a check that the committed file matches the vocabulary: rege
 
 ## Growing the vocabulary
 
-Adding a component type or action is additive: extend the artifact, add the renderer, register it. Old documents ignore new types. Removing or retyping is breaking for documents that use it, so treat the vocabulary like the API it is: version it, and prefer additions.
+Adding a component type or action is additive: extend the artifact, add the renderer, register it. Old documents ignore new types. Removing or retyping is breaking for documents that use it, so treat the vocabulary like the API it is: version it, and prefer additions. `npx milano diff old.json new.json` classifies every change and fails when the version bump does not match (additive changes need a minor bump, breaking ones a major), so publication can be gated on it in CI.

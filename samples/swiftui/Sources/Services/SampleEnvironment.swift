@@ -66,6 +66,36 @@ final class SampleEnvironment {
             .label(resource)
     }
 
+    /// The catalog: one `$repeat` over `state.items`, so the document is the
+    /// template and the list is data the state data provider supplies, here
+    /// as a catalog service would answer.
+    func catalogBuilder() -> MilanoViewBuilder {
+        engine.viewBuilder(document: Self.resource("catalog"))
+            .context(Self.sharedContext)
+            .stateData { _ in ["items": .array(Self.catalogItems)] }
+            .actionHandler(Self.handle(_:))
+            .label("catalog")
+    }
+
+    /// What the catalog service answers: one record per item, in the shape
+    /// the document declares for `items`.
+    private static let catalogItems: [MilanoValue] = [
+        catalogItem("Bulbasaur", "Grass and poison. Loves the sun.", sprite: 1, slug: "bulbasaur"),
+        catalogItem("Charmander", "Fire type. Keep it dry.", sprite: 4, slug: "charmander"),
+        catalogItem("Squirtle", "Water type. Shell first.", sprite: 7, slug: "squirtle"),
+        catalogItem("Pikachu", "Electric type. The famous one.", sprite: 25, slug: "pikachu")
+    ]
+
+    private static func catalogItem(_ name: String, _ blurb: String, sprite: Int, slug: String) -> MilanoValue {
+        let sprites = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork"
+        return .record([
+            "name": .string(name),
+            "blurb": .string(blurb),
+            "imageUrl": .string("\(sprites)/\(sprite).png"),
+            "url": .string("https://www.pokemon.com/us/pokedex/\(slug)")
+        ])
+    }
+
     /// The interstitial: the document's `dismiss` action is interpreted by
     /// the presenting screen; every other action takes the shared path.
     func interstitialBuilder(onDismiss: @escaping @Sendable () -> Void) -> MilanoViewBuilder {

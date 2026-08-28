@@ -1,6 +1,6 @@
 ---
 title: Expressions
-nav_order: 7
+nav_order: 8
 ---
 
 # Expressions
@@ -19,14 +19,15 @@ Anything not wrapped is a literal. There is no string interpolation and no expre
 
 ## References
 
-Four reserved roots, and only these:
+Four reserved roots, plus the names a `$repeat` binds:
 
 - `state.key` reads a declared state key.
 - `context.key` reads a declared context key.
 - `event` reads the payload of the event being handled, only inside `on` bindings of events that declare a payload type.
 - `result` reads the value the action handler returned, only inside the `onSuccess` bindings of a custom action that declares a `result` type. It rebinds at each nesting (inside a nested action's `onSuccess` it is that action's result) and is never available in `onFailure`, since failures carry no data.
+- Inside a `$repeat` template, the construct's `as` name reads the current element and `<as>_index` its position; see [Lists with `$repeat`](documents#lists-with-repeat).
 
-Record fields are read with a dot. Field access requires a non-optional record; resolve optionals with `??` first. This rule is checked at the gate, which is what makes null dereference impossible at runtime. There is no array indexing in v1.0.
+Record fields are read with a dot. Field access requires a non-optional record; resolve optionals with `??` first. This rule is checked at the gate, which is what makes null dereference impossible at runtime. There is no array indexing in contract 2.0; `$repeat` is how a document walks an array.
 
 ## Literals
 
@@ -56,7 +57,7 @@ Tightest first; parentheses group. Binary operators associate left except `??`, 
 
 ## Functions
 
-The complete v1.0 set. All functions are pure. Arguments are evaluated eagerly, except `if`, which evaluates only the taken branch, like `&&`, `||`, and `??`.
+The complete set in contract 2.0. All functions are pure. Arguments are evaluated eagerly, except `if`, which evaluates only the taken branch, like `&&`, `||`, and `??`.
 
 | Function | Signature | Notes |
 |---|---|---|
@@ -72,7 +73,7 @@ The complete v1.0 set. All functions are pure. Arguments are evaluated eagerly, 
 | `trim(s)` | string to string | Removes Unicode White_Space characters at both ends, from a fixed shared table |
 | `if(c, a, b)` | bool, T, T to T | Both branches type-check to exactly the same T, optionality included (resolve a `T?` branch with `??` first; a single `null` branch makes the result `T?`); only the taken branch is evaluated |
 
-There are no regular expressions and no case-mapping functions in v1.0. Validation beyond these functions belongs to the producer or the host; case rules are locale matters and belong to renderers.
+There are no regular expressions and no case-mapping functions in contract 2.0. Validation beyond these functions belongs to the producer or the host; case rules are locale matters and belong to renderers.
 
 ## Typing and totality
 

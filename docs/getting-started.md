@@ -17,7 +17,7 @@ A tagged release resolves to a prebuilt, signed `MilanoSDK.xcframework`, integri
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/get-milano/sdk.git", from: "1.3.0")
+    .package(url: "https://github.com/get-milano/sdk.git", from: "2.0.0")
 ]
 ```
 
@@ -45,7 +45,7 @@ repositories {
     }
 }
 dependencies {
-    implementation("dev.get-milano:engine-compose:1.3.0")
+    implementation("dev.get-milano:engine-compose:2.0.0")
 }
 ```
 
@@ -65,7 +65,7 @@ A composite build is driven by *your* Gradle, not the engine's wrapper, so this 
 npm install @get-milano/react @get-milano/core
 ```
 
-Two packages, the same two on every platform. `@get-milano/core` is the engine and has zero dependencies; `@get-milano/react` is the binding and imports only `react`, so the same renderer surface serves the web and React Native. A third, `@get-milano/cli`, is for the producer's side rather than the app: `npx milano validate` runs documents through the same gate before they ship (see [Documents](documents#shipping-documents)).
+Two packages, the same two on every platform. `@get-milano/core` is the engine and has zero dependencies; `@get-milano/react` is the binding and imports only `react`, so the same renderer surface serves the web and React Native. A third, `@get-milano/cli`, is for the producer's side rather than the app: `npx @get-milano/cli init` scaffolds a documents folder with a starter vocabulary, and `npx milano validate` runs documents through the same gate before they ship (see [Producing documents](producing)).
 
 There is **no React Native package and no native code**: no autolinking, no config plugin, nothing to run before `npm install`. Milano draws nothing, so nothing about it is platform-specific; your renderers use `View` and `Text` on React Native and DOM elements on the web.
 
@@ -138,9 +138,9 @@ The vocabulary declares one component and one action:
 
 ```json
 {
-  "milano": "1.0.0",
+  "milano": "2.0.0",
   "name": "starter",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "components": {
     "Greeting": { "properties": { "text": "string" }, "events": { "tap": null } }
   },
@@ -154,7 +154,7 @@ The document uses it:
 
 ```json
 {
-  "version": "1.0.0",
+  "version": "2.0.0",
   "context": { "userName": "string" },
   "root": {
     "type": "Greeting",

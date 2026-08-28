@@ -168,6 +168,13 @@ public final class MilanoViewBuilder: @unchecked Sendable {
                     MilanoOccurrence(kind: kind, viewIdentity: identity, node: node, name: name))
             })
 
+        // The node count limit is measured on the materialized tree.
+        let materialized = MilanoResolver.countNodes(resolvedRoot)
+        if materialized > engine.limits.maxNodeCount {
+            throw MilanoBuildError.limitExceeded(
+                limit: "maxNodeCount", value: engine.limits.maxNodeCount, actual: materialized)
+        }
+
         // Only a successful build reports its occurrences.
         for occurrence in pending {
             engine.observer?.occurrence(occurrence)

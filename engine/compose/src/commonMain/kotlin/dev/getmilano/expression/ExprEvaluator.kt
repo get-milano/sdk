@@ -11,6 +11,8 @@ internal class ExprEvaluator(
     private val context: Map<String, MilanoValue>,
     private val event: MilanoValue?,
     private val result: MilanoValue? = null,
+    /** `$repeat` bindings in scope: the element and its index, by name. */
+    private val bindings: Map<String, MilanoValue> = emptyMap(),
     private val report: (MilanoOccurrence.Kind) -> Unit,
 ) {
     fun evaluate(expr: Expr): MilanoValue =
@@ -36,7 +38,7 @@ internal class ExprEvaluator(
             }
 
             is Expr.Root -> {
-                when (expr.name) {
+                bindings[expr.name] ?: when (expr.name) {
                     "event" -> event ?: MilanoValue.Null
                     "result" -> result ?: MilanoValue.Null
                     else -> MilanoValue.Null

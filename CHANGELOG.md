@@ -9,6 +9,51 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [semantic versioning](https://semver.org): within a
 major, documents, vocabularies, and integrations keep working.
 
+## 2.0.0
+
+A major: contract 2.0 and the `$repeat` construct, the CLI as the
+producer's toolchain, and detail strings that name limits. What to change
+when moving from 1.x is in [Migrating](docs/migrating.md).
+
+### Added
+
+- **`$repeat` on every engine.** A node of type `$repeat` (`items` array
+  expression, `as` binding, template `children`) instantiates its template
+  once per element; the instances take its place, referenced as `card[2]`,
+  and the element and `<as>_index` are readable in the template's
+  expressions and actions. 2.x documents only. The catalog sample and a
+  playground example use it; see [Documents](docs/documents.md).
+- **`milano schema`, `milano diff`, `milano bindings`.** The CLI ports
+  the specs repository's document schema generator, vocabulary diff, and
+  bindings generator, byte for byte (CI runs both over every vocabulary
+  and compares); producers need neither Python nor a specs checkout. The
+  four samples run their build steps through the CLI.
+- **`milano init`.** Scaffolds a producer folder: a starter vocabulary, a
+  first document that uses all of it, the editor schema and settings, and
+  a package.json whose `check` script regenerates the schema and validates
+  every document, and the files an AI agent authors from: an authoring
+  skill (`.claude/skills/milano-authoring/SKILL.md`), `AGENTS.md`, and
+  `CLAUDE.md`.
+- **Docs.** [Producing documents](docs/producing.md), the producer's
+  workflow end to end; [Migrating](docs/migrating.md); the `SchemaViolation`
+  rule table and the occurrence detail table surfaced in
+  [Guardrails](docs/guardrails.md), checked against the specs by
+  `check-consistency`.
+
+### Changed
+
+- **Contract 2.0 on every engine.** A runtime declares, per major, the
+  highest minor it implements (`SUPPORTED_VERSIONS`, replacing
+  `SUPPORTED_MAJORS`; `MilanoInfo.contract`); a document or vocabulary
+  above that is rejected typed, and `UnsupportedVersion.supported` lists
+  ranges as `major.minor` strings instead of bare majors. 1.x documents
+  stay accepted. The samples, docs, and playground declare 2.0.0.
+- **Limit rejections name the limit.** `rejectedMutation` and
+  `rejectedContextUpdate` carry the limit name as `expected`
+  (`maxValueSize`, `maxNodeCount`) and the measured value as `found`; the
+  node count limit is measured on the materialized tree, at build and at
+  runtime.
+
 ## 1.3.0
 
 ### Added

@@ -9,7 +9,7 @@ import type { MilanoVocabulary } from "../engine/vocabulary.ts";
 import { ExprEvaluator } from "../expression/evaluator.ts";
 import type { BuiltNode } from "../gate/gate.ts";
 import type { DependencyNode, ResolvedNode } from "../gate/resolver.ts";
-import { indexDependencies, refresh } from "../gate/resolver.ts";
+import { countNodes, elementBindings, indexDependencies, refresh, repeatElements } from "../gate/resolver.ts";
 import type { MilanoDispatcher } from "./dispatcher.ts";
 import type { MilanoAction, MilanoActionHandler } from "./handlers.ts";
 
@@ -19,13 +19,36 @@ export interface DispatchRecord {
   readonly onSuccess: readonly ActionSpec[];
   readonly onFailure: readonly ActionSpec[];
   readonly capturedEvent: MilanoValue | null;
+  /** The `$repeat` bindings in scope at dispatch, kept for follow-ups. */
+  readonly capturedBindings: Bindings;
   readonly resultType: MilanoType | null;
   readonly sourceNode: string | null;
+}
+
+type Bindings = Readonly<Record<string, MilanoValue>>;
+
+/**
+ * An instance reference split into its template reference and the
+ * element index per enclosing `$repeat`, outermost first: `line[2][0]`
+ * is `line` at 2 then 0. A plain reference has no indices.
+ */
+function splitInstanceReference(reference: string): { base: string; indices: number[] } {
+  const indices: number[] = [];
+  let base = reference;
+  for (;;) {
+    const match = /\[(\d+)\]$/.exec(base);
+    if (match === null) break;
+    indices.unshift(Number(match[1]));
+    base = base.slice(0, match.index);
+  }
+  return { base, indices };
 }
 
 interface NodeEvents {
   readonly declared: Readonly<Record<string, MilanoType | null>>;
   readonly bindings: Readonly<Record<string, readonly ActionSpec[]>>;
+  /** The enclosing `$repeat` constructs, outermost first. */
+  readonly repeats: readonly BuiltNode[];
 }
 
 /**
@@ -257,32 +280,82 @@ export class MilanoView {
     const followUps = success ? record.onSuccess : record.onFailure;
     if (followUps.length > 0) {
       const captured = record.capturedEvent;
+      const bindings = record.capturedBindings;
       const source = record.sourceNode;
-      this.enqueue(() => this.execute(followUps, captured, resultValue, source));
+      this.enqueue(() => this.execute(followUps, captured, resultValue, source, bindings));
     }
   }
 
-  private indexNodes(node: BuiltNode): void {
+  private indexNodes(node: BuiltNode, repeats: readonly BuiltNode[] = []): void {
+    if (node.repeat !== null) {
+      for (const template of node.children) this.indexNodes(template, [...repeats, node]);
+      return;
+    }
     if (!node.isPlaceholder) {
       const component = own(this.runtime.vocabulary.components, node.type);
       if (component !== undefined) {
         this.nodeEvents.set(node.reference, {
           declared: component.events,
           bindings: node.events,
+          repeats,
         });
       }
     }
-    for (const child of node.children) this.indexNodes(child);
+    for (const child of node.children) this.indexNodes(child, repeats);
+  }
+
+  /**
+   * The `$repeat` bindings an instance's emission dispatches with: the
+   * element at each index, evaluated now, outermost repeat first. Null
+   * when an index no longer exists.
+   */
+  private bindingsFor(info: NodeEvents, indices: readonly number[]): Bindings | null {
+    let bindings: Bindings = {};
+    let suffix = "";
+    for (let level = 0; level < info.repeats.length; level += 1) {
+      const repeat = info.repeats[level] as BuiltNode;
+      const index = indices[level] as number;
+      const elements = repeatElements(
+        repeat, repeat.reference + suffix, this.currentState, this.currentContext, () => {}, bindings,
+      );
+      const element = elements[index];
+      if (element === undefined) return null;
+      bindings = elementBindings((repeat.repeat as { as: string }).as, element, index, bindings);
+      suffix += `[${index}]`;
+    }
+    return bindings;
   }
 
   private processEmission(node: string, event: string, payload: MilanoValue | null): void {
     if (this.tornDown) return;
-    const info = this.nodeEvents.get(node);
+    // A plain reference, or an instance reference: the template's
+    // reference with one index per enclosing repeat.
+    let info = this.nodeEvents.get(node);
+    let indices: number[] = [];
+    if (info === undefined || info.repeats.length > 0) {
+      const split = splitInstanceReference(node);
+      const candidate = this.nodeEvents.get(split.base);
+      if (candidate !== undefined && candidate.repeats.length === split.indices.length) {
+        info = candidate;
+        indices = split.indices;
+      } else {
+        info = undefined;
+      }
+    }
     if (info === undefined) {
       this.report("invalidEmission", node, {
         name: event,
         expected: "declared event",
         found: "unknown node",
+      });
+      return;
+    }
+    const bindings = this.bindingsFor(info, indices);
+    if (bindings === null) {
+      this.report("invalidEmission", node, {
+        name: event,
+        expected: "repeat element",
+        found: `index ${indices[indices.length - 1] ?? 0}`,
       });
       return;
     }
@@ -328,7 +401,7 @@ export class MilanoView {
       this.report("droppedEvent", node, { name: event });
       return;
     }
-    this.enqueue(() => this.execute(actions, eventValue, null, node));
+    this.enqueue(() => this.execute(actions, eventValue, null, node, bindings));
   }
 
   private performContextUpdate(supplied: Readonly<Record<string, MilanoValue>>): void {
@@ -336,6 +409,7 @@ export class MilanoView {
     // Atomic: all declared keys validate or the whole update is rejected.
     const canonical = emptyRecord<MilanoValue>();
     const changed = new Set<string>();
+    let lastKey: string | null = null;
     for (const [key, type] of Object.entries(this.document.contextDeclarations)) {
       const value = own(supplied, key);
       const validated = value === undefined ? null : type.validated(value);
@@ -352,7 +426,7 @@ export class MilanoView {
       if (size > this.limits.maxValueSize) {
         this.report("rejectedContextUpdate", null, {
           name: key,
-          expected: String(this.limits.maxValueSize),
+          expected: "maxValueSize",
           found: String(size),
         });
         return;
@@ -360,11 +434,26 @@ export class MilanoView {
       canonical[key] = validated;
       const previous = own(this.currentContext, key);
       if (previous === undefined || !previous.equals(validated)) changed.add(`context.${key}`);
+      lastKey = key;
+    }
+    // Only what reads a changed key re-evaluates; an update that changes
+    // no value changes nothing. A tree materialized past the node count
+    // limit rejects the update whole.
+    if (changed.size === 0) {
+      this.currentContext = canonical;
+      return;
+    }
+    const materialized = this.materialize(changed, this.currentState, canonical);
+    if (materialized.count > this.limits.maxNodeCount) {
+      this.report("rejectedContextUpdate", null, {
+        name: lastKey ?? undefined,
+        expected: "maxNodeCount",
+        found: String(materialized.count),
+      });
+      return;
     }
     this.currentContext = canonical;
-    // Only what reads a changed key re-evaluates; an update that changes
-    // no value changes nothing.
-    if (changed.size > 0) this.reResolve(changed);
+    this.commit(materialized);
   }
 
   private enqueue(work: () => void): void {
@@ -396,42 +485,52 @@ export class MilanoView {
     event: MilanoValue | null,
     result: MilanoValue | null,
     sourceNode: string | null,
+    bindings: Bindings = {},
   ): boolean {
     for (const action of actions) {
       switch (action.kind) {
         case "set": {
           const declared = own(this.document.stateDeclarations, action.key);
-          const evaluated = this.evaluate(action.value, event, result);
+          const evaluated = this.evaluate(action.value, event, result, bindings);
           const validated = declared?.validated(evaluated) ?? evaluated;
           const size = validated.size;
           if (size > this.limits.maxValueSize) {
             this.report("rejectedMutation", sourceNode, {
               name: action.key,
-              expected: String(this.limits.maxValueSize),
+              expected: "maxValueSize",
               found: String(size),
             });
             return false;
           }
           const previous = own(this.currentState, action.key);
+          // A value that did not change re-resolves nothing.
+          if (previous !== undefined && previous.equals(validated)) break;
           const next = recordFrom(this.currentState);
           next[action.key] = validated;
-          this.currentState = next;
           // Visible immediately: the properties that read this key
-          // re-resolve before the next action. A value that did not change
-          // re-resolves nothing.
-          if (previous === undefined || !previous.equals(validated)) {
-            this.reResolve(new Set([`state.${action.key}`]));
+          // re-resolve before the next action. A tree materialized past
+          // the node count limit rejects the mutation instead.
+          const materialized = this.materialize(new Set([`state.${action.key}`]), next, this.currentContext);
+          if (materialized.count > this.limits.maxNodeCount) {
+            this.report("rejectedMutation", sourceNode, {
+              name: action.key,
+              expected: "maxNodeCount",
+              found: String(materialized.count),
+            });
+            return false;
           }
+          this.currentState = next;
+          this.commit(materialized);
           break;
         }
 
         case "sequence":
-          if (!this.execute(action.actions, event, result, sourceNode)) return false;
+          if (!this.execute(action.actions, event, result, sourceNode, bindings)) return false;
           break;
 
         case "when": {
-          const takeThen = this.evaluate(action.condition, event, result).boolValue === true;
-          if (!this.execute(takeThen ? action.then : action.otherwise, event, result, sourceNode)) {
+          const takeThen = this.evaluate(action.condition, event, result, bindings).boolValue === true;
+          if (!this.execute(takeThen ? action.then : action.otherwise, event, result, sourceNode, bindings)) {
             return false;
           }
           break;
@@ -440,7 +539,7 @@ export class MilanoView {
         case "custom": {
           const captured: Record<string, MilanoValue> = {};
           for (const [parameter, value] of Object.entries(action.parameters)) {
-            captured[parameter] = this.evaluate(value, event, result);
+            captured[parameter] = this.evaluate(value, event, result, bindings);
           }
           const dispatchedAction: MilanoAction = {
             name: action.name,
@@ -460,6 +559,7 @@ export class MilanoView {
             onSuccess: action.onSuccess,
             onFailure: action.onFailure,
             capturedEvent: event,
+            capturedBindings: bindings,
             resultType: action.result,
             sourceNode,
           });
@@ -490,6 +590,7 @@ export class MilanoView {
     value: DocValue,
     event: MilanoValue | null,
     result: MilanoValue | null,
+    bindings: Bindings = {},
   ): MilanoValue {
     switch (value.kind) {
       case "literal":
@@ -501,6 +602,7 @@ export class MilanoView {
           event,
           result,
           (kind) => this.report(kind, null),
+          bindings,
         );
         const evaluated = evaluator.evaluate(value.expr);
         return value.expected.validated(evaluated) ?? evaluated;
@@ -510,20 +612,37 @@ export class MilanoView {
     }
   }
 
-  private reResolve(changed: ReadonlySet<string>): void {
-    const next = refresh(
+  /**
+   * The tree an update would produce, with the arithmetic reports it
+   * raised held back: nothing reaches the observer until the update is
+   * accepted, and a rejected one leaves no trace.
+   */
+  private materialize(
+    changed: ReadonlySet<string>,
+    state: Readonly<Record<string, MilanoValue>>,
+    context: Readonly<Record<string, MilanoValue>>,
+  ): { tree: ResolvedNode; count: number; reports: [MilanoOccurrenceKind, string, string][] } {
+    const reports: [MilanoOccurrenceKind, string, string][] = [];
+    const tree = refresh(
       this.root,
       this.dependencies,
       this.currentResolvedRoot,
       changed,
-      this.currentState,
-      this.currentContext,
-      (kind, node, name) => this.report(kind, node, { name }),
+      state,
+      context,
+      (kind, node, name) => reports.push([kind, node, name]),
     );
+    const count = tree === this.currentResolvedRoot ? 0 : countNodes(tree);
+    return { tree, count, reports };
+  }
+
+  /** Adopts a materialized tree, flushes its reports, notifies the host. */
+  private commit(materialized: { tree: ResolvedNode; reports: [MilanoOccurrenceKind, string, string][] }): void {
+    for (const [kind, node, name] of materialized.reports) this.report(kind, node, { name });
     // Nothing depended on the change: the tree is the same object, and
     // there is nothing to tell the host.
-    if (next === this.currentResolvedRoot) return;
-    this.currentResolvedRoot = next;
+    if (materialized.tree === this.currentResolvedRoot) return;
+    this.currentResolvedRoot = materialized.tree;
     for (const listener of [...this.listeners]) listener();
   }
 

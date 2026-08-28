@@ -72,11 +72,11 @@ internal data class MilanoVocabulary(
                 throw MilanoEngineException.InvalidVocabulary("milano", "expected major.minor.patch, found $milano")
             }
             // Same versioning rule as documents: an artifact targeting an
-            // unsupported contract major fails fast at engine creation.
-            if (major !in MilanoGate.SUPPORTED_MAJORS) {
+            // unsupported contract version fails fast at engine creation.
+            if (!MilanoGate.isSupportedVersion(major, minor)) {
                 throw MilanoEngineException.InvalidVocabulary(
                     "milano-version",
-                    "unsupported contract major $major; supported: ${MilanoGate.SUPPORTED_MAJORS}",
+                    "unsupported contract version $milano; supported: ${MilanoGate.supportedRanges().joinToString()}",
                 )
             }
 

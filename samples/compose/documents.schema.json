@@ -25,8 +25,7 @@
           "type": "string",
           "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
         }
-      },
-      "additionalProperties": false
+      }
     },
     "context": {
       "type": "object",
@@ -75,7 +74,8 @@
             "NumberField",
             "Row",
             "Text",
-            "TextField"
+            "TextField",
+            "$repeat"
           ]
         },
         "id": {
@@ -96,6 +96,15 @@
           "items": {
             "$ref": "#/$defs/node"
           }
+        },
+        "items": {
+          "description": "$repeat only: the array expression the template is instantiated over.",
+          "$ref": "#/$defs/value"
+        },
+        "as": {
+          "description": "$repeat only: the name that binds each element inside the template; <as>_index binds its position.",
+          "type": "string",
+          "minLength": 1
         },
         "on": {
           "type": "object",
@@ -1374,6 +1383,32 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "$repeat"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "items",
+              "as",
+              "children"
+            ],
+            "properties": {
+              "properties": {
+                "type": "object",
+                "maxProperties": 0
+              },
+              "on": {
+                "type": "object",
+                "maxProperties": 0
+              }
+            }
+          }
         }
       ]
     },
@@ -1558,8 +1593,7 @@
             "optional": {
               "type": "boolean"
             }
-          },
-          "additionalProperties": false
+          }
         },
         {
           "type": "object",
@@ -1573,8 +1607,7 @@
             "optional": {
               "type": "boolean"
             }
-          },
-          "additionalProperties": false
+          }
         },
         {
           "type": "object",
@@ -1594,8 +1627,7 @@
             "optional": {
               "type": "boolean"
             }
-          },
-          "additionalProperties": false
+          }
         }
       ]
     }

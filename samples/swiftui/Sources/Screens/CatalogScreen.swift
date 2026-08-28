@@ -1,15 +1,15 @@
 import MilanoSDK
 import SwiftUI
 
-/// An intermediate screen, catalog-style, as one document: a list of item
-/// cards (documents are data, so a producer enumerates them), each bound
-/// to `tap` -> `openUrl`, so tapping an item opens its page through the
-/// host's action handler.
+/// An intermediate screen, catalog-style, as one document: a `$repeat`
+/// over the items the state data provider supplies, each instance a card
+/// bound to `tap` -> `openUrl` with the item's own page, opened through
+/// the host's action handler.
 struct CatalogScreen: View {
     var body: some View {
         ScrollView {
             MilanoHost(
-                builder: SampleEnvironment.shared.documentBuilder(resource: "catalog")
+                builder: SampleEnvironment.shared.catalogBuilder()
             ) {
                 ProgressView()
             } failure: { error in

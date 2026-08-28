@@ -21,6 +21,8 @@ export class ExprEvaluator {
   private readonly context: Readonly<Record<string, MilanoValue>>;
   private readonly event: MilanoValue | null;
   private readonly result: MilanoValue | null;
+  /** `$repeat` bindings in scope: the element and its index, by name. */
+  private readonly bindings: Readonly<Record<string, MilanoValue>>;
   private readonly report: (kind: MilanoOccurrenceKind) => void;
 
   constructor(
@@ -29,12 +31,14 @@ export class ExprEvaluator {
     event: MilanoValue | null = null,
     result: MilanoValue | null = null,
     report: (kind: MilanoOccurrenceKind) => void = () => {},
+    bindings: Readonly<Record<string, MilanoValue>> = {},
   ) {
     this.state = state;
     this.context = context;
     this.event = event;
     this.result = result;
     this.report = report;
+    this.bindings = bindings;
   }
 
   evaluate(expr: Expr): MilanoValue {
@@ -50,11 +54,14 @@ export class ExprEvaluator {
       case "stringLiteral":
         return MilanoValue.string(expr.value);
 
-      case "root":
-        // Only `event` and `result` reach evaluation as bare roots.
+      case "root": {
+        // Bare roots: a `$repeat` binding, or `event` and `result`.
+        const bound = own(this.bindings, expr.name);
+        if (bound !== undefined) return bound;
         if (expr.name === "event") return this.event ?? MilanoValue.null;
         if (expr.name === "result") return this.result ?? MilanoValue.null;
         return MilanoValue.null;
+      }
 
       case "member": {
         const base = expr.base;

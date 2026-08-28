@@ -44,7 +44,7 @@ class EngineCreationTest {
     @Test
     fun examplesVocabularyParses() {
         val vocabulary = MilanoVocabulary.parse(examplesVocabularyJson())
-        assertEquals(1, vocabulary.contractMajor)
+        assertEquals(2, vocabulary.contractMajor)
         assertEquals(0, vocabulary.contractMinor)
         assertEquals("examples", vocabulary.name)
         assertEquals(9, vocabulary.components.size)

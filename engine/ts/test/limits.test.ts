@@ -110,7 +110,7 @@ describe("the value size limit at runtime", () => {
     assert.equal(view.state["n"]?.intValue, 1n);
     assert.deepEqual(
       occurrences.map((o) => [o.kind, o.node, o.name, o.expected, o.found]),
-      [["rejectedMutation", "t", "s", "8", "10"]],
+      [["rejectedMutation", "t", "s", "maxValueSize", "10"]],
     );
     view.teardown();
   });
@@ -152,7 +152,7 @@ describe("the value size limit at runtime", () => {
     assert.equal(view.resolvedRoot.values["text"]?.stringValue, "Ada1");
     assert.deepEqual(
       occurrences.map((o) => [o.kind, o.name, o.expected, o.found]),
-      [["rejectedContextUpdate", "who", "8", "16"]],
+      [["rejectedContextUpdate", "who", "maxValueSize", "16"]],
     );
     view.teardown();
   });

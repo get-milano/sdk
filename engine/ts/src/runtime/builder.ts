@@ -7,7 +7,7 @@ import type { MilanoEngine } from "../engine/engine.ts";
 import type { MilanoOccurrence } from "../engine/observer.ts";
 import type { MilanoAction as MilanoActionDeclaration } from "../engine/vocabulary.ts";
 import { MilanoGate } from "../gate/gate.ts";
-import { resolve } from "../gate/resolver.ts";
+import { countNodes, resolve } from "../gate/resolver.ts";
 import type { MilanoContextSource } from "./context-source.ts";
 import { StaticContextSource } from "./context-source.ts";
 import type { MilanoDispatcher } from "./dispatcher.ts";
@@ -191,10 +191,16 @@ export class MilanoViewBuilder<R = unknown, P = R> {
       state = gate.validateState(document, provided);
     }
 
-    // Initial resolution: every property expression evaluated.
+    // Initial resolution: every property expression evaluated, every
+    // `$repeat` materialized; the node count limit is measured on the
+    // result.
     const resolvedRoot = resolve(root, state, context, (kind, node, name) => {
       pending.push({ kind, viewIdentity: identity, node, name, expected: null, found: null });
     });
+    const materialized = countNodes(resolvedRoot);
+    if (materialized > this.engine.limits.maxNodeCount) {
+      throw MilanoBuildError.limitExceeded("maxNodeCount", this.engine.limits.maxNodeCount, materialized);
+    }
 
     // Only a successful build reports its occurrences.
     const observer = this.engine.observer;

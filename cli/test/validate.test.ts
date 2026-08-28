@@ -143,6 +143,30 @@ describe("validate", () => {
     assert.deepEqual((await validate({ document: VALID, vocabulary: VOCABULARY })).warnings, []);
   });
 
+  it("knows the $repeat construct's own keys", async () => {
+    const report = await validate({
+      document: JSON.stringify({
+        version: "2.0.0",
+        state: { rows: { array: "string" } },
+        root: {
+          type: "Column",
+          children: [
+            {
+              type: "$repeat",
+              items: { $expr: "state.rows" },
+              as: "row",
+              each: true,
+              children: [{ type: "Text", id: "t", properties: { text: { $expr: "row" } } }],
+            },
+          ],
+        },
+      }),
+      vocabulary: VOCABULARY,
+    });
+    assert.equal(report.valid, true);
+    assert.deepEqual([...report.warnings], ['root/children[0]: unknown envelope key "each"']);
+  });
+
   it("throws for an invalid vocabulary: the setup, not the document", async () => {
     await assert.rejects(
       validate({ document: VALID, vocabulary: "{}" }),

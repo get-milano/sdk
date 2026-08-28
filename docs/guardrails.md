@@ -1,6 +1,6 @@
 ---
 title: Guardrails
-nav_order: 8
+nav_order: 9
 ---
 
 # Guardrails
@@ -25,7 +25,7 @@ These are programming errors: reachable in development, unreachable in a correct
 | Error | Meaning | Detail carried |
 |---|---|---|
 | `MalformedDocument` | Not valid JSON, or not a JSON object | Parser message |
-| `UnsupportedVersion` | Contract major version not supported | Found version, supported majors |
+| `UnsupportedVersion` | Declared version above what the engine implements, by major or by minor | Declared version; supported ranges as `major.minor` (`"1.0"`, `"2.0"`) |
 | `SchemaViolation` | Any structural, typing, or declaration rule broken | Rule, node reference, expected, found |
 | `UnknownComponentType` | Unknown `type` under the `fail` policy | Node reference, type name |
 | `LimitExceeded` | A resource limit crossed | Which limit, limit value, found value |
@@ -33,6 +33,27 @@ These are programming errors: reachable in development, unreachable in a correct
 State data provider errors are not translated: whatever your provider throws propagates unchanged through `build()`, so your own error types survive the trip.
 
 Building is all-or-nothing: one error, no view, no partial UI.
+
+## The rules behind SchemaViolation
+
+The `rule` strings a `SchemaViolation` may carry are contract, pinned by the conformance suite, and so is the detail each carries (an absent cell is `null`):
+
+| Rule | Violation | `node` | `expected` | `found` |
+|---|---|---|---|---|
+| `construct` | A node `type` begins with the reserved `$` prefix and names no construct the document's contract version admits | the node | `component type` | the type name |
+| `repeat` | A `$repeat` violates its encoding: at the root, carrying properties or bindings, without a template, `items` missing, a literal, or not a non-optional array, `as` missing, reserved, or shadowing an enclosing binding | the node | the requirement: `child position`, `items expression`, `array items`, `template`, `binding identifier`, `distinct binding` | what was found |
+| `id-uniqueness` | A node `id` appears more than once in the document | the repeated id | | the id |
+| `children` | A node carries `children` but its component type does not accept them | the node | `no children` | `children` |
+| `undeclared-property` | An undeclared property on a `strict` component type | the node | | the property name |
+| `property-type` | A literal property value does not match the declared type | the node | the declared type, or `enum member` | the literal's kind, or the non-member string |
+| `event-binding` | An `on` entry names an event the component type does not declare | the node | `declared event` | the event name |
+| `expression` | An expression fails to parse or type-check against the expected type | the node | the type the position expects | |
+| `action-encoding` | A built-in or custom action violates its encoding: unknown or missing parameters, ill-typed values, an undeclared `$set` target | the node | `declared state key`, `declared parameter`, or the name of the missing required parameter | the undeclared key or parameter; none for a missing one |
+| `action-capability` | A custom action outside the surface's granted set | the node | `granted action` | the action name |
+| `vocabulary-requirement` | The document's declared vocabulary requirement is not met by the engine's vocabulary | | the required name, or `>=` the required minimum | the held name or version |
+| `context-declaration` | A context declaration is malformed (non-identifier key, invalid descriptor) or a supplied context value does not match it | | `identifier`, the missing key, or the declared type | the malformed key, or the value's kind |
+| `state-declaration` | A state declaration is malformed (non-identifier key, invalid descriptor), a provided state value does not match it, or the document declares state and the surface configured no state data provider | | `identifier`, the declared type, or `state data provider` | the malformed key, or the value's kind (`null` when the provider omitted a required value) |
+| `action-handler` | The document binds custom actions and the surface configured no action handler (raised by the builder at build, before dispatch exists) | | `action handler` | |
 
 ## Unknown-type policies
 
@@ -79,6 +100,24 @@ Renderers run on the main thread. Events, state writes, and view updates seriali
 Anything the engine tolerates instead of failing is reported as an occurrence to the `MilanoObserver` you optionally pass at engine creation: skipped unknown types, placeholder routings, division-by-zero results, saturations, dropped invalid emissions. Each occurrence carries its kind, the view's identity (your builder `label` makes this readable), the node reference when there is one, and, when they apply, a `name` (the event, action, property, component type, or context key involved) and `expected` and `found` detail in the gate's own terms: a rejected context update names the key, its declared type, and what arrived; a dropped event names the event; an invalid completion names the action and the declared result type.
 
 Occurrences are reported only for views that built successfully; a failed build reports nothing and throws everything. In development, log every occurrence loudly; in production, feed them to your telemetry. An occurrence is a document quality signal: the user saw something reasonable, but a producer should hear about it. User interactions are deliberately not occurrences: product analytics flows through a separate stream ([User interaction analytics](analytics)), so telemetry stays low-volume and defect-shaped.
+
+## Occurrence detail
+
+`MilanoOccurrence` kinds are the closed union of everything the specs report. What each carries, beyond the view identity, is fixed and pinned by the conformance suite; absent cells are `null`, type names are spelled as the document model spells them, and value kinds as `MilanoValue` names them:
+
+| Kind | `node` | `name` | `expected` | `found` |
+|---|---|---|---|---|
+| `unknownTypeSkipped`, `unknownTypePlaceholder` | the node | the type name | | |
+| `undeclaredProperty` | the node | the property name | | |
+| `droppedEvent` | the node | the event name | | |
+| `invalidEmission` | the node as emitted | the event name | `declared event`, the declared payload type, `no payload`, or `repeat element` | `unknown node`, `undeclared event`, the payload's kind, `index N` for a `$repeat` index that no longer exists, or `null` |
+| `invalidCompletion` | | the action name | the declared result type, `no result` (a success value for an action declaring none), or `no payload` (a value on a failure) | the value's kind, `null` when missing |
+| `duplicateCompletion`, `completionAfterTeardown` | | the action name | | |
+| `rejectedContextUpdate` | | the key (the last checked, for a node count rejection) | the declared type, or the limit's name (`maxValueSize`, `maxNodeCount`) | the value's kind, `missing`, the size, or the count |
+| `rejectedMutation` | the node whose binding dispatched | the state key | the limit's name (`maxValueSize`, `maxNodeCount`) | the size or the count |
+| `divisionByZero`, `saturation` | the node being resolved; none during action evaluation | the property being resolved; none otherwise | | |
+
+Both tables are the specs' own ([document model](https://github.com/get-milano/specs/blob/main/01-document-model.md), [runtime API](https://github.com/get-milano/specs/blob/main/06-runtime-api.md)); the SDK's consistency check fails the build when a rule or a kind exists in one place and not the other.
 
 ## What to do with all this
 

@@ -168,7 +168,18 @@ internal object DocumentParser {
             }
         }
 
-        return RawNode(type, id, properties, children, events, entry)
+        // The construct's own keys travel as parsed; the gate applies its rules.
+        val repeatSpec =
+            if (type == "\$repeat") {
+                RepeatSpec(
+                    items = obj["items"]?.let { docValue(it, "$path.items") },
+                    alias = (obj["as"] as? MilanoValue.StringValue)?.value,
+                )
+            } else {
+                null
+            }
+
+        return RawNode(type, id, properties, children, events, entry, repeatSpec)
     }
 
     /**

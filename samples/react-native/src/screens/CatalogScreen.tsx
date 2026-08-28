@@ -3,16 +3,16 @@ import { useMemo } from "react";
 import type { ReactNode } from "react";
 
 import { Failure, Loading, Screen } from "../design-system.tsx";
-import { documentBuilder } from "../environment.ts";
+import { catalogBuilder } from "../environment.ts";
 
 /**
- * An intermediate screen, catalog-style, as one document: a list of item
- * cards (documents are data, so a producer enumerates them), each bound to
- * `tap` -> `openUrl`, so tapping an item opens its page through the host's
+ * An intermediate screen, catalog-style, as one document: a `$repeat` over
+ * the items the state data provider supplies, each instance a card bound
+ * to `tap` -> `openUrl` with the item's own page, opened through the host's
  * action handler.
  */
 export function CatalogScreen(): ReactNode {
-  const builder = useMemo(() => documentBuilder("catalog"), []);
+  const builder = useMemo(() => catalogBuilder(), []);
   return (
     <Screen>
       <MilanoHost

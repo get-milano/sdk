@@ -7,13 +7,13 @@ import SwiftUI
 /// SampleEnvironment, the full architecture for real apps.
 struct QuickStartScreen: View {
     private static let vocabulary = Data(#"""
-        {"milano": "1.0.0", "name": "quickstart", "version": "1.0.0",
+        {"milano": "2.0.0", "name": "quickstart", "version": "2.0.0",
          "components": {"Greeting": {"properties": {"text": "string"}, "events": {"tap": null}}},
          "actions": {"celebrate": {}}}
         """#.utf8)
 
     private static let document = Data(#"""
-        {"version": "1.0.0",
+        {"version": "2.0.0",
          "context": {"userName": "string"},
          "state": {"taps": "int"},
          "root": {"type": "Greeting", "id": "hello",

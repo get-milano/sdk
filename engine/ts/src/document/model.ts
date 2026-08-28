@@ -37,6 +37,16 @@ export type ActionSpec =
       readonly result: MilanoType | null;
     };
 
+/**
+ * The `$repeat` construct's own keys, as parsed: `items` (a value, which
+ * the gate requires to be an array expression) and `as` (the binding
+ * name). Null where the document omitted them; the gate reports.
+ */
+export interface RepeatSpec {
+  readonly items: DocValue | null;
+  readonly as: string | null;
+}
+
 /** A parsed node envelope, before vocabulary validation. */
 export interface RawNode {
   readonly type: string;
@@ -44,6 +54,8 @@ export interface RawNode {
   readonly properties: Readonly<Record<string, DocValue>>;
   readonly children: readonly RawNode[];
   readonly events: Readonly<Record<string, readonly ActionSpec[]>>;
+  /** Present exactly when `type` is `$repeat`. */
+  readonly repeat: RepeatSpec | null;
   /** The node's whole subtree as raw data, kept for the placeholder policy. */
   readonly raw: MilanoValue;
 }

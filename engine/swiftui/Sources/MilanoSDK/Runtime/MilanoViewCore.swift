@@ -25,6 +25,8 @@ final class MilanoViewCore: @unchecked Sendable {
     private struct NodeEvents {
         let declared: [String: MilanoType?]
         let bindings: [String: [ActionSpec]]
+        /// The enclosing `$repeat` constructs, outermost first.
+        let repeats: [BuiltNode]
     }
     struct DispatchRecord {
         let action: MilanoAction
@@ -32,8 +34,17 @@ final class MilanoViewCore: @unchecked Sendable {
         let onSuccess: [ActionSpec]
         let onFailure: [ActionSpec]
         let capturedEvent: MilanoValue?
+        /// The `$repeat` bindings in scope at dispatch, kept for follow-ups.
+        let capturedBindings: [String: MilanoValue]
         let resultType: MilanoType?
         let sourceNode: String?
+    }
+    /// A tree an update would produce, with the reports it raised held
+    /// back until the update is accepted.
+    private struct Materialized {
+        let tree: ResolvedNode?
+        let count: Int
+        let reports: [(MilanoOccurrence.Kind, String, String)]
     }
     private var nodeEvents: [String: NodeEvents] = [:]
     /// One serialized work queue: action lists and context updates both run
@@ -67,14 +78,53 @@ final class MilanoViewCore: @unchecked Sendable {
         indexNodes(root)
     }
 
-    private func indexNodes(_ node: BuiltNode) {
+    private func indexNodes(_ node: BuiltNode, repeats: [BuiltNode] = []) {
+        if node.repeatSpec != nil {
+            for template in node.children {
+                indexNodes(template, repeats: repeats + [node])
+            }
+            return
+        }
         if !node.isPlaceholder, let component = engine.vocabulary.components[node.type] {
             nodeEvents[node.reference] = NodeEvents(
-                declared: component.events, bindings: node.events)
+                declared: component.events, bindings: node.events, repeats: repeats)
         }
         for child in node.children {
-            indexNodes(child)
+            indexNodes(child, repeats: repeats)
         }
+    }
+
+    /// An instance reference split into its template reference and the
+    /// element index per enclosing `$repeat`, outermost first: `line[2][0]`
+    /// is `line` at 2 then 0. A plain reference has no indices.
+    private static func splitInstanceReference(_ reference: String) -> (base: String, indices: [Int]) {
+        var base = Substring(reference)
+        var indices: [Int] = []
+        while base.hasSuffix("]"), let open = base.lastIndex(of: "["),
+            let index = Int(base[base.index(after: open)..<base.index(before: base.endIndex)]) {
+            indices.insert(index, at: 0)
+            base = base[..<open]
+        }
+        return (String(base), indices)
+    }
+
+    /// The `$repeat` bindings an instance's emission dispatches with: the
+    /// element at each index, evaluated now, outermost repeat first. Nil
+    /// when an index no longer exists.
+    private func bindingsFor(_ info: NodeEvents, indices: [Int]) -> [String: MilanoValue]? {
+        var bindings: [String: MilanoValue] = [:]
+        var suffix = ""
+        for (level, repeatNode) in info.repeats.enumerated() {
+            let index = indices[level]
+            let elements = MilanoResolver.repeatElements(
+                repeatNode, reference: repeatNode.reference + suffix,
+                state: state, context: context, report: { _, _, _ in }, bindings: bindings)
+            guard index < elements.count, let spec = repeatNode.repeatSpec else { return nil }
+            bindings = MilanoResolver.elementBindings(
+                as: spec.as, element: elements[index], index: index, outer: bindings)
+            suffix += "[\(index)]"
+        }
+        return bindings
     }
 
     // MARK: - Renderer-facing surface
@@ -108,8 +158,27 @@ final class MilanoViewCore: @unchecked Sendable {
 
     private func processEmission(node: String, event: String, payload: MilanoValue?) {
         guard !tornDown else { return }
-        guard let info = nodeEvents[node] else {
+        // A plain reference, or an instance reference: the template's
+        // reference with one index per enclosing repeat.
+        var info = nodeEvents[node]
+        var indices: [Int] = []
+        if info == nil || !(info?.repeats.isEmpty ?? true) {
+            let split = Self.splitInstanceReference(node)
+            if let candidate = nodeEvents[split.base], candidate.repeats.count == split.indices.count {
+                info = candidate
+                indices = split.indices
+            } else {
+                info = nil
+            }
+        }
+        guard let info else {
             report(.invalidEmission, node: node, name: event, expected: "declared event", found: "unknown node")
+            return
+        }
+        guard let bindings = bindingsFor(info, indices: indices) else {
+            report(
+                .invalidEmission, node: node, name: event,
+                expected: "repeat element", found: "index \(indices.last ?? 0)")
             return
         }
         guard let declaredPayload = info.declared[event] else {
@@ -143,7 +212,7 @@ final class MilanoViewCore: @unchecked Sendable {
         }
         let payload = eventValue
         enqueue { [weak self] in
-            self?.execute(actions, event: payload, result: nil, sourceNode: node)
+            self?.execute(actions, event: payload, result: nil, sourceNode: node, bindings: bindings)
         }
     }
 
@@ -160,6 +229,7 @@ final class MilanoViewCore: @unchecked Sendable {
         // Atomic: all declared keys validate or the whole update is rejected.
         var canonical: [String: MilanoValue] = [:]
         var changed: Set<String> = []
+        var lastKey: String?
         for (key, type) in document.contextDeclarations.byKey {
             guard let value = supplied[key], let validated = type.validated(value) else {
                 report(
@@ -173,16 +243,29 @@ final class MilanoViewCore: @unchecked Sendable {
             if size > engine.limits.maxValueSize {
                 report(
                     .rejectedContextUpdate, node: nil, name: key,
-                    expected: "\(engine.limits.maxValueSize)", found: "\(size)")
+                    expected: "maxValueSize", found: "\(size)")
                 return
             }
             canonical[key] = validated
             if context[key] != validated { changed.insert("context.\(key)") }
+            lastKey = key
+        }
+        // Only what reads a changed key re-evaluates; an update that changes
+        // no value changes nothing. A tree materialized past the node count
+        // limit rejects the update whole.
+        guard !changed.isEmpty else {
+            context = canonical
+            return
+        }
+        let materialized = materialize(changed: changed, state: state, context: canonical)
+        if materialized.count > engine.limits.maxNodeCount {
+            report(
+                .rejectedContextUpdate, node: nil, name: lastKey,
+                expected: "maxNodeCount", found: "\(materialized.count)")
+            return
         }
         context = canonical
-        // Only what reads a changed key re-evaluates; an update that changes
-        // no value changes nothing.
-        if !changed.isEmpty { reResolve(changed: changed) }
+        commit(materialized)
     }
 
     /// Internal completion path; the async funnel lands here, and the
@@ -230,9 +313,12 @@ final class MilanoViewCore: @unchecked Sendable {
         let followUps = success ? record.onSuccess : record.onFailure
         if !followUps.isEmpty {
             let captured = record.capturedEvent
+            let bindings = record.capturedBindings
             let source = record.sourceNode
             enqueue { [weak self] in
-                self?.execute(followUps, event: captured, result: resultValue, sourceNode: source)
+                self?.execute(
+                    followUps, event: captured, result: resultValue, sourceNode: source,
+                    bindings: bindings)
             }
         }
     }
@@ -261,44 +347,56 @@ final class MilanoViewCore: @unchecked Sendable {
     @discardableResult
     private func execute(
         _ actions: [ActionSpec], event: MilanoValue?, result: MilanoValue?,
-        sourceNode: String?
+        sourceNode: String?, bindings: [String: MilanoValue] = [:]
     ) -> Bool {
         for action in actions {
             switch action {
             case .set(let key, let value):
                 let declared = document.stateDeclarations[key]
-                let evaluated = evaluate(value, event: event, result: result)
+                let evaluated = evaluate(value, event: event, result: result, bindings: bindings)
                 let next = declared?.validated(evaluated) ?? evaluated
                 let size = next.size
                 if size > engine.limits.maxValueSize {
                     report(
                         .rejectedMutation, node: sourceNode, name: key,
-                        expected: "\(engine.limits.maxValueSize)", found: "\(size)")
+                        expected: "maxValueSize", found: "\(size)")
                     return false
                 }
-                let previous = state[key]
-                state[key] = next
+                // A value that did not change re-resolves nothing.
+                if state[key] == next { continue }
+                var nextState = state
+                nextState[key] = next
                 // Visible immediately: the properties that read this key
-                // re-resolve before the next action. A value that did not
-                // change re-resolves nothing.
-                if previous != next { reResolve(changed: ["state.\(key)"]) }
+                // re-resolve before the next action. A tree materialized
+                // past the node count limit rejects the mutation instead.
+                let materialized = materialize(changed: ["state.\(key)"], state: nextState, context: context)
+                if materialized.count > engine.limits.maxNodeCount {
+                    report(
+                        .rejectedMutation, node: sourceNode, name: key,
+                        expected: "maxNodeCount", found: "\(materialized.count)")
+                    return false
+                }
+                state = nextState
+                commit(materialized)
 
             case .sequence(let nested):
-                guard execute(nested, event: event, result: result, sourceNode: sourceNode) else {
-                    return false
-                }
+                guard execute(
+                    nested, event: event, result: result, sourceNode: sourceNode,
+                    bindings: bindings)
+                else { return false }
 
             case .when(let condition, let then, let otherwise):
-                let takeThen = evaluate(condition, event: event, result: result).boolValue == true
+                let takeThen = evaluate(condition, event: event, result: result, bindings: bindings)
+                    .boolValue == true
                 guard execute(
                     takeThen ? then : otherwise, event: event, result: result,
-                    sourceNode: sourceNode)
+                    sourceNode: sourceNode, bindings: bindings)
                 else { return false }
 
             case .custom(let name, let parameters, let onSuccess, let onFailure, let resultType):
                 var captured: [String: MilanoValue] = [:]
                 for (parameter, value) in parameters.byKey {
-                    captured[parameter] = evaluate(value, event: event, result: result)
+                    captured[parameter] = evaluate(value, event: event, result: result, bindings: bindings)
                 }
                 let action = MilanoAction(
                     name: name, parameters: captured, viewIdentity: identity)
@@ -310,8 +408,8 @@ final class MilanoViewCore: @unchecked Sendable {
                     DispatchRecord(
                         action: action, completed: false,
                         onSuccess: onSuccess, onFailure: onFailure,
-                        capturedEvent: event, resultType: resultType,
-                        sourceNode: sourceNode))
+                        capturedEvent: event, capturedBindings: bindings,
+                        resultType: resultType, sourceNode: sourceNode))
                 // Dispatch does not wait: the sequence continues immediately.
                 if let handler {
                     // Captured strongly so a completion for a deallocated
@@ -346,7 +444,8 @@ final class MilanoViewCore: @unchecked Sendable {
     }
 
     private func evaluate(
-        _ value: DocValue, event: MilanoValue?, result: MilanoValue?
+        _ value: DocValue, event: MilanoValue?, result: MilanoValue?,
+        bindings: [String: MilanoValue] = [:]
     ) -> MilanoValue {
         switch value {
         case .literal(let literal):
@@ -354,7 +453,8 @@ final class MilanoViewCore: @unchecked Sendable {
         case .typedExpression(_, let expr, let expected):
             let evaluator = ExprEvaluator(
                 state: state, context: context, event: event, result: result, node: nil,
-                report: { [weak self] kind in self?.report(kind, node: nil) })
+                report: { [weak self] kind in self?.report(kind, node: nil) },
+                bindings: bindings)
             let evaluated = evaluator.evaluate(expr)
             return expected.validated(evaluated) ?? evaluated
         case .expression:
@@ -362,14 +462,29 @@ final class MilanoViewCore: @unchecked Sendable {
         }
     }
 
-    private func reResolve(changed: Set<String>) {
-        // Nothing depended on the change: the tree stays, and there is
-        // nothing to tell the host.
-        guard let next = MilanoResolver.refresh(
+    /// The tree an update would produce, with the arithmetic reports it
+    /// raised held back: nothing reaches the observer until the update is
+    /// accepted, and a rejected one leaves no trace.
+    private func materialize(
+        changed: Set<String>, state: [String: MilanoValue], context: [String: MilanoValue]
+    ) -> Materialized {
+        var reports: [(MilanoOccurrence.Kind, String, String)] = []
+        let tree = MilanoResolver.refresh(
             root, index: dependencies, resolved: resolvedRoot, changed: changed,
             state: state, context: context,
-            report: { [weak self] kind, node, name in self?.report(kind, node: node, name: name) })
-        else { return }
+            report: { kind, node, name in reports.append((kind, node, name)) })
+        return Materialized(
+            tree: tree, count: tree.map(MilanoResolver.countNodes) ?? 0, reports: reports)
+    }
+
+    /// Adopts a materialized tree, flushes its reports, notifies the host.
+    private func commit(_ materialized: Materialized) {
+        for (kind, node, name) in materialized.reports {
+            report(kind, node: node, name: name)
+        }
+        // Nothing depended on the change: the tree stays, and there is
+        // nothing to tell the host.
+        guard let next = materialized.tree else { return }
         resolvedRoot = next
         onChange?()
     }
