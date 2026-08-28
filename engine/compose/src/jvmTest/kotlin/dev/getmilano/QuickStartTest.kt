@@ -100,6 +100,7 @@ class QuickStartTest {
                 "count" to MilanoType(MilanoType.Kind.Int),
                 "ratio" to MilanoType(MilanoType.Kind.Double),
                 "label" to MilanoType(MilanoType.Kind.Text),
+                "tone" to MilanoType(MilanoType.Kind.Enum(setOf("warm", "cool"))),
                 "items" to MilanoType(MilanoType.Kind.Array(MilanoType(MilanoType.Kind.Int))),
                 "pair" to MilanoType(MilanoType.Kind.Record(mapOf("a" to MilanoType(MilanoType.Kind.Bool)))),
                 "maybe" to MilanoType(MilanoType.Kind.Text, optional = true),
@@ -109,6 +110,8 @@ class QuickStartTest {
         assertEquals(MilanoValue.IntValue(0), values["count"])
         assertEquals(MilanoValue.DoubleValue(0.0), values["ratio"])
         assertEquals(MilanoValue.StringValue(""), values["label"])
+        // The alphabetically first member: deterministic, always a member.
+        assertEquals(MilanoValue.StringValue("cool"), values["tone"])
         assertEquals(MilanoValue.ArrayValue(emptyList()), values["items"])
         assertEquals(MilanoValue.RecordValue(mapOf("a" to MilanoValue.BoolValue(false))), values["pair"])
         assertEquals(MilanoValue.Null, values["maybe"])

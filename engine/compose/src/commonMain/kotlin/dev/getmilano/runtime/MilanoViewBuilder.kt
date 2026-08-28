@@ -132,8 +132,8 @@ class MilanoViewBuilder internal constructor(
 
         // Initial resolution: every property expression evaluated.
         val resolvedRoot =
-            MilanoResolver.resolve(root, state, context) { kind, node ->
-                pending.add(MilanoOccurrence(kind, identity, node))
+            MilanoResolver.resolve(root, state, context) { kind, node, name ->
+                pending.add(MilanoOccurrence(kind, identity, node, name = name))
             }
 
         // Only a successful build reports its occurrences.

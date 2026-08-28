@@ -1,0 +1,85 @@
+{
+  "version": "1.0.0",
+  "state": {
+    "allowed": "bool",
+    "tapCount": "int"
+  },
+  "root": {
+    "type": "Column",
+    "id": "gate",
+    "children": [
+      {
+        "type": "Text",
+        "id": "title",
+        "properties": {
+          "text": "Checkbox gate",
+          "role": "title"
+        }
+      },
+      {
+        "type": "Text",
+        "id": "subtitle",
+        "properties": {
+          "text": "The button's enabled state and label are expressions over the checkbox's state.",
+          "role": "subtitle"
+        }
+      },
+      {
+        "type": "Checkbox",
+        "id": "allow",
+        "properties": {
+          "label": "Enable the action",
+          "checked": {
+            "$expr": "state.allowed"
+          }
+        },
+        "on": {
+          "change": [
+            {
+              "action": "$set",
+              "key": "allowed",
+              "value": {
+                "$expr": "event"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Button",
+        "id": "action",
+        "properties": {
+          "label": {
+            "$expr": "if(state.allowed, 'Run action', 'Locked')"
+          },
+          "enabled": {
+            "$expr": "state.allowed"
+          }
+        },
+        "on": {
+          "tap": [
+            {
+              "action": "$set",
+              "key": "tapCount",
+              "value": {
+                "$expr": "state.tapCount + 1"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Text",
+        "id": "count",
+        "properties": {
+          "text": {
+            "$expr": "'Ran ' + str(state.tapCount) + if(state.tapCount == 1, ' time', ' times')"
+          },
+          "visible": {
+            "$expr": "state.tapCount > 0"
+          }
+        }
+      }
+    ]
+  }
+}

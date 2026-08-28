@@ -36,7 +36,7 @@ From 1.0.0 the SDK follows semantic versioning: within a major version, releases
 
 1. [Playground](https://get-milano.dev/playground/): try vocabularies and documents in the browser, nothing to install.
 2. [Getting started](getting-started): install an engine and render a first document.
-3. [Samples](samples): the demo apps on all three platforms, with screenshots.
+3. [Samples](samples): the demo apps on every platform, with screenshots.
 4. [Philosophy](philosophy): the ideas the design follows.
 5. [Guidelines](guidelines): the recommended app architecture.
 6. [Creating a bridge](bridge): connect Milano to your design system.

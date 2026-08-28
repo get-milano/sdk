@@ -3,8 +3,10 @@ import Foundation
 /// The quick path's construction: engine, registry, and builder in one
 /// call, with declared state synthesized as zero-values so a first
 /// integration is a single view. The full architecture (shared engine,
-/// explicit providers) remains the recommended shape for real apps.
-enum MilanoQuickStart {
+/// explicit providers) remains the recommended shape for real apps; the
+/// synthesis itself is public, for providers that have nothing better
+/// than a zero-value for some keys.
+public enum MilanoQuickStart {
 
     static func builder(
         document: Data,
@@ -22,7 +24,7 @@ enum MilanoQuickStart {
         let builder = engine.viewBuilder(document: document)
         builder.context(context)
         builder.stateData { declarations in
-            synthesized(declarations, overriding: state)
+            synthesizedState(for: declarations, overriding: state)
         }
         if let onAction {
             builder.actionHandler(onAction)
@@ -31,10 +33,13 @@ enum MilanoQuickStart {
     }
 
     /// Zero-values per declaration, overridden by supplied values: false,
-    /// 0, 0.0, empty string; null for optionals; empty arrays; records
-    /// recursed.
-    static func synthesized(
-        _ declarations: [String: MilanoType], overriding supplied: [String: MilanoValue]
+    /// 0, 0.0, the empty string; null for optionals; the alphabetically
+    /// first member for an enum, which is always a valid member; empty
+    /// arrays; records recursed. Every value satisfies its declaration, so
+    /// a provider built on this never fails the gate's data check. The
+    /// same function on every engine.
+    public static func synthesizedState(
+        for declarations: [String: MilanoType], overriding supplied: [String: MilanoValue] = [:]
     ) -> [String: MilanoValue] {
         var values: [String: MilanoValue] = [:]
         for (key, type) in declarations {

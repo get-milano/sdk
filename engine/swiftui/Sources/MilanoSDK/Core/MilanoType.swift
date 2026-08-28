@@ -56,9 +56,9 @@ extension MilanoType {
             default: return nil
             }
             if case .array(let memberList)? = object["enum"] {
-                guard object.keys.allSatisfy({ $0 == "enum" || $0 == "optional" }),
-                    !memberList.isEmpty
-                else { return nil }
+                // Unknown keys are ignored: the tolerance rule (Foundations)
+                // lets a descriptor grow in a minor contract version.
+                guard !memberList.isEmpty else { return nil }
                 var members: Set<String> = []
                 for entry in memberList {
                     guard case .string(let member) = entry,
@@ -68,14 +68,9 @@ extension MilanoType {
                 }
                 self.init(.enumeration(members), optional: optional)
             } else if let element = object["array"] {
-                guard object.keys.allSatisfy({ $0 == "array" || $0 == "optional" }),
-                    let elementType = MilanoType(descriptor: element)
-                else {
-                    return nil
-                }
+                guard let elementType = MilanoType(descriptor: element) else { return nil }
                 self.init(.array(elementType), optional: optional)
             } else if case .record(let fields)? = object["record"] {
-                guard object.keys.allSatisfy({ $0 == "record" || $0 == "optional" }) else { return nil }
                 var fieldTypes: [String: MilanoType] = [:]
                 for (name, fieldDescriptor) in fields {
                     guard MilanoIdentifier.isValid(name),

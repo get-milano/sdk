@@ -188,6 +188,7 @@ describe("what the engine hands out", () => {
       maxNodeCount: 10,
       maxDocumentBytes: 1000,
       maxExpressionLength: 100,
+      maxValueSize: 1_000,
     };
     const registry = new MilanoRegistry();
     registry.register("box", () => null);

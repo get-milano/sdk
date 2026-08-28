@@ -8,8 +8,8 @@
 // meaning but not produced by one tool: what they share is that every
 // engine passes the same conformance suite, and these say how much of
 // each engine that suite plus its own tests actually reach.
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,11 +26,63 @@ function run(command, args, cwd = root) {
   });
 }
 
+/**
+ * Like `run`, but returns stdout and stderr together: swift-testing writes
+ * its summary line to stderr, which execFileSync does not hand back.
+ */
+function capture(command, args, cwd = root) {
+  const result = spawnSync(command, args, {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, MILANO_SPECS_DIR: specs },
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed: ${(result.stderr ?? "").split("\n")[0]}`);
+  }
+  return `${result.stdout}\n${result.stderr}`;
+}
+
+/**
+ * The test count Gradle recorded: the sum of every JUnit report's `tests`
+ * attribute, which koverXmlReport leaves behind because it depends on the
+ * test task. Counted, not typed: the page says so.
+ */
+function junitTestCount(directory) {
+  if (!existsSync(directory)) throw new Error(`no test results in ${directory}`);
+  let total = 0;
+  for (const file of readdirSync(directory)) {
+    if (!file.endsWith(".xml")) continue;
+    const match = /<testsuite\b[^>]*\btests="(\d+)"/.exec(readFileSync(join(directory, file), "utf8"));
+    if (match !== null) total += Number(match[1]);
+  }
+  if (total === 0) throw new Error(`no tests recorded in ${directory}`);
+  return String(total);
+}
+
+/**
+ * How many vectors the suite holds today, counted from the checkout the
+ * engines were just measured against: the page must not carry a number
+ * somebody typed once, and this one moves with every vector added.
+ */
+function conformanceVectorCount() {
+  const conformance = join(specs, "conformance");
+  let count = 0;
+  for (const suite of readdirSync(conformance, { withFileTypes: true })) {
+    if (!suite.isDirectory()) continue;
+    count += readdirSync(join(conformance, suite.name))
+      .filter((file) => file.endsWith(".json") && file !== "vocabulary.json").length;
+  }
+  if (count === 0) throw new Error(`no conformance vectors under ${conformance}`);
+  return count;
+}
+
 /** A measured engine, or the reason it could not be measured. */
 function measure(name, take) {
   try {
     const result = take();
-    console.log(`ok   ${name}: ${result.lines}% lines`);
+    console.log(`ok   ${name}: ${result.lines} lines`);
     return { name, ...result };
   } catch (error) {
     const reason = error instanceof Error ? error.message.split("\n")[0] : String(error);
@@ -97,13 +149,16 @@ const kotlin = measure("Compose", () => {
     lines: `${percent("LINE")}%`,
     branches: `${percent("BRANCH")}%`,
     functions: `${percent("METHOD")}%`,
-    tests: "85",
+    tests: junitTestCount(join(root, "engine", "compose", "build", "test-results", "jvmTest")),
     tool: "Kover",
   };
 });
 
 const swift = measure("SwiftUI", () => {
-  run("swift", ["test", "--enable-code-coverage"]);
+  // swift-testing prints "Test run with N tests in M suites passed".
+  const output = capture("swift", ["test", "--enable-code-coverage"]);
+  const tests = /Test run with (\d+) tests?\b/.exec(output)?.[1];
+  if (tests === undefined) throw new Error("no swift-testing summary in the output");
   const binPath = run("swift", ["build", "--show-bin-path"]).trim();
   const profdata = join(binPath, "codecov", "default.profdata");
   if (!existsSync(profdata)) throw new Error("no profdata produced");
@@ -125,12 +180,33 @@ const swift = measure("SwiftUI", () => {
     lines: `${totals[3]}%`,
     branches: `${totals[1]}% (regions)`,
     functions: `${totals[2]}%`,
-    tests: "86",
+    tests,
     tool: "llvm-cov",
   };
 });
 
-const engines = [swift, kotlin, typescript, react];
+const cli = measure("CLI", () => {
+  const output = run("node", [
+    "--test",
+    "--experimental-test-coverage",
+    "--test-coverage-include=src/**",
+    "--test-coverage-exclude=src/bin.ts",
+    "test/**/*.test.ts",
+  ], join(root, "cli"));
+  const summary = /all files\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)/.exec(output);
+  if (summary === null) throw new Error("no coverage summary in the output");
+  const tests = /pass (\d+)/.exec(output)?.[1] ?? "?";
+  return {
+    lines: `${summary[1]}%`,
+    branches: `${summary[2]}%`,
+    functions: `${summary[3]}%`,
+    tests,
+    tool: "node --experimental-test-coverage",
+  };
+});
+
+const engines = [swift, kotlin, typescript, react, cli];
+const vectors = conformanceVectorCount();
 
 function row(engine) {
   if (engine.unavailable !== undefined) {
@@ -154,7 +230,7 @@ somebody typed once.
 |---|---|---|---|---|---|
 ${engines.map(row).join("\n")}
 
-Read these as a floor, not a score. Every engine passes the same 256
+Read these as a floor, not a score. Every engine passes the same ${vectors}
 conformance vectors, which is the definition of correct here; coverage
 only says how much of each implementation those vectors plus its own
 tests happen to execute. A line nobody runs is a line nobody has checked,
@@ -163,7 +239,7 @@ evidence of conformance and a lower one is not evidence of a defect.
 
 Swift is measured with llvm-cov, which counts *regions* rather than
 branches; the column is labelled accordingly. Kotlin is measured with
-Kover, and both TypeScript packages with Node's built-in coverage, which
+Kover, and the three TypeScript packages with Node's built-in coverage, which
 also enforces a floor on every test run so a regression fails CI rather
 than showing up here.
 

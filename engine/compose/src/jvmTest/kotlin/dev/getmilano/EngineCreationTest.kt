@@ -7,6 +7,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 private object StubRenderer : MilanoRenderer {
@@ -165,5 +166,32 @@ class EngineCreationTest {
             assertEquals("component-event", it.rule)
             assertEquals("Button.tap", it.detail)
         }
+    }
+
+    /**
+     * An engine takes a copy of the registry at creation: registering or
+     * replacing a renderer afterwards changes nothing an existing engine
+     * renders, which is what "immutable after creation" has to mean. Swift
+     * gets this from value semantics and TypeScript copies explicitly.
+     */
+    @Test
+    fun registrationsAfterCreationDoNotReachTheEngine() {
+        val registry = MilanoRegistry()
+        registry.register("Text", StubRenderer)
+        val engine =
+            MilanoEngine(
+                """{"milano": "1.0.0", "name": "x", "version": "1.0.0",
+                    "components": {"Text": {"properties": {"text": "string"}}}}""",
+                registry,
+            )
+        val replacement =
+            object : MilanoRenderer {
+                @androidx.compose.runtime.Composable
+                override fun Render(node: MilanoNode) {}
+            }
+        registry.register("Text", replacement)
+        registry.registerPlaceholder(StubPlaceholder)
+        assertSame(StubRenderer, engine.registry.renderers["Text"])
+        assertNull(engine.registry.placeholder)
     }
 }

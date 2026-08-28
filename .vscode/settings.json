@@ -13,6 +13,13 @@
         "!samples/compose/app/src/main/assets/vocabulary.json"
       ],
       "url": "./samples/compose/documents.schema.json"
+    },
+    {
+      "fileMatch": [
+        "samples/compose-desktop/src/main/resources/documents/*.json",
+        "!samples/compose-desktop/src/main/resources/documents/vocabulary.json"
+      ],
+      "url": "./samples/compose-desktop/documents.schema.json"
     }
   ]
 }

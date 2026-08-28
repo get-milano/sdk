@@ -6,7 +6,7 @@ Milano is a client-only, design-system-agnostic **Document-Driven UI (DDUI)** fr
 
 Milano is **not** server-driven UI (it never talks to a server), **not** a SaaS (nothing hosted, nothing to sign up for), and **not** a design system (it draws nothing).
 
-The normative specifications and the conformance suite live in [get-milano/specs](https://github.com/get-milano/specs). **Every engine passes the full conformance suite; that is the definition of correct.**
+The normative specifications and the conformance suite live in [get-milano/specs](https://github.com/get-milano/specs). **Every engine passes the full conformance suite; that is the definition of correct.** This repository is held to suite release 1.3.1 of the specs (the ref its CI checks out); the contract version every engine implements is 1.0.
 
 Consumer documentation lives in [`docs/`](docs/index.md), published at [get-milano.dev/sdk](https://get-milano.dev/sdk/): getting started, philosophy, guidelines, creating a bridge, writing documents, expressions, and guardrails.
 
@@ -87,6 +87,16 @@ const engine = new MilanoEngine({
 
 Documents are loaded as **text**, never as JSON imports: Milano distinguishes `int` from `double` and `JSON.parse` does not. The engine brings its own JSON reader and double formatter for exactly that reason, and `int` is backed by `bigint`.
 
+## Validating documents before shipping
+
+`@get-milano/cli` runs documents through the same gate, on the producer's side:
+
+```sh
+npx milano validate documents/*.json --vocabulary vocabulary.json
+```
+
+Exit status `1` names every rejected document with the typed error an engine would throw; `--json` gives tooling the report. See [Documents](https://get-milano.dev/sdk/documents#shipping-documents).
+
 ## Repository layout
 
 | Path | Contents |
@@ -95,11 +105,13 @@ Documents are loaded as **text**, never as JSON imports: Milano distinguishes `i
 | `engine/compose` | The Kotlin engine (Kotlin Multiplatform: engine core in `commonMain`; Android + JVM targets) |
 | `engine/ts` | The TypeScript engine, `@get-milano/core` (zero dependencies) |
 | `engine/react` | The React binding, `@get-milano/react` |
+| `cli` | The producer's command line, `@get-milano/cli` (`milano validate`) |
 | `samples/swiftui` | iOS sample app (Tuist; run `tuist generate` there) |
 | `samples/compose` | Android sample app (consumes the engine from source via the composite build) |
+| `samples/compose-desktop` | Desktop sample app (Compose Multiplatform on the JVM; same composite build) |
 | `samples/react-native` | React Native sample app (Expo; consumes the packages through the npm workspace) |
 
-The three samples render the same documents and demonstrate every v1.0 capability and beyond: three banner layouts, an interstitial, a Milano fragment embedded between native components, a form with document-driven validation, a whole user-profile screen, and a catalog of tappable item cards, all through a pure design system bridged to Milano in a single bridging module. That split, design system with zero Milano imports plus one bridging module, is the recommended integration architecture.
+The four samples render the same documents and demonstrate every v1.0 capability and beyond: three banner layouts, an interstitial, a Milano fragment embedded between native components, a form with document-driven validation, a whole user-profile screen, and a catalog of tappable item cards, all through a pure design system bridged to Milano in a single bridging module. That split, design system with zero Milano imports plus one bridging module, is the recommended integration architecture.
 
 ## Development
 

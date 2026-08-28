@@ -32,15 +32,16 @@ function json(path) {
 
 const VERSION = read("VERSION").trim();
 
-// --- The three samples must render the same documents.
+// --- The four samples must render the same documents.
 //
-// That claim is the point of the samples, and it lives in three
+// That claim is the point of the samples, and it lives in four
 // directories with no link between them.
-check("the three samples ship identical documents", () => {
+check("the four samples ship identical documents", () => {
   const sets = {
     "react-native": "samples/react-native/documents",
     swiftui: "samples/swiftui/Resources",
     compose: "samples/compose/app/src/main/assets",
+    "compose-desktop": "samples/compose-desktop/src/main/resources/documents",
   };
   const names = readdirSync(join(root, sets["react-native"]))
     .filter((name) => name.endsWith(".json"))
@@ -63,7 +64,7 @@ check("the three samples ship identical documents", () => {
     }
   }
   if (drifted.length > 0) throw new Error(drifted.join("; "));
-  return `${names.length} documents, three samples`;
+  return `${names.length} documents, four samples`;
 });
 
 // --- The version has to mean the same thing everywhere.
@@ -72,7 +73,7 @@ check("the three samples ship identical documents", () => {
 // dry run before a manual publish caught it.
 check("the npm packages carry the VERSION", () => {
   const mismatched = [];
-  for (const directory of ["engine/ts", "engine/react"]) {
+  for (const directory of ["engine/ts", "engine/react", "cli"]) {
     const manifest = json(`${directory}/package.json`);
     if (manifest.version !== VERSION) {
       mismatched.push(`${manifest.name} is ${manifest.version}, VERSION is ${VERSION}`);
@@ -104,10 +105,14 @@ check("the engines carry the development placeholder, not a stamped version", ()
 });
 
 // --- The documented install instructions must name the current version.
-check("the install snippets name the current version", () => {
+//
+// The Compose sample's dependency line is the same coordinate consumers
+// copy, and the composite build substitutes it whatever version it names,
+// so it drifted to the previous release without anything failing.
+check("the install snippets and the Compose sample name the current version", () => {
   const stale = [];
   const pattern = /(?:engine-compose:|from: ")(\d+\.\d+\.\d+)/g;
-  for (const path of ["README.md", "docs/getting-started.md"]) {
+  for (const path of ["README.md", "docs/getting-started.md", "samples/compose/app/build.gradle.kts"]) {
     const text = read(path);
     for (const match of text.matchAll(pattern)) {
       if (match[1] !== VERSION) stale.push(`${path} names ${match[1]}`);
@@ -116,13 +121,13 @@ check("the install snippets name the current version", () => {
   if (stale.length > 0) throw new Error(`${stale.join("; ")}; VERSION is ${VERSION}`);
 });
 
-// --- The three sample apps wear the same face.
+// --- The four sample apps wear the same face.
 //
-// They are one product shown three ways, so a screenshot of any of them
+// They are one product shown four ways, so a screenshot of any of them
 // should be recognisably the same app. Two carried the real logo while
 // the React Native one wore the stock Android robot and Expo's placeholder
 // splash for its whole life, because nothing ever compared them.
-check("the three samples ship the same app icon and launch image", () => {
+check("the four samples ship the same app icon and launch image", () => {
   const master = readFileSync(join(root, "samples/assets/app-icon.png"));
   const mark = readFileSync(join(root, "samples/assets/logo-mark.png"));
 
@@ -132,6 +137,7 @@ check("the three samples ship the same app icon and launch image", () => {
       "samples/swiftui/Resources/Assets.xcassets/AppIcon.appiconset/icon-1024.png",
     "react-native iOS app icon":
       "samples/react-native/ios/Milano/Images.xcassets/AppIcon.appiconset/App-Icon-1024x1024@1x.png",
+    "compose-desktop window icon": "samples/compose-desktop/src/main/resources/app-icon.png",
   };
   const wrong = [];
   for (const [what, path] of Object.entries(verbatim)) {
@@ -162,7 +168,7 @@ check("the three samples ship the same app icon and launch image", () => {
   }
 
   if (wrong.length > 0) throw new Error(wrong.join("; "));
-  return `${master.length} byte icon, ${mark.length} byte mark, three apps`;
+  return `${master.length} byte icon, ${mark.length} byte mark, four apps`;
 });
 
 // --- The sample apps carry the version they demonstrate.
@@ -173,6 +179,7 @@ check("the three samples ship the same app icon and launch image", () => {
 check("the sample apps declare the current version", () => {
   const declarations = {
     "samples/compose/app/build.gradle.kts": /versionName = "([^"]+)"/,
+    "samples/compose-desktop/build.gradle.kts": /packageVersion = "([^"]+)"/,
     "samples/swiftui/Project.swift": /"CFBundleShortVersionString": "([^"]+)"/,
     "samples/react-native/app.json": /"version": "([^"]+)"/,
     "samples/react-native/package.json": /"version": "([^"]+)"/,
@@ -183,7 +190,7 @@ check("the sample apps declare the current version", () => {
     if (found !== VERSION) stale.push(`${path} declares ${found ?? "nothing"}`);
   }
   if (stale.length > 0) throw new Error(`${stale.join("; ")}; VERSION is ${VERSION}`);
-  return `three samples at ${VERSION}`;
+  return `four samples at ${VERSION}`;
 });
 
 // --- The three samples have to be installable side by side.
@@ -267,6 +274,85 @@ check("nothing floats React away from what react-native needs", () => {
     throw new Error(`${wrong.join("; ")}; react-native ${rn.version} needs exactly ${required}`);
   }
   return `react ${required}, matching react-native ${rn.version}`;
+});
+
+// --- One suite release, everywhere.
+//
+// The workflows check out the specs at a release tag, and the README says
+// which; four places that must agree, or CI tests against one suite while
+// the README claims another.
+check("the workflows and the README name the same suite release", () => {
+  const declared = {};
+  for (const workflow of ["ci.yml", "docs.yml", "release.yml"]) {
+    const found = /SPECS_RELEASE: "([^"]+)"/.exec(read(`.github/workflows/${workflow}`))?.[1];
+    if (found === undefined) throw new Error(`${workflow} declares no SPECS_RELEASE`);
+    declared[workflow] = found;
+  }
+  declared["README.md"] = /held to suite release ([0-9][^ ]*) of the specs/.exec(read("README.md"))?.[1];
+  const releases = new Set(Object.values(declared));
+  if (releases.size !== 1 || releases.has(undefined)) {
+    throw new Error(Object.entries(declared).map(([where, value]) => `${where}: ${value ?? "none"}`).join("; "));
+  }
+  return `suite release ${[...releases][0]}`;
+});
+
+// --- Every engine pins every engine-pinned statement.
+//
+// The specs' registry (conformance/engine-pinned.json) lists the normative
+// statements no vector can express; each applicable engine carries a test
+// that names the id. Without this check, a statement pinned in one engine
+// and forgotten in another would be a quiet gap, which is what the
+// registry exists to prevent.
+check("every engine pins the engine-pinned statements", () => {
+  const specs = process.env["MILANO_SPECS_DIR"] ?? join(root, "..", "specs");
+  const registryPath = join(specs, "conformance", "engine-pinned.json");
+  if (!existsSync(registryPath)) {
+    throw new Error(`specs checkout not found at ${specs}; set MILANO_SPECS_DIR`);
+  }
+  const registry = JSON.parse(readFileSync(registryPath, "utf8"));
+  const testRoots = {
+    swiftui: "engine/swiftui/Tests",
+    compose: "engine/compose/src/jvmTest",
+    typescript: "engine/ts/test",
+  };
+  const sources = (directory) =>
+    readdirSync(join(root, directory), { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => readFileSync(join(entry.parentPath ?? entry.path, entry.name), "utf8"))
+      .join("\n");
+  const corpus = Object.fromEntries(
+    Object.entries(testRoots).map(([runtime, directory]) => [runtime, sources(directory)]),
+  );
+  const missing = [];
+  for (const statement of registry.statements) {
+    for (const runtime of statement.applies) {
+      if (!corpus[runtime].includes(`engine-pinned: ${statement.id}`)) {
+        missing.push(`${runtime} does not pin ${statement.id}`);
+      }
+    }
+  }
+  if (missing.length > 0) throw new Error(missing.join("; "));
+  return `${registry.statements.length} statements`;
+});
+
+// --- Prose style: no em dashes, the rule the specs repository enforces in
+// its own CI. Two repositories with one voice should share the rule.
+check("the prose holds the no-em-dash rule", () => {
+  const files = [
+    "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "engine/ts/README.md",
+    "engine/react/README.md",
+    "cli/README.md",
+    "samples/react-native/README.md",
+    ...readdirSync(join(root, "docs"))
+      .filter((file) => file.endsWith(".md"))
+      .map((file) => `docs/${file}`),
+  ];
+  const offenders = files.filter((path) => read(path).includes("\u2014"));
+  if (offenders.length > 0) throw new Error(`em dash in ${offenders.join(", ")}`);
+  return `${files.length} files`;
 });
 
 // --- Every released version has to have a changelog entry.

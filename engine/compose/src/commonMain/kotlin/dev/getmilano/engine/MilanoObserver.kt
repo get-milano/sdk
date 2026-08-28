@@ -11,6 +11,17 @@ data class MilanoOccurrence(
     val viewIdentity: String,
     /** The node's id or canonical path, when one applies. */
     val node: String?,
+    /**
+     * What the occurrence is about, when one thing is: the event, action,
+     * property, component type, or context key involved.
+     */
+    val name: String? = null,
+    /**
+     * Detail in the gate's own terms, when it applies: the declared type
+     * or shape that was expected, and the kind that arrived (or "missing").
+     */
+    val expected: String? = null,
+    val found: String? = null,
 ) {
     enum class Kind {
         UNKNOWN_TYPE_SKIPPED,
@@ -22,6 +33,7 @@ data class MilanoOccurrence(
         DUPLICATE_COMPLETION,
         COMPLETION_AFTER_TEARDOWN,
         REJECTED_CONTEXT_UPDATE,
+        REJECTED_MUTATION,
         DIVISION_BY_ZERO,
         SATURATION,
     }

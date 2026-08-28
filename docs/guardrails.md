@@ -44,14 +44,19 @@ Set a default on the engine, override per view on the builder:
 
 ## Limits
 
-Enforced at the gate, adjustable per engine, defaults fixed by the spec:
+Adjustable per engine (`MilanoLimits`), defaults fixed by the spec:
 
-| Limit | Default |
-|---|---|
-| Tree depth | 32 |
-| Node count | 10,000 |
-| Document size | 1 MiB |
-| Expression length | 1,024 characters |
+| Limit | Default | Where |
+|---|---|---|
+| Tree depth | 32 | Gate |
+| Node count | 10,000 | Gate |
+| Document size | 1 MiB | Gate |
+| Expression length | 1,024 Unicode scalars | Gate |
+| Value size | 65,536 | Gate and runtime |
+
+The first four bound the document, which the gate fixes for the view's lifetime. Values are not fixed at the gate, so the value size limit applies wherever a value enters state or context: initial context and state values (`LimitExceeded` at the gate), every context update (rejected whole, reported as `rejectedContextUpdate` naming the key, the limit, and the size found), and every `$set` (nothing assigned, reported as `rejectedMutation` anchored to the dispatching node, and the action list ends there: later actions of that dispatch do not run, earlier mutations stay). Without it, `$set s = concat(state.s, state.s)` doubles a string per tap. A value's size is one for a scalar or null, one per Unicode scalar for a string, and one plus the contents for an array or a record (`MilanoValue.size`); event payloads and completion results are not bounded, since whatever a document keeps from them passes through `$set`.
+
+Expression length and string sizes are counted in Unicode scalars, never UTF-16 code units or grapheme clusters: an emoji is one, whatever JavaScript's `string.length` or Swift's `count` says. The conformance suite pins every limit's boundary at a configured value.
 
 ## Total runtime
 
@@ -71,7 +76,7 @@ Renderers run on the main thread. Events, state writes, and view updates seriali
 
 ## Observability
 
-Anything the engine tolerates instead of failing is reported as an occurrence to the `MilanoObserver` you optionally pass at engine creation: skipped unknown types, placeholder routings, division-by-zero results, saturations, dropped invalid emissions. Each occurrence carries its kind, the view's identity (your builder `label` makes this readable), and the node reference when there is one.
+Anything the engine tolerates instead of failing is reported as an occurrence to the `MilanoObserver` you optionally pass at engine creation: skipped unknown types, placeholder routings, division-by-zero results, saturations, dropped invalid emissions. Each occurrence carries its kind, the view's identity (your builder `label` makes this readable), the node reference when there is one, and, when they apply, a `name` (the event, action, property, component type, or context key involved) and `expected` and `found` detail in the gate's own terms: a rejected context update names the key, its declared type, and what arrived; a dropped event names the event; an invalid completion names the action and the declared result type.
 
 Occurrences are reported only for views that built successfully; a failed build reports nothing and throws everything. In development, log every occurrence loudly; in production, feed them to your telemetry. An occurrence is a document quality signal: the user saw something reasonable, but a producer should hear about it. User interactions are deliberately not occurrences: product analytics flows through a separate stream ([User interaction analytics](analytics)), so telemetry stays low-volume and defect-shaped.
 

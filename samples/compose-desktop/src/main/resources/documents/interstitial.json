@@ -1,0 +1,83 @@
+{
+  "version": "1.0.0",
+  "context": {
+    "userName": "string"
+  },
+  "root": {
+    "type": "Column",
+    "id": "interstitial",
+    "children": [
+      {
+        "type": "Banner",
+        "id": "hero",
+        "properties": {
+          "backgroundImageUrl": "https://picsum.photos/seed/alps/900/900",
+          "layout": "overlay",
+          "height": 380,
+          "contentAlignment": "bottomLeading",
+          "showScrim": true,
+          "cornerRadius": 24
+        },
+        "children": [
+          {
+            "type": "Text",
+            "id": "title",
+            "properties": {
+              "text": "One weekend. The Alps.",
+              "role": "title"
+            }
+          },
+          {
+            "type": "Text",
+            "id": "subtitle",
+            "properties": {
+              "text": {
+                "$expr": "concat('Reserved for you, ', context.userName, ', until midnight.')"
+              },
+              "role": "subtitle"
+            }
+          }
+        ]
+      },
+      {
+        "type": "Text",
+        "id": "body",
+        "properties": {
+          "text": "Three nights, cable car included, cancel anytime. This offer follows your account, not your device.",
+          "role": "body"
+        }
+      },
+      {
+        "type": "Button",
+        "id": "claim",
+        "properties": {
+          "label": "Claim offer",
+          "enabled": true
+        },
+        "on": {
+          "tap": [
+            {
+              "action": "openUrl",
+              "url": "https://example.com/alps"
+            }
+          ]
+        }
+      },
+      {
+        "type": "Button",
+        "id": "later",
+        "properties": {
+          "label": "No thanks",
+          "enabled": true
+        },
+        "on": {
+          "tap": [
+            {
+              "action": "dismiss"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

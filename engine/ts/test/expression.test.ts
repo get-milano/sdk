@@ -143,6 +143,14 @@ describe("expression typing", () => {
     assert.throws(() => infer("if(true, 1, 'a')"), ExprError);
   });
 
+  it("requires if branches to agree on optionality", () => {
+    // A T? branch beside a T branch is rejected, as Swift and Kotlin
+    // always did; the optional is resolved with ?? first.
+    const state = { maybe: MilanoType.string(true) };
+    assert.throws(() => infer("if(true, state.maybe, 'x')", state), ExprError);
+    assert.equal(infer("if(true, state.maybe ?? 'y', 'x')", state)?.name, "string");
+  });
+
   it("rejects out-of-range int literals and malformed syntax", () => {
     assert.throws(() => infer("99999999999999999999"), ExprError);
     assert.throws(() => parseExpression("1 +"), ExprError);

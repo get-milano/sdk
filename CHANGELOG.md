@@ -9,6 +9,74 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [semantic versioning](https://semver.org): within a
 major, documents, vocabularies, and integrations keep working.
 
+## 1.3.0
+
+### Added
+
+- **`milano validate` warns about unknown keys** in contract-governed
+  objects, which the gate ignores by rule.
+- **The engine-pinned registry is enforced**: `check-consistency` asserts
+  every engine carries a test naming each statement in the specs'
+  `conformance/engine-pinned.json`; the TypeScript engine gained the two
+  tests it lacked.
+- **A value size limit, at the gate and at runtime.** `MilanoLimits.maxValueSize`
+  (default 65,536) bounds every value entering state or context: a
+  `LimitExceeded` for initial values, a rejected context update, and for
+  `$set` the new `rejectedMutation` occurrence, which also ends the action
+  list. Closes the runtime-limit promise Foundations made. A Swift host
+  switching exhaustively over `MilanoOccurrence.Kind` gains one case to
+  handle; the conformance harnesses honor a vector's `config.limits`.
+- **A Compose Desktop sample**, `samples/compose-desktop`: the same
+  demos and documents on the JVM through Compose Multiplatform, consuming
+  the engine's JVM target from source.
+- **`@get-milano/cli`**: `milano validate <documents> --vocabulary <file>`
+  runs documents through the engine's gate on the producer's side, with
+  the typed error on rejection, `--json` reports, and `validate()` for
+  build scripts.
+- **The bindings goldens compile against every engine in CI**
+  (`scripts/verify-bindings.mjs`), typed record wrappers included.
+- **Occurrences carry detail**: `MilanoOccurrence` gains optional `name`,
+  `expected`, and `found`.
+- **`synthesizedState` is public on every engine**; the samples use it
+  instead of a copy that mis-synthesized enum, array, and record state.
+
+### Changed
+
+- **Object members are walked in lexicographic key order on every engine**
+  (document model spec, Validation): which defect a multi-defect document
+  reported first was random on Swift, whose parser keeps no key order.
+- **CI checks out the specs at the suite release the SDK is held to**
+  (`SPECS_RELEASE`, 1.3.1), never at `main`; the README names it and the
+  consistency check keeps the four places in agreement.
+- **Resolution is incremental on every engine.** An update re-evaluates
+  only what reads a changed key and keeps untouched subtrees as they
+  were; an update that changes no value notifies nobody. Observable only
+  as arithmetic reports no longer repeating, pinned by the suite.
+- **The sample apps refuse URLs that are not `https` with a host**,
+  completing `openUrl` with failure. Samples only.
+
+### Fixed
+
+- **Unknown keys inside type descriptors are ignored on every engine**, per
+  the tolerance rule; all three rejected them. Vector:
+  `gate-unknown-keys-ignored`.
+- **The Compose engine's tests rerun when the conformance suite changes**;
+  the vectors were not a Gradle input, so a changed suite replayed a stale
+  pass locally.
+- **`metadata` must be a JSON object on every engine**; any other shape
+  is `MalformedDocument`, as hosts read it as a map.
+- **`if` branches must agree on optionality on every engine**; the
+  TypeScript engine widened the result to `T?` instead.
+- **The Compose engine copies the registry at creation**, so later
+  registrations no longer change an existing engine.
+- **The Compose quick path synthesizes enum state** instead of crashing.
+- **An empty node `id` is a `MalformedDocument` on every engine.**
+- **The release tag stamps the TypeScript engine's version** alongside
+  Swift and Kotlin.
+- Documentation: the `result` root is listed, the expression-length limit
+  is stated in Unicode scalars, and the coverage page reads its test
+  counts from the runners.
+
 ## 1.2.1
 
 ### Fixed

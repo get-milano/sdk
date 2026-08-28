@@ -2,13 +2,14 @@ import { emptyRecord, hasOwn, own, recordFrom } from "../core/lookup.ts";
 import type { MilanoType } from "../core/type.ts";
 import { MilanoValue } from "../core/value.ts";
 import type { ActionSpec, DocValue, ParsedDocument } from "../document/model.ts";
+import type { MilanoLimits } from "../engine/configuration.ts";
 import type { MilanoUserInteractionKind, MilanoUserInteractionObserver } from "../engine/interaction.ts";
 import type { MilanoObserver, MilanoOccurrenceKind } from "../engine/observer.ts";
 import type { MilanoVocabulary } from "../engine/vocabulary.ts";
 import { ExprEvaluator } from "../expression/evaluator.ts";
 import type { BuiltNode } from "../gate/gate.ts";
-import type { ResolvedNode } from "../gate/resolver.ts";
-import { resolve } from "../gate/resolver.ts";
+import type { DependencyNode, ResolvedNode } from "../gate/resolver.ts";
+import { indexDependencies, refresh } from "../gate/resolver.ts";
 import type { MilanoDispatcher } from "./dispatcher.ts";
 import type { MilanoAction, MilanoActionHandler } from "./handlers.ts";
 
@@ -33,6 +34,7 @@ interface NodeEvents {
  */
 export interface ViewRuntime {
   readonly vocabulary: MilanoVocabulary;
+  readonly limits: MilanoLimits;
   readonly observer: MilanoObserver | null;
   readonly userInteractionObserver: MilanoUserInteractionObserver | null;
 }
@@ -61,6 +63,9 @@ export class MilanoView {
   private readonly runtime: ViewRuntime;
 
   private readonly root: BuiltNode;
+  /** What every expression reads, indexed once: the update path's map. */
+  private readonly dependencies: DependencyNode;
+  private readonly limits: MilanoLimits;
   private readonly dispatcher: MilanoDispatcher;
   private readonly handler: MilanoActionHandler | null;
   private readonly nodeEvents = new Map<string, NodeEvents>();
@@ -93,6 +98,8 @@ export class MilanoView {
     this.runtime = options.runtime;
     this.document = options.document;
     this.root = options.root;
+    this.dependencies = indexDependencies(options.root);
+    this.limits = options.runtime.limits;
     this.dispatcher = options.dispatcher;
     this.handler = options.handler;
     this.currentResolvedRoot = options.resolvedRoot;
@@ -204,12 +211,13 @@ export class MilanoView {
   complete(dispatchIndex: number, success: boolean, payload: MilanoValue | null = null): void {
     const record = this.records[dispatchIndex];
     if (record === undefined) return;
+    const action = record.action.name;
     if (this.tornDown) {
-      this.report("completionAfterTeardown", null);
+      this.report("completionAfterTeardown", null, { name: action });
       return;
     }
     if (record.completed) {
-      this.report("duplicateCompletion", null);
+      this.report("duplicateCompletion", null, { name: action });
       return;
     }
     record.completed = true;
@@ -222,12 +230,20 @@ export class MilanoView {
     if (success && record.resultType !== null) {
       const validated = record.resultType.validated(payload ?? MilanoValue.null);
       if (validated === null) {
-        this.report("invalidCompletion", null);
+        this.report("invalidCompletion", null, {
+          name: action,
+          expected: record.resultType.name,
+          found: (payload ?? MilanoValue.null).kind,
+        });
         return;
       }
       resultValue = validated;
     } else if (payload !== null) {
-      this.report("invalidCompletion", null);
+      this.report("invalidCompletion", null, {
+        name: action,
+        expected: success ? "no result" : "no payload",
+        found: payload.kind,
+      });
       return;
     }
 
@@ -262,8 +278,20 @@ export class MilanoView {
   private processEmission(node: string, event: string, payload: MilanoValue | null): void {
     if (this.tornDown) return;
     const info = this.nodeEvents.get(node);
-    if (info === undefined || !hasOwn(info.declared, event)) {
-      this.report("invalidEmission", node);
+    if (info === undefined) {
+      this.report("invalidEmission", node, {
+        name: event,
+        expected: "declared event",
+        found: "unknown node",
+      });
+      return;
+    }
+    if (!hasOwn(info.declared, event)) {
+      this.report("invalidEmission", node, {
+        name: event,
+        expected: "declared event",
+        found: "undeclared event",
+      });
       return;
     }
 
@@ -273,12 +301,20 @@ export class MilanoView {
     if (declaredPayload !== null) {
       const validated = payload === null ? null : declaredPayload.validated(payload);
       if (validated === null) {
-        this.report("invalidEmission", node);
+        this.report("invalidEmission", node, {
+          name: event,
+          expected: declaredPayload.name,
+          found: payload === null ? "null" : payload.kind,
+        });
         return;
       }
       eventValue = validated;
     } else if (payload !== null) {
-      this.report("invalidEmission", node);
+      this.report("invalidEmission", node, {
+        name: event,
+        expected: "no payload",
+        found: payload.kind,
+      });
       return;
     }
 
@@ -289,7 +325,7 @@ export class MilanoView {
 
     const actions = own(info.bindings, event);
     if (actions === undefined || actions.length === 0) {
-      this.report("droppedEvent", node);
+      this.report("droppedEvent", node, { name: event });
       return;
     }
     this.enqueue(() => this.execute(actions, eventValue, null, node));
@@ -299,17 +335,36 @@ export class MilanoView {
     if (this.tornDown) return;
     // Atomic: all declared keys validate or the whole update is rejected.
     const canonical = emptyRecord<MilanoValue>();
+    const changed = new Set<string>();
     for (const [key, type] of Object.entries(this.document.contextDeclarations)) {
       const value = own(supplied, key);
       const validated = value === undefined ? null : type.validated(value);
       if (validated === null) {
-        this.report("rejectedContextUpdate", null);
+        this.report("rejectedContextUpdate", null, {
+          name: key,
+          expected: type.name,
+          found: value === undefined ? "missing" : value.kind,
+        });
+        return;
+      }
+      // A value past the value size limit rejects the update whole.
+      const size = validated.size;
+      if (size > this.limits.maxValueSize) {
+        this.report("rejectedContextUpdate", null, {
+          name: key,
+          expected: String(this.limits.maxValueSize),
+          found: String(size),
+        });
         return;
       }
       canonical[key] = validated;
+      const previous = own(this.currentContext, key);
+      if (previous === undefined || !previous.equals(validated)) changed.add(`context.${key}`);
     }
     this.currentContext = canonical;
-    this.reResolve();
+    // Only what reads a changed key re-evaluates; an update that changes
+    // no value changes nothing.
+    if (changed.size > 0) this.reResolve(changed);
   }
 
   private enqueue(work: () => void): void {
@@ -330,33 +385,55 @@ export class MilanoView {
     }
   }
 
+  /**
+   * Runs an action list. Returns false when the list ended early: a `$set`
+   * past the value size limit assigns nothing, is reported, and stops the
+   * remaining actions of the dispatch; what the list already applied
+   * stays.
+   */
   private execute(
     actions: readonly ActionSpec[],
     event: MilanoValue | null,
     result: MilanoValue | null,
     sourceNode: string | null,
-  ): void {
+  ): boolean {
     for (const action of actions) {
       switch (action.kind) {
         case "set": {
           const declared = own(this.document.stateDeclarations, action.key);
           const evaluated = this.evaluate(action.value, event, result);
           const validated = declared?.validated(evaluated) ?? evaluated;
+          const size = validated.size;
+          if (size > this.limits.maxValueSize) {
+            this.report("rejectedMutation", sourceNode, {
+              name: action.key,
+              expected: String(this.limits.maxValueSize),
+              found: String(size),
+            });
+            return false;
+          }
+          const previous = own(this.currentState, action.key);
           const next = recordFrom(this.currentState);
           next[action.key] = validated;
           this.currentState = next;
-          // Visible immediately: re-resolution before the next action.
-          this.reResolve();
+          // Visible immediately: the properties that read this key
+          // re-resolve before the next action. A value that did not change
+          // re-resolves nothing.
+          if (previous === undefined || !previous.equals(validated)) {
+            this.reResolve(new Set([`state.${action.key}`]));
+          }
           break;
         }
 
         case "sequence":
-          this.execute(action.actions, event, result, sourceNode);
+          if (!this.execute(action.actions, event, result, sourceNode)) return false;
           break;
 
         case "when": {
           const takeThen = this.evaluate(action.condition, event, result).boolValue === true;
-          this.execute(takeThen ? action.then : action.otherwise, event, result, sourceNode);
+          if (!this.execute(takeThen ? action.then : action.otherwise, event, result, sourceNode)) {
+            return false;
+          }
           break;
         }
 
@@ -406,6 +483,7 @@ export class MilanoView {
         }
       }
     }
+    return true;
   }
 
   private evaluate(
@@ -432,18 +510,36 @@ export class MilanoView {
     }
   }
 
-  private reResolve(): void {
-    this.currentResolvedRoot = resolve(
+  private reResolve(changed: ReadonlySet<string>): void {
+    const next = refresh(
       this.root,
+      this.dependencies,
+      this.currentResolvedRoot,
+      changed,
       this.currentState,
       this.currentContext,
-      (kind, node) => this.report(kind, node),
+      (kind, node, name) => this.report(kind, node, { name }),
     );
+    // Nothing depended on the change: the tree is the same object, and
+    // there is nothing to tell the host.
+    if (next === this.currentResolvedRoot) return;
+    this.currentResolvedRoot = next;
     for (const listener of [...this.listeners]) listener();
   }
 
-  private report(kind: MilanoOccurrenceKind, node: string | null): void {
-    this.runtime.observer?.occurrence({ kind, viewIdentity: this.identity, node });
+  private report(
+    kind: MilanoOccurrenceKind,
+    node: string | null,
+    detail: { name?: string; expected?: string; found?: string } = {},
+  ): void {
+    this.runtime.observer?.occurrence({
+      kind,
+      viewIdentity: this.identity,
+      node,
+      name: detail.name ?? null,
+      expected: detail.expected ?? null,
+      found: detail.found ?? null,
+    });
   }
 
   /** The product-analytics seam: a no-op without an observer. */

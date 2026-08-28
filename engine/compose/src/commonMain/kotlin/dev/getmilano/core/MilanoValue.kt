@@ -49,6 +49,21 @@ sealed class MilanoValue {
     val arrayOrNull: List<MilanoValue>? get() = (this as? ArrayValue)?.values
     val recordOrNull: Map<String, MilanoValue>? get() = (this as? RecordValue)?.values
 
+    /**
+     * The document model's value size, the unit of the value size limit:
+     * one for a scalar or null, one per Unicode scalar for a string, and
+     * one plus the sizes of the elements or fields for an array or a
+     * record.
+     */
+    val size: Int
+        get() =
+            when (this) {
+                is StringValue -> value.unicodeScalarCount()
+                is ArrayValue -> 1 + values.sumOf { it.size }
+                is RecordValue -> 1 + values.values.sumOf { it.size }
+                else -> 1
+            }
+
     companion object {
         /**
          * Builds a value from a kotlinx JsonElement.

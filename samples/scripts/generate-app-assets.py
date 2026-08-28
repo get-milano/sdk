@@ -3,7 +3,7 @@
 
     python3 samples/scripts/generate-app-assets.py        # requires Pillow
 
-Three sample apps on three platforms, each wanting the same mark at
+Four sample apps on four platforms, each wanting the same mark at
 different sizes, in different formats, in directories named by different
 conventions. Doing that by hand is how two of them ended up shipping a
 placeholder: the React Native app wore the stock Android robot and Expo's
@@ -21,7 +21,7 @@ So the assets are generated rather than curated, from:
 
 Not run in CI: it needs Pillow, and this repository's Android and iOS
 lanes have no Python image stack. The outputs are committed, and
-scripts/check-consistency.mjs asserts the three apps still ship the same
+scripts/check-consistency.mjs asserts the four apps still ship the same
 icon, which is the part that actually drifted.
 """
 
@@ -130,6 +130,9 @@ def main():
     compose = SAMPLES / "compose" / "app" / "src" / "main" / "res"
     android_icons(icon, compose)
     android_launch_image(mark, compose, "splash_logo.png")
+
+    # --- Compose Desktop: the window icon is the 1024 master, verbatim.
+    write(icon, SAMPLES / "compose-desktop" / "src" / "main" / "resources" / "app-icon.png")
 
     # --- React Native: both platforms, through the committed prebuild.
     rn = SAMPLES / "react-native"

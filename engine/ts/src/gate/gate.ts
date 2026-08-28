@@ -166,6 +166,7 @@ export class MilanoGate {
           value.kind,
         );
       }
+      this.checkValueSize(validated);
       canonical[key] = validated;
     }
     // Extra supplied keys are ignored: the document reads only what it declares.
@@ -184,9 +185,18 @@ export class MilanoGate {
       if (validated === null) {
         throw MilanoBuildError.schemaViolation("state-declaration", null, type.name, value.kind);
       }
+      this.checkValueSize(validated);
       canonical[key] = validated;
     }
     return canonical;
+  }
+
+  /** A value entering state or context fits the value size limit. */
+  private checkValueSize(value: MilanoValue): void {
+    const size = value.size;
+    if (size > this.options.limits.maxValueSize) {
+      throw MilanoBuildError.limitExceeded("maxValueSize", this.options.limits.maxValueSize, size);
+    }
   }
 
   private validateNode(
@@ -221,10 +231,10 @@ export class MilanoGate {
         case "fail":
           throw MilanoBuildError.unknownComponentType(reference, node.type);
         case "skip":
-          this.reportOccurrence("unknownTypeSkipped", reference);
+          this.reportOccurrence("unknownTypeSkipped", reference, node.type);
           return null;
         case "placeholder":
-          this.reportOccurrence("unknownTypePlaceholder", reference);
+          this.reportOccurrence("unknownTypePlaceholder", reference, node.type);
           return {
             type: node.type,
             reference,
@@ -245,7 +255,7 @@ export class MilanoGate {
         if (component.strict) {
           throw MilanoBuildError.schemaViolation("undeclared-property", reference, null, name);
         }
-        this.reportOccurrence("undeclaredProperty", reference);
+        this.reportOccurrence("undeclaredProperty", reference, name);
         continue;
       }
       properties[name] = this.checked(
@@ -481,8 +491,16 @@ export class MilanoGate {
   private reportOccurrence(
     kind: MilanoOccurrence["kind"],
     node: string | null,
+    name: string,
   ): void {
-    this.options.report({ kind, viewIdentity: this.options.viewIdentity, node });
+    this.options.report({
+      kind,
+      viewIdentity: this.options.viewIdentity,
+      node,
+      name,
+      expected: null,
+      found: null,
+    });
   }
 }
 

@@ -4,7 +4,7 @@ The Milano **Document-Driven UI** contract engine, in TypeScript. Documents in, 
 
 No UI toolkit, no dependencies, no native code. This package is the engine only: it never draws. Pair it with [`@get-milano/react`](https://www.npmjs.com/package/@get-milano/react) for React and React Native, or drive it directly from any renderer you like.
 
-The normative specifications and the conformance suite live in [get-milano/specs](https://github.com/get-milano/specs). This engine passes the full suite, the same 256 vectors the Swift and Kotlin engines pass; that is the definition of correct.
+The normative specifications and the conformance suite live in [get-milano/specs](https://github.com/get-milano/specs). This engine passes the full suite, the same vectors the Swift and Kotlin engines pass; that is the definition of correct.
 
 Documentation: [get-milano.dev/sdk](https://get-milano.dev/sdk/).
 

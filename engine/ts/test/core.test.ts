@@ -145,13 +145,19 @@ describe("type descriptors", () => {
       '{"enum": ["a", "a"]}',
       '{"enum": ["with-dash"]}',
       '{"enum": [1]}',
-      '{"enum": ["a"], "extra": 1}',
-      '{"array": "int", "extra": 1}',
       '{"record": {"1bad": "int"}}',
     ];
     for (const text of invalid) {
       assert.equal(descriptor(text), null, `expected a rejection for ${text}`);
     }
+  });
+
+  it("ignores unknown keys in a descriptor, per the tolerance rule", () => {
+    // A minor contract version may add a key; an engine that does not
+    // know it must read the descriptor as if the key were absent.
+    assert.equal(descriptor('{"enum": ["a"], "extra": 1}')?.kind.kind, "enum");
+    assert.equal(descriptor('{"array": "int", "extra": 1}')?.kind.kind, "array");
+    assert.equal(descriptor('{"record": {"f": "int"}, "extra": 1}')?.kind.kind, "record");
   });
 
   it("compares enums by member set, not order", () => {

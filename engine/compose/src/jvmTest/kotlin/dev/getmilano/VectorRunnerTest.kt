@@ -94,6 +94,7 @@ class VectorRunnerTest {
             MilanoOccurrence.Kind.DUPLICATE_COMPLETION -> "duplicateCompletion"
             MilanoOccurrence.Kind.COMPLETION_AFTER_TEARDOWN -> "completionAfterTeardown"
             MilanoOccurrence.Kind.REJECTED_CONTEXT_UPDATE -> "rejectedContextUpdate"
+            MilanoOccurrence.Kind.REJECTED_MUTATION -> "rejectedMutation"
             MilanoOccurrence.Kind.DIVISION_BY_ZERO -> "divisionByZero"
             MilanoOccurrence.Kind.SATURATION -> "saturation"
         }
@@ -207,6 +208,25 @@ class VectorRunnerTest {
             )?.let { MilanoUnknownTypePolicy.valueOf(it.value.uppercase()) }
                 ?: MilanoUnknownTypePolicy.FAIL
 
+        // Engine limits: the defaults, overridden by name from the vector's config.
+        var limits = MilanoLimits()
+        val overrides =
+            ((vector["config"] as? MilanoValue.RecordValue)?.values?.get("limits") as? MilanoValue.RecordValue)
+                ?.values
+                .orEmpty()
+        for ((limit, value) in overrides) {
+            val configured = (value as? MilanoValue.IntValue)?.value?.toInt() ?: continue
+            limits =
+                when (limit) {
+                    "maxTreeDepth" -> limits.copy(maxTreeDepth = configured)
+                    "maxNodeCount" -> limits.copy(maxNodeCount = configured)
+                    "maxDocumentBytes" -> limits.copy(maxDocumentBytes = configured)
+                    "maxExpressionLength" -> limits.copy(maxExpressionLength = configured)
+                    "maxValueSize" -> limits.copy(maxValueSize = configured)
+                    else -> fail("unknown limit $limit in config.limits")
+                }
+        }
+
         val collector = OccurrenceCollector()
         val interactions = InteractionCollector()
         val engine =
@@ -214,6 +234,7 @@ class VectorRunnerTest {
                 vocabularyJson,
                 registry,
                 policy,
+                limits = limits,
                 observer = collector,
                 userInteractionObserver = interactions,
             )
@@ -248,14 +269,19 @@ class VectorRunnerTest {
             builder.action(actionName, parameters, result)
         }
         builder.dispatcher(pump)
-        builder.actionHandler(NeverCompletingHandler)
+        // The surface's inputs: present unless the vector's config says not.
+        val surface = (vector["config"] as? MilanoValue.RecordValue)?.values.orEmpty()
+        if (surface["actionHandler"] != MilanoValue.BoolValue(false)) {
+            builder.actionHandler(NeverCompletingHandler)
+        }
 
         val contextHandle =
             MilanoContextHandle((vector["context"] as? MilanoValue.RecordValue)?.values ?: emptyMap())
         builder.contextSource(contextHandle)
 
-        (vector["state"] as? MilanoValue.RecordValue)?.let { state ->
-            builder.stateDataProvider { state.values }
+        if (surface["stateDataProvider"] != MilanoValue.BoolValue(false)) {
+            val state = (vector["state"] as? MilanoValue.RecordValue)?.values.orEmpty()
+            builder.stateDataProvider { state }
         }
 
         val expect = (vector["expect"] as MilanoValue.RecordValue).values
@@ -333,7 +359,8 @@ class VectorRunnerTest {
                             put("kind", MilanoValue.StringValue(interactionWireName(produced.kind)))
                             produced.node?.let { put("node", MilanoValue.StringValue(it)) }
                             produced.name?.let { put("name", MilanoValue.StringValue(it)) }
-                            produced.value?.let { put("value", it) }
+                            // An absent value is null, so a vector may pin it as such.
+                            put("value", produced.value ?: MilanoValue.Null)
                         }
                     assertTrue(
                         matches(producedFields, fields),
@@ -354,6 +381,9 @@ class VectorRunnerTest {
                         buildMap {
                             put("kind", MilanoValue.StringValue(wireName(produced.kind)))
                             produced.node?.let { put("node", MilanoValue.StringValue(it)) }
+                            produced.name?.let { put("name", MilanoValue.StringValue(it)) }
+                            produced.expected?.let { put("expected", MilanoValue.StringValue(it)) }
+                            produced.found?.let { put("found", MilanoValue.StringValue(it)) }
                         }
                     assertTrue(
                         matches(producedFields, fields),

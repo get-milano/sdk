@@ -1,0 +1,96 @@
+{
+  "version": "1.0.0",
+  "state": {
+    "amount": "double",
+    "tipPercent": "double"
+  },
+  "root": {
+    "type": "Column",
+    "id": "calculator",
+    "children": [
+      {
+        "type": "Text",
+        "id": "title",
+        "properties": {
+          "text": "Tip calculator",
+          "role": "title"
+        }
+      },
+      {
+        "type": "Text",
+        "id": "subtitle",
+        "properties": {
+          "text": "The math lives in the document: pure Milano expressions over state.",
+          "role": "subtitle"
+        }
+      },
+      {
+        "type": "NumberField",
+        "id": "amount",
+        "properties": {
+          "label": "Amount",
+          "value": {
+            "$expr": "state.amount"
+          }
+        },
+        "on": {
+          "change": [
+            {
+              "action": "$set",
+              "key": "amount",
+              "value": {
+                "$expr": "event"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "NumberField",
+        "id": "tip",
+        "properties": {
+          "label": "Tip %",
+          "value": {
+            "$expr": "state.tipPercent"
+          }
+        },
+        "on": {
+          "change": [
+            {
+              "action": "$set",
+              "key": "tipPercent",
+              "value": {
+                "$expr": "event"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Text",
+        "id": "tipAmount",
+        "properties": {
+          "text": {
+            "$expr": "'Tip: ' + str(double(int(state.amount * state.tipPercent / 100.0 * 100.0 + 0.5)) / 100.0)"
+          },
+          "visible": {
+            "$expr": "state.amount > 0.0"
+          }
+        }
+      },
+      {
+        "type": "Text",
+        "id": "total",
+        "properties": {
+          "text": {
+            "$expr": "'Total: ' + str(double(int(state.amount * (1.0 + state.tipPercent / 100.0) * 100.0 + 0.5)) / 100.0)"
+          },
+          "role": "title",
+          "visible": {
+            "$expr": "state.amount > 0.0"
+          }
+        }
+      }
+    ]
+  }
+}
