@@ -9,7 +9,7 @@ Rendering a document takes five pieces: a **vocabulary** (the JSON artifact decl
 
 To try vocabularies, documents, and expressions before installing anything, open the [Playground](https://get-milano.dev/playground/): it runs this very engine (`@get-milano/core` from npm) in the browser, so a document that builds there builds in your app, and one that fails shows the same typed error.
 
-For a walkthrough that starts from an app you already have, with the CLI doing the checking, follow the tutorial at [get-milano.dev/getting-started](https://get-milano.dev/getting-started/): a banner with an image, a title, copy, and a button, from `milano init` to the rendered view on iOS.
+For a walkthrough that starts from an app you already have, with the CLI doing the checking, follow the tutorial at [get-milano.dev/getting-started](https://get-milano.dev/getting-started/): a banner with an image, a title, copy, and a button, from `milano init` to the rendered view, on SwiftUI, Compose, or React Native.
 
 ## Install
 
