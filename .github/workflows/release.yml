@@ -72,7 +72,7 @@ jobs:
       proceed: ${{ steps.tagcheck.outputs.proceed }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
@@ -164,10 +164,10 @@ jobs:
       VERSION: ${{ needs.preflight.outputs.version }}
       MILANO_SPECS_DIR: ${{ github.workspace }}/.specs
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: get-milano/specs
           ref: ${{ env.SPECS_RELEASE }}
@@ -215,10 +215,10 @@ jobs:
       VERSION: ${{ needs.preflight.outputs.version }}
       MILANO_SPECS_DIR: ${{ github.workspace }}/.specs
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: get-milano/specs
           ref: ${{ env.SPECS_RELEASE }}
@@ -248,10 +248,10 @@ jobs:
       VERSION: ${{ needs.preflight.outputs.version }}
       MILANO_SPECS_DIR: ${{ github.workspace }}/.specs
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: get-milano/specs
           ref: ${{ env.SPECS_RELEASE }}
@@ -431,10 +431,10 @@ jobs:
       VERSION: ${{ needs.preflight.outputs.version }}
       MILANO_SPECS_DIR: ${{ github.workspace }}/.specs
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: get-milano/specs
           ref: ${{ env.SPECS_RELEASE }}
@@ -522,7 +522,7 @@ jobs:
     env:
       VERSION: ${{ needs.preflight.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/setup-node@v4

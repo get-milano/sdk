@@ -52,8 +52,8 @@ jobs:
       # harness, which reads vectors from here. Same pattern as ci.yml.
       MILANO_SPECS_DIR: ${{ github.workspace }}/.specs
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           repository: get-milano/specs
           ref: ${{ env.SPECS_RELEASE }}
@@ -135,7 +135,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
