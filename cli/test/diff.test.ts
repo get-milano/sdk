@@ -147,6 +147,21 @@ describe("actions", () => {
     assert.deepEqual(verdicts(old, vocabulary("1.0.0", {}, { a: { parameters: { x: "int" } } })), ["BREAKING"]);
   });
 
+  it("failures: adding is additive, removing or retyping is breaking, compared apart from results", () => {
+    const none = vocabulary("1.0.0", {}, { a: {} });
+    const text = vocabulary("1.0.0", {}, { a: { failure: "string" } });
+    assert.ok(messages(none, text).includes("action a failure added"));
+    assert.ok(messages(text, none).includes("action a failure removed"));
+    const optional = vocabulary("1.0.0", {}, { a: { failure: "string?" } });
+    assert.deepEqual(diff(text, optional).map(([verdict]) => verdict), ["BREAKING"]);
+    const one = vocabulary("1.0.0", {}, { a: { failure: { enum: ["one"] } } });
+    const two = vocabulary("1.0.0", {}, { a: { failure: { enum: ["one", "two"] } } });
+    assert.ok(messages(one, two).includes("action a failure enum gained: two"));
+    const both = vocabulary("1.0.0", {}, { a: { result: "string", failure: "int" } });
+    const changed = vocabulary("1.0.0", {}, { a: { result: "string", failure: "string" } });
+    assert.deepEqual(messages(both, changed), ['action a failure type changed: "int" -> "string"']);
+  });
+
   it("results: adding is additive, removing or retyping is breaking, an enum may gain members", () => {
     const none = vocabulary("1.0.0", {}, { a: {} });
     const text = vocabulary("1.0.0", {}, { a: { result: "string" } });
@@ -225,5 +240,43 @@ describe("the report", () => {
     const prerelease = report(vocabulary("1.0.0"), vocabulary("1.1.0-rc.1", { A: {} }));
     assert.equal(prerelease.status, 1);
     assert.match(prerelease.stderr, /major\.minor\.patch/);
+  });
+});
+
+describe("host functions", () => {
+  function withFunctions(functions: JsonObject, version = "1.0.0"): JsonObject {
+    return { ...vocabulary(version), milano: "2.1.0", functions };
+  }
+  const f = (args: unknown[], returns: unknown): JsonObject => ({ arguments: args, returns });
+
+  it("treats an added function as additive and a removed one as breaking", () => {
+    assert.deepEqual(messages(withFunctions({}), withFunctions({ formatMoney: f(["int", "string"], "string") })), [
+      "function formatMoney added",
+    ]);
+    assert.deepEqual(messages(withFunctions({ formatMoney: f(["int", "string"], "string") }), withFunctions({})), [
+      "function formatMoney removed",
+    ]);
+  });
+
+  it("treats a changed arity, argument, or return as breaking", () => {
+    const old = withFunctions({ g: f(["int", "string"], "string") });
+    assert.deepEqual(messages(old, withFunctions({ g: f(["int"], "string") })), [
+      "function g arity changed: 2 -> 1",
+    ]);
+    assert.deepEqual(messages(old, withFunctions({ g: f(["double", "string"], "string") })), [
+      'function g argument 0 type changed: "int" -> "double"',
+    ]);
+    assert.deepEqual(messages(old, withFunctions({ g: f(["int", "string"], "string?") })), [
+      'function g returns type changed: "string" -> "string?"',
+    ]);
+  });
+
+  it("treats an enum gaining members as additive in either position", () => {
+    const old = withFunctions({ g: f([{ enum: ["a"] }], { enum: ["x"] }) });
+    const next = withFunctions({ g: f([{ enum: ["a", "b"] }], { enum: ["x", "y"] }) });
+    assert.deepEqual(messages(old, next), [
+      "function g argument 0 enum gained: b",
+      "function g returns enum gained: y",
+    ]);
   });
 });

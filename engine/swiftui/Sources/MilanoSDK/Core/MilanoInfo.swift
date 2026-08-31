@@ -8,5 +8,5 @@ public enum MilanoInfo {
     public static let version = "0.0.0-dev"
 
     /// The highest contract version this engine implements.
-    public static let contract = "2.0"
+    public static let contract = "2.1"
 }

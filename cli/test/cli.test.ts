@@ -91,7 +91,7 @@ describe("milano validate", () => {
     writeFileSync(
       path,
       document(
-        { type: "Text", id: "t", properties: { text: { $expr: "concat(context.who, str(state.n))" } } },
+        { type: "Text", id: "t", properties: { text: { $expr: "$concat(context.who, $str(state.n))" } } },
         { context: { who: "string" }, state: { n: "int" } },
       ),
     );
@@ -182,7 +182,9 @@ describe("milano schema", () => {
     assert.equal(result.stdout, `generated ${out}\n`);
     assert.equal(result.stderr, "");
     const schema = JSON.parse(readFileSync(out, "utf8")) as { $defs: { node: { properties: { type: unknown } } } };
-    assert.deepEqual(schema.$defs.node.properties.type, { enum: ["Button", "Column", "Text", "$repeat"] });
+    assert.deepEqual(schema.$defs.node.properties.type, {
+      enum: ["Button", "Column", "Text", "$if", "$repeat", "$switch"],
+    });
   });
 
   it("prints the schema when no output is named", async () => {

@@ -5,7 +5,8 @@
 // Each check here guards something that has already gone wrong, or that
 // would be invisible until a consumer hit it.
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -427,6 +428,315 @@ check("the changelog has an entry for the current version", () => {
     throw new Error(`no "## ${VERSION}" heading; the changelog starts at "## ${headings[0]}"`);
   }
   return `${headings.length} released versions`;
+});
+
+// --- Every sample's generated files match its vocabulary.
+//
+// Each sample regenerates its bindings and its editor schema before it
+// compiles, so a stale committed copy is invisible on a machine that
+// builds. CI checked exactly one of them, and only the React Native
+// bindings, because that is the one file a CI job happened to regenerate.
+// The generators need neither Xcode nor Gradle, only the CLI, so the
+// honest check is to run them here and compare bytes: it covers all four
+// samples whether or not anything built them.
+check("every sample's generated bindings and schema match its vocabulary", () => {
+  const cli = join(root, "cli", "dist", "bin.js");
+  if (!existsSync(cli)) {
+    throw new Error(`the CLI is not built at ${cli}: run \`npm run build\` at the repository root`);
+  }
+  const samples = [
+    {
+      name: "react-native",
+      vocabulary: "samples/react-native/documents/vocabulary.json",
+      schema: null, // The React Native sample ships no editor schema.
+      bindings: "samples/react-native/src/bindings.generated.ts",
+      flags: ["--ts-prefix", "Sample", "--ts-out"],
+    },
+    {
+      name: "swiftui",
+      vocabulary: "samples/swiftui/Resources/vocabulary.json",
+      schema: "samples/swiftui/documents.schema.json",
+      bindings: "samples/swiftui/Sources/MilanoBridge/GeneratedBindings.swift",
+      flags: ["--swift-prefix", "Sample", "--swift-out"],
+    },
+    {
+      name: "compose",
+      vocabulary: "samples/compose/app/src/main/assets/vocabulary.json",
+      schema: "samples/compose/documents.schema.json",
+      bindings:
+        "samples/compose/app/src/main/kotlin/dev/getmilano/sample/milanobridge/GeneratedBindings.kt",
+      flags: ["--kotlin-package", "dev.getmilano.sample.milanobridge", "--kotlin-out"],
+    },
+    {
+      name: "compose-desktop",
+      vocabulary: "samples/compose-desktop/src/main/resources/documents/vocabulary.json",
+      schema: "samples/compose-desktop/documents.schema.json",
+      bindings:
+        "samples/compose-desktop/src/main/kotlin/dev/getmilano/sample/desktop/milanobridge/GeneratedBindings.kt",
+      flags: ["--kotlin-package", "dev.getmilano.sample.desktop.milanobridge", "--kotlin-out"],
+    },
+  ];
+
+  const scratch = mkdtempSync(join(tmpdir(), "milano-generated-"));
+  const stale = [];
+  for (const sample of samples) {
+    const vocabulary = join(root, sample.vocabulary);
+
+    const bindings = join(scratch, `${sample.name}-bindings`);
+    execFileSync("node", [cli, "bindings", vocabulary, ...sample.flags, bindings], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    if (readFileSync(bindings, "utf8") !== read(sample.bindings)) {
+      stale.push(`${sample.name}: ${sample.bindings}`);
+    }
+
+    if (sample.schema === null) continue;
+    const schema = join(scratch, `${sample.name}-schema.json`);
+    execFileSync("node", [cli, "schema", vocabulary, "--out", schema], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    if (readFileSync(schema, "utf8") !== read(sample.schema)) {
+      stale.push(`${sample.name}: ${sample.schema}`);
+    }
+  }
+  if (stale.length > 0) {
+    throw new Error(`regenerate from the vocabulary: ${stale.join("; ")}`);
+  }
+  return `${samples.length} samples, bindings and schema as generated`;
+});
+
+// --- One React in the sample's resolution scope.
+//
+// Two copies is a crash on the first hook, not a warning: an app that
+// resolves a different React than the one react-native bound to fails at
+// runtime. Metro used to be told `disableHierarchicalLookup` to guarantee
+// this, but that flag also stops it looking inside a package's own
+// node_modules, where npm legitimately nests what it cannot hoist, and
+// the sample stopped bundling at all. The guarantee belongs here, where a
+// second copy is a failed build rather than a resolver rule that breaks
+// unrelated packages.
+check("the React Native sample resolves one React", () => {
+  const roots = [
+    join(root, "samples", "react-native", "node_modules"),
+    join(root, "node_modules"),
+  ];
+  const found = [];
+  for (const modules of roots) {
+    if (!existsSync(modules)) continue;
+    // Hoisted copies, plus any a package nested under itself.
+    const nested = readdirSync(modules)
+      .filter((name) => !name.startsWith("."))
+      .map((name) => join(modules, name, "node_modules", "react", "package.json"));
+    for (const path of [join(modules, "react", "package.json"), ...nested]) {
+      if (existsSync(path)) found.push(path);
+    }
+  }
+  if (found.length !== 1) {
+    throw new Error(
+      found.length === 0
+        ? "no React found: run npm ci at the repository root"
+        : `${found.length} copies of React: ${found.join(", ")}`,
+    );
+  }
+  return `one React, at ${found[0].slice(root.length + 1)}`;
+});
+
+// --- The React Native sample bundles its documents as text.
+//
+// `documents.generated.ts` is what the app actually renders: the JSON
+// files beside it are only its source. Nothing regenerated it in CI and
+// nothing compared the two, so an edited document could ship as the old
+// text, and the sample's own render smoke test would keep passing against
+// the stale copy. That happened, twice, before this check existed.
+check("the React Native sample's bundled documents match the JSON", () => {
+  const sample = join(root, "samples", "react-native");
+  const bundled = read("samples/react-native/src/documents.generated.ts");
+  const names = readdirSync(join(sample, "documents"))
+    .filter((name) => name.endsWith(".json"))
+    .sort();
+
+  const stale = [];
+  for (const name of names) {
+    const text = readFileSync(join(sample, "documents", name), "utf8").trimEnd();
+    const key = JSON.stringify(name.replace(/\.json$/, ""));
+    const entry = `  ${key}: ${JSON.stringify(text)},`;
+    if (!bundled.includes(entry)) stale.push(name);
+  }
+  // A document deleted from disk but left in the bundle is the same drift
+  // in the other direction, and the count is what catches it.
+  const bundledCount = (bundled.match(/^  "/gm) ?? []).length;
+  if (bundledCount !== names.length) {
+    stale.push(`the bundle holds ${bundledCount} documents, the directory ${names.length}`);
+  }
+  if (stale.length > 0) {
+    throw new Error(`${stale.join("; ")}: run \`npm run documents\` in samples/react-native`);
+  }
+  return `${names.length} documents, bundled as written`;
+});
+
+// --- The quick start's document is written into four host files.
+//
+// Every other document the samples render is one file copied to four
+// places, and the check above keeps those honest. The quick start's is
+// inline in Swift, Kotlin, Kotlin, and TypeScript, because its whole point
+// is that a document can be two strings in code. That put it outside every
+// validator: it had already drifted (one copy declared contract 1.0 while
+// the others declared 2.0), and a document that the gate would reject
+// would have shipped as a broken first impression.
+check("the four quick starts embed the same, valid document", () => {
+  const sources = {
+    swiftui: "samples/swiftui/Sources/Screens/QuickStartScreen.swift",
+    compose: "samples/compose/app/src/main/kotlin/dev/getmilano/sample/ui/screens/QuickStartScreen.kt",
+    "compose-desktop":
+      "samples/compose-desktop/src/main/kotlin/dev/getmilano/sample/desktop/ui/screens/QuickStartScreen.kt",
+    "react-native": "samples/react-native/src/screens/QuickStartScreen.tsx",
+  };
+
+  /** Every balanced `{...}` in the source that parses as JSON. */
+  function embeddedJson(source) {
+    // Kotlin writes a literal `$` as `${'$'}` inside a raw string.
+    const text = source.replaceAll("${'$'}", "$");
+    const found = [];
+    for (let start = 0; start < text.length; start += 1) {
+      if (text[start] !== "{") continue;
+      let depth = 0;
+      let inString = false;
+      for (let at = start; at < text.length; at += 1) {
+        const character = text[at];
+        if (inString) {
+          if (character === "\\") at += 1;
+          else if (character === '"') inString = false;
+          continue;
+        }
+        if (character === '"') inString = true;
+        else if (character === "{") depth += 1;
+        else if (character === "}") {
+          depth -= 1;
+          if (depth > 0) continue;
+          try {
+            found.push(JSON.parse(text.slice(start, at + 1)));
+            start = at;
+          } catch {
+            // Not JSON: ordinary source braces, skipped.
+          }
+          break;
+        }
+      }
+    }
+    return found;
+  }
+
+  /** Key order is a formatting choice; compare the shapes. */
+  function stable(value) {
+    if (Array.isArray(value)) return value.map(stable);
+    if (value === null || typeof value !== "object") return value;
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])]));
+  }
+
+  const pairs = {};
+  for (const [sample, path] of Object.entries(sources)) {
+    const objects = embeddedJson(read(path));
+    const vocabulary = objects.find((object) => object["milano"] !== undefined);
+    const document = objects.find((object) => object["root"] !== undefined);
+    if (vocabulary === undefined || document === undefined) {
+      throw new Error(`${sample}: no inline vocabulary and document found in ${path}`);
+    }
+    pairs[sample] = { vocabulary, document };
+  }
+
+  const [reference, ...others] = Object.keys(pairs);
+  for (const sample of others) {
+    for (const part of ["vocabulary", "document"]) {
+      const mine = JSON.stringify(stable(pairs[sample][part]));
+      const theirs = JSON.stringify(stable(pairs[reference][part]));
+      if (mine !== theirs) {
+        throw new Error(`${sample}'s quick start ${part} differs from ${reference}'s`);
+      }
+    }
+  }
+
+  // The gate is the only judge of whether a document is valid, so run the
+  // real one: the same CLI the samples validate their bundled documents with.
+  const cli = join(root, "cli", "dist", "bin.js");
+  if (!existsSync(cli)) {
+    throw new Error(`the CLI is not built at ${cli}: run \`npm run build\` at the repository root`);
+  }
+  const scratch = mkdtempSync(join(tmpdir(), "milano-quickstart-"));
+  const vocabularyPath = join(scratch, "vocabulary.json");
+  const documentPath = join(scratch, "quick-start.json");
+  writeFileSync(vocabularyPath, JSON.stringify(pairs[reference].vocabulary, null, 2));
+  writeFileSync(documentPath, JSON.stringify(pairs[reference].document, null, 2));
+  execFileSync("node", [cli, "validate", documentPath, "--vocabulary", vocabularyPath], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  return "four samples, one document, valid against its vocabulary";
+});
+
+// --- Generated bindings have to survive the formatters that read them.
+//
+// The Swift is linted by SwiftLint (130 columns) and the Kotlin by ktlint,
+// but ktlint does not measure KDoc lines and nothing at all checks the
+// generated TypeScript. That blind spot shipped a 229-column comment and a
+// 280-column decode line. The generator wraps both now; this keeps it that
+// way, in every language and for the specs' goldens too.
+check("generated bindings stay inside the line limit", () => {
+  const LIMIT = 130;
+  const generated = [
+    "samples/swiftui/Sources/MilanoBridge/GeneratedBindings.swift",
+    "samples/compose/app/src/main/kotlin/dev/getmilano/sample/milanobridge/GeneratedBindings.kt",
+    "samples/compose-desktop/src/main/kotlin/dev/getmilano/sample/desktop/milanobridge/GeneratedBindings.kt",
+    "samples/react-native/src/bindings.generated.ts",
+  ].map((path) => join(root, path));
+  const specs = process.env["MILANO_SPECS_DIR"] ?? join(root, "..", "specs");
+  for (const name of ["expected_bindings.swift", "expected_bindings.kt", "expected_bindings.ts"]) {
+    const golden = join(specs, "tools", "testdata", name);
+    if (existsSync(golden)) generated.push(golden);
+  }
+
+  const offenders = [];
+  for (const path of generated) {
+    if (!existsSync(path)) throw new Error(`missing generated file: ${path}`);
+    readFileSync(path, "utf8")
+      .split("\n")
+      .forEach((line, index) => {
+        if (line.length > LIMIT) {
+          offenders.push(`${path.split("/").pop()}:${index + 1} is ${line.length} columns`);
+        }
+      });
+  }
+  if (offenders.length > 0) {
+    throw new Error(`${offenders.length} over ${LIMIT} columns: ${offenders.slice(0, 3).join("; ")}`);
+  }
+  return `${generated.length} files, none over ${LIMIT} columns`;
+});
+
+// --- What we publish carries no third-party code.
+//
+// "No dependencies" is a claim the README makes and a reason people adopt
+// this: an engine that pulls nothing cannot inherit anyone's advisory, and
+// the sample toolchains' advisories (Expo, Metro) stay where they are,
+// outside everything published. It is one line in a package.json away from
+// being untrue, so it is checked rather than remembered. The same check
+// keeps the metadata npm renders from going missing again.
+check("the published packages carry no third-party runtime dependencies", () => {
+  const published = ["engine/ts", "engine/react", "cli"];
+  const problems = [];
+  for (const directory of published) {
+    const manifest = json(`${directory}/package.json`);
+    for (const [name, range] of Object.entries(manifest.dependencies ?? {})) {
+      if (!name.startsWith("@get-milano/")) {
+        problems.push(`${manifest.name} depends on ${name}@${range}`);
+      }
+    }
+    for (const field of ["license", "repository", "homepage", "bugs", "engines", "files"]) {
+      if (manifest[field] === undefined) problems.push(`${manifest.name} declares no ${field}`);
+    }
+  }
+  if (problems.length > 0) throw new Error(problems.join("; "));
+  return `${published.length} packages, ${published.length} manifests complete`;
 });
 
 // --- What we publish has to be installable.

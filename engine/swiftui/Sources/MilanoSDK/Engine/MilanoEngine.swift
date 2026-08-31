@@ -2,9 +2,10 @@ import Foundation
 
 /// The instantiable root of the framework. An engine holds one
 /// configuration: the vocabulary, the registry, the default unknown-type
-/// policy, and resource limits. It is immutable after creation and safe to
-/// share across threads. MilanoViewBuilders are obtained from an engine,
-/// so every MilanoView is traceable to exactly one configuration.
+/// policy, resource limits, the observers, and the function handler. It is
+/// immutable after creation and safe to share across threads.
+/// MilanoViewBuilders are obtained from an engine, so every MilanoView is
+/// traceable to exactly one configuration.
 public final class MilanoEngine: @unchecked Sendable {
     let vocabulary: MilanoVocabulary
     let registry: MilanoRegistry
@@ -21,6 +22,10 @@ public final class MilanoEngine: @unchecked Sendable {
     /// The product-analytics stream, retained like the observer; nil means
     /// interactions are not captured at all.
     let userInteractionObserver: MilanoUserInteractionObserver?
+    /// The resolver of host functions (contract 2.1), one for every view
+    /// and every surface's declarations; nil means a document calling one
+    /// fails at build (`SchemaViolation`, rule `function-handler`).
+    let functionHandler: (any MilanoFunctionHandler)?
 
     /// Creates an engine, validating everything and failing fast on
     /// developer mistakes:
@@ -29,13 +34,18 @@ public final class MilanoEngine: @unchecked Sendable {
     /// - `MilanoEngineError.incompleteRegistry` when a declared component
     ///   type has no registered renderer, or the default policy is
     ///   `.placeholder` with no placeholder renderer registered.
+    ///
+    /// `functionHandler` answers the host functions the vocabulary or a
+    /// surface declares (contract 2.1); required only by documents that
+    /// call one.
     public init(
         vocabularyJSON: Data,
         registry: MilanoRegistry,
         defaultUnknownTypePolicy: MilanoUnknownTypePolicy = .fail,
         limits: MilanoLimits = MilanoLimits(),
         observer: MilanoObserver? = nil,
-        userInteractionObserver: MilanoUserInteractionObserver? = nil
+        userInteractionObserver: MilanoUserInteractionObserver? = nil,
+        functionHandler: (any MilanoFunctionHandler)? = nil
     ) throws {
         let vocabulary = try MilanoVocabulary(artifactJSON: vocabularyJSON)
 
@@ -55,5 +65,6 @@ public final class MilanoEngine: @unchecked Sendable {
         self.limits = limits
         self.observer = observer
         self.userInteractionObserver = userInteractionObserver
+        self.functionHandler = functionHandler
     }
 }

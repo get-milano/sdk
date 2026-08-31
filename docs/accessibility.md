@@ -10,7 +10,7 @@ Milano's contract contains no accessibility concepts, and that is the design, no
 Three consequences worth internalizing before the how-to:
 
 1. **You get a large baseline for free.** Renderers that use real platform controls inherit their semantics: the sample's `LabeledTextField`, `Checkbox`, and `PrimaryButton` carry labels, states, and actions into the accessibility tree without any document involvement. The gaps are the custom surfaces: images, tappable containers, dynamic text.
-2. **Accessibility values can be expressions.** A label computed as `{"$expr": "concat('Profile picture of ', context.userName)"}` is validated by the gate and can never drift from the data it describes, which is better than most hand-maintained native setups.
+2. **Accessibility values can be expressions.** A label computed as `{"$expr": "$concat('Profile picture of ', context.userName)"}` is validated by the gate and can never drift from the data it describes, which is better than most hand-maintained native setups.
 3. **Everything is optional, always.** Declare accessibility properties with `?` (or `"optional": true`); a document that omits them still builds, and the renderer falls back to sensible defaults. Accessibility should raise the ceiling, never gate the build.
 
 ## The pattern
@@ -49,6 +49,41 @@ The catalog's item cards put the pieces together:
 A screen reader announces one element: "Bulbasaur, button, opens the Pokedex page", not the image, the two text nodes, and a mystery tap target. The artwork is marked `decorative` because the card's label already carries its meaning; note that *absent description* and *decorative* are different intents, which is why they are separate properties.
 
 The profile's computed summary and the contact form's thank-you line declare `"liveRegion": "polite"`, so state changes a sighted user sees ("Thanks! Your confirmation number is...") are also heard.
+
+The quick actions strip is the same pattern with one difference worth
+naming: the tile's label is visible text *inside* the button, not a
+substitute for it.
+
+```json
+{
+  "type": "Card",
+  "properties": {
+    "style": "plain",
+    "accessibilityLabel": "Profile",
+    "accessibilityHint": "Opens the screen."
+  },
+  "on": { "tap": [ "..." ] },
+  "children": [
+    { "type": "Column", "properties": { "padding": 0 }, "children": [
+      { "type": "Icon", "properties": { "name": "person", "container": "circle" } },
+      { "type": "Text", "properties": { "text": "Profile", "role": "caption" } }
+    ] }
+  ]
+}
+```
+
+Three things make it one control rather than three. The `accessibilityLabel`
+collapses the tile, so the icon and the label are announced once, as
+"Profile, button", instead of the glyph and the text arriving separately.
+The icon is decorative in every renderer, because the label beside it
+already says what it means: an icon that announced "person" would make the
+tile read "person Profile". And the hint says what activation does, which
+the label alone never does.
+
+The label being visible is what lets it stay short. A tile labelled
+"Profile" needs no longer accessibility label, and inventing one
+("Open your profile settings") would leave what a person sees and what
+they hear disagreeing, which is worse than terse.
 
 ## Platform honesty
 

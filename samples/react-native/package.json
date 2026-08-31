@@ -1,6 +1,6 @@
 {
   "name": "milano-sample-react-native",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "The Milano sample app for React Native: the same documents the SwiftUI and Compose samples render, through the same contract.",
   "license": "Apache-2.0",
@@ -8,7 +8,7 @@
   "scripts": {
     "bindings": "node scripts/generate-bindings.mjs",
     "documents": "node scripts/bundle-documents.mjs",
-    "test": "node scripts/validate-documents.mjs && npm run render",
+    "test": "npm run documents && node scripts/validate-documents.mjs && npm run render",
     "typecheck": "npm run bindings && tsc --noEmit",
     "start": "expo start",
     "ios": "expo run:ios",
@@ -16,8 +16,8 @@
     "render": "esbuild scripts/render-documents.tsx --bundle --platform=node --format=esm --outfile=.render/render.mjs --log-level=warning --alias:react-native=./scripts/stubs/react-native.js --alias:expo-linear-gradient=./scripts/stubs/expo-linear-gradient.js --alias:react-native-safe-area-context=./scripts/stubs/react-native-safe-area-context.js --external:react --external:react-test-renderer --external:@get-milano/* && node .render/render.mjs"
   },
   "dependencies": {
-    "@get-milano/core": "^2.0.0",
-    "@get-milano/react": "^2.0.0",
+    "@get-milano/core": "^2.1.0",
+    "@get-milano/react": "^2.1.0",
     "expo": "~56.0.20",
     "expo-linear-gradient": "~56.0.4",
     "expo-status-bar": "~56.0.4",

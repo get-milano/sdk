@@ -48,7 +48,7 @@ export class MilanoValue {
    *
    * A non-finite number has no integer to wrap, a case the statically
    * typed runtimes cannot even express: NaN becomes 0 and each infinity
-   * saturates, exactly as the `int()` expression builtin defines it.
+   * saturates, exactly as the `$int()` expression builtin defines it.
    */
   static int(value: bigint | number): MilanoValue {
     if (typeof value === "number" && !Number.isFinite(value)) {

@@ -20,6 +20,9 @@ extension Expr {
             } else {
                 base.collectDependencies(into: &keys)
             }
+        case .lookup(let base, let key):
+            base.collectDependencies(into: &keys)
+            key.collectDependencies(into: &keys)
         case .call(_, let arguments):
             for argument in arguments { argument.collectDependencies(into: &keys) }
         case .unary(_, let operand):

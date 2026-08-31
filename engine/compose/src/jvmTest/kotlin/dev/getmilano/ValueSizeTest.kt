@@ -88,7 +88,7 @@ class ValueSizeTest {
                     {"action": "${'$'}set", "key": "n", "value": {"${'$'}expr": "state.n + 1"}},
                     {"action": "${'$'}when", "condition": true, "then": [
                       {"action": "${'$'}sequence", "actions": [
-                        {"action": "${'$'}set", "key": "s", "value": {"${'$'}expr": "concat(state.s, state.s)"}}]},
+                        {"action": "${'$'}set", "key": "s", "value": {"${'$'}expr": "${'$'}concat(state.s, state.s)"}}]},
                       {"action": "${'$'}set", "key": "n", "value": {"${'$'}expr": "state.n + 10"}}]},
                     {"action": "${'$'}set", "key": "n", "value": {"${'$'}expr": "state.n + 100"}}]}}}
                 """.trimIndent(),
@@ -107,7 +107,7 @@ class ValueSizeTest {
                 """
                 {"version": "1.0.0", "state": {"s": "string"},
                  "root": {"type": "Text", "id": "t", "properties": {"text": {"${'$'}expr": "state.s"}},
-                  "on": {"tap": [{"action": "${'$'}set", "key": "s", "value": {"${'$'}expr": "concat(state.s, 'x')"}}]}}}
+                  "on": {"tap": [{"action": "${'$'}set", "key": "s", "value": {"${'$'}expr": "${'$'}concat(state.s, 'x')"}}]}}}
                 """.trimIndent(),
                 mapOf("s" to MilanoValue.StringValue("abcdefg")),
             )
@@ -126,7 +126,7 @@ class ValueSizeTest {
                 """
                 {"version": "1.0.0", "context": {"who": "string", "n": "int"},
                  "root": {"type": "Text", "id": "t",
-                  "properties": {"text": {"${'$'}expr": "concat(context.who, str(context.n))"}}}}
+                  "properties": {"text": {"${'$'}expr": "${'$'}concat(context.who, ${'$'}str(context.n))"}}}}
                 """.trimIndent(),
                 emptyMap(),
                 handle,

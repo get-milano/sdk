@@ -1,7 +1,7 @@
 {
-  "milano": "2.0.0",
+  "milano": "2.1.0",
   "name": "examples",
-  "version": "1.1.0",
+  "version": "1.5.0",
   "components": {
     "Banner": {
       "properties": {
@@ -32,6 +32,16 @@
       "children": true
     },
     "Column": {
+      "properties": {
+        "padding": "int?",
+        "width": {
+          "enum": [
+            "fill",
+            "content"
+          ],
+          "optional": true
+        }
+      },
       "children": true
     },
     "Text": {
@@ -41,7 +51,8 @@
           "enum": [
             "title",
             "subtitle",
-            "body"
+            "body",
+            "caption"
           ],
           "optional": true
         },
@@ -99,7 +110,17 @@
     },
     "Row": {
       "properties": {
-        "spacing": "int?"
+        "spacing": "int?",
+        "alignment": {
+          "enum": [
+            "top",
+            "center",
+            "bottom"
+          ],
+          "optional": true
+        },
+        "horizontalPadding": "int?",
+        "scrolls": "bool?"
       },
       "children": true
     },
@@ -108,7 +129,14 @@
         "cornerRadius": "int?",
         "padding": "int?",
         "accessibilityLabel": "string?",
-        "accessibilityHint": "string?"
+        "accessibilityHint": "string?",
+        "style": {
+          "enum": [
+            "surface",
+            "plain"
+          ],
+          "optional": true
+        }
       },
       "children": true,
       "events": {
@@ -123,6 +151,44 @@
         "cornerRadius": "int?",
         "contentDescription": "string?",
         "decorative": "bool?"
+      }
+    },
+    "Icon": {
+      "properties": {
+        "name": {
+          "enum": [
+            "person",
+            "list",
+            "search",
+            "edit",
+            "settings",
+            "help"
+          ]
+        },
+        "container": {
+          "enum": [
+            "plain",
+            "circle"
+          ],
+          "optional": true
+        },
+        "visible": "bool?"
+      }
+    },
+    "IconButton": {
+      "properties": {
+        "icon": {
+          "enum": [
+            "eye",
+            "eyeOff"
+          ]
+        },
+        "accessibilityLabel": "string",
+        "accessibilityHint": "string?"
+      },
+      "events": {
+        "pressStart": null,
+        "pressEnd": null
       }
     }
   },
@@ -140,7 +206,47 @@
         "email": "string",
         "phone": "string?"
       },
-      "result": "string"
+      "result": "string",
+      "failure": {
+        "enum": [
+          "invalidEmail",
+          "unavailable"
+        ]
+      }
+    },
+    "track": {
+      "parameters": {
+        "event": {
+          "enum": [
+            "appeared",
+            "disappeared",
+            "tapped"
+          ]
+        },
+        "surface": "string",
+        "position": "int?"
+      }
+    },
+    "navigate": {
+      "parameters": {
+        "screen": {
+          "enum": [
+            "profile",
+            "catalog",
+            "pokemon",
+            "form"
+          ]
+        }
+      }
+    }
+  },
+  "functions": {
+    "formatMoney": {
+      "arguments": [
+        "double",
+        "string"
+      ],
+      "returns": "string"
     }
   }
 }

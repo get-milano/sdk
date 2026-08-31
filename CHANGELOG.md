@@ -9,6 +9,307 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [semantic versioning](https://semver.org): within a
 major, documents, vocabularies, and integrations keep working.
 
+## 2.1.0
+
+Contract 2.1 on every engine, a superset of 2.0: every 2.0 document and
+vocabulary stays valid with the same meaning. Additive for consumers; what
+to declare and what to switch on is in [Migrating](docs/migrating.md).
+
+### Added
+
+- **Keyed `$repeat` instances.** A `key` expression (a non-optional
+  string, int, or enum over the template's roots) replaces the element
+  index in the instance's reference (`card[abc]`), so a row keeps its
+  identity, its React key, and its analytics anchor when the list is
+  reordered; an emission from a keyed instance binds the element whose
+  key matches at dispatch time. Repeated keys are a data defect: a
+  `SchemaViolation` (`repeat`, `distinct key`) at build, a rejected
+  mutation or context update at runtime. The catalog sample keys its
+  cards on the item id.
+- **Typed failure payloads.** An action may declare a `failure` type in
+  the vocabulary or on the builder (`action(name, failure:)`); a handler
+  fails with a payload by throwing `MilanoActionFailure(value)` (a
+  rejection with it in TypeScript), and the value, validated like a
+  result, binds the `failure` root inside `onFailure`. Any other error is
+  a failure with no payload, which only an optional declaration accepts.
+  The contact form sample declares an enum of reasons and turns them into
+  messages in the document; the generated bindings type the failure sites
+  and document them on the action.
+- **Lifecycle bindings.** A document's top-level `on` binds action lists
+  to `appear` and `disappear`. `MilanoHost` on every toolkit delivers
+  the signals from the toolkit's own presentation callbacks (SwiftUI's
+  `onAppear`, a Compose `DisposableEffect`, a React effect); a host that
+  awaits `build()` and places the view itself calls `view.appear()` and
+  `view.disappear()`. Redundant and post-teardown signals are ignored.
+  Two analytics kinds, `viewAppeared` and `viewDisappeared`, make the
+  impression what it says. The interstitial sample tracks both.
+- **Dispatch identity.** `MilanoAction` carries `dispatch`, the
+  zero-based number of the dispatch among the view's, and `dispatchId`,
+  a string unique across every dispatch of every view in the process
+  (engine-pinned `dispatch-id-unique-across-views`): the idempotency key
+  a handler sends with its request. `actionDispatched`,
+  `completionSucceeded`, and `completionFailed` records carry the number
+  in a new `dispatch` field, and completion records carry the validated
+  result or failure payload as their value.
+- **Numeric functions** `abs`, `min`, `max`, `floor`, `ceil`, `round`,
+  specified to the bit and identical on every engine: wrapping `abs`,
+  leftmost-wins extrema with NaN propagation, ties away from zero, signed
+  zeros preserved. The tip calculator sample rounds with them.
+- **Array actions.** `$append` (`key`, `value`), `$remove` (`key`, `at`),
+  and `$update` (`key`, `at`, `field`, `value`) change one element of an
+  array-typed state key under exactly the rules of `$set`; an index
+  outside the array is a rejected mutation (`index in range`) that ends
+  the action list. Inside a `$repeat`, `<as>_index` is the element's
+  position at dispatch, so a row edits or removes itself.
+- **Watch bindings.** A top-level `watch` section binds action lists to
+  changes of a state key; the list runs as part of the mutation, before
+  the next action, and a watch never triggers a watch, so derived values
+  and reactions (autosave, a live quote, a search following its query)
+  need no host side channel. An undeclared key is the new `watch` rule.
+- **Host functions.** A vocabulary's `functions` section (or
+  `builder.function(...)`) declares typed, pure functions the app
+  computes; documents call them like built-ins, the gate types the calls,
+  and the engine's new synchronous `MilanoFunctionHandler` answers them.
+  A mismatched or thrown result is `invalidFunctionResult` and the zero
+  value of the return type; a document calling one on an engine without
+  a handler is the `function-handler` rule. Formatting money and dates
+  through the host's locale APIs is the use case; the samples do.
+- **Document replacement.** `MilanoView.replace(document)` swaps a live
+  view's document through the gate: state whose declaration is unchanged
+  carries over, the provider supplies the rest, a failed replacement
+  leaves the view untouched, identity and dispatch numbering persist,
+  pending completions of the old document are dropped as
+  `completionAfterReplace`, and a `viewReplaced` record is contributed.
+  Engine-pinned: `replace-provider-failure-propagates`.
+- **`contract-feature` rule.** A document is checked under the rules of
+  the `major.minor` it declares: a 2.0 document using a 2.1 feature (`key`,
+  `on`, `failure`, a numeric function) is a `SchemaViolation` naming the
+  feature and the version it needs, identically on every engine, instead
+  of silently ignored on some. A vocabulary declaring `milano` below 2.1
+  may not declare `failure` (`InvalidVocabulary`, `contract-feature`).
+- **CLI and skill.** `milano schema` admits `key` and the lifecycle
+  section, `milano diff` classifies `failure` like `result`, `milano
+  bindings` emits the failure sites, `milano init` scaffolds 2.1, and the
+  authoring skill teaches every addition.
+- **READMEs for the Compose and SwiftUI samples.** The two most likely
+  starting points were the two without first-run instructions: how to
+  build and run, how to open one demo directly, what to read first, what
+  the build steps generate, and what to do when the IDE cannot see Node.
+
+- **Synthesized state and the contract's zero agreed at last.**
+  `synthesizedState` had its own copy of the zero-value rule and took an
+  enum's *alphabetically first* member, while the contract takes the
+  *first declared*, so a previewed value could differ from what the same
+  declaration produces in the engine. All three engines now use the
+  contract's own zero, and each has a test asserting the two cannot drift
+  apart again. Only enums are affected, and only where declaration order
+  is not alphabetical.
+- **`MilanoType.enumeration(_:)` keeps an enum's declared order.** The
+  zero value reads that order, so a constructor taking an unordered set
+  cannot answer for it: Swift's lost the order before the initializer saw
+  it, and Kotlin's accepted any `Set`, including one that does not keep
+  insertion order. Both now offer a constructor taking the members in
+  declaration order, which is what TypeScript's already did. A type built
+  the old way still resolves deterministically, alphabetically, and says
+  so.
+
+- **Lookups and the `$switch` construct on every engine.** Two answers to
+  the same question, a code and what it means: `context.labels[state.status]`
+  picks a value, `$switch` picks a subtree, and both are exhaustive, so a
+  member added to an enum later fails the build rather than rendering the
+  wrong label or nothing at all. The expression grammar, the gate, and the
+  resolver of all three engines handle them, `milano schema` admits the
+  construct, and `milano validate` knows its keys. The card detail sample
+  shows both: a status label from a lookup, and advice beneath it chosen
+  by a switch.
+
+- **An emission from inside a construct's branch reached nothing.** The
+  runtime indexes a document's event bindings by walking `children`, and a
+  branch's nodes are not reached that way, so a button inside one reported
+  `invalidEmission` and did nothing: the catalog's Hide stopped working
+  the moment its list moved into an `$if`. Two more walks had the same
+  shape: the dependency index, so a state change never re-materialized a
+  branch, and the raw depth and node-count walk, which a subtree hidden in
+  a branch escaped entirely. All three are fixed in all three engines, and
+  two step vectors pin the dispatch that broke.
+
+- **The `$if` construct on every engine.** Conditional structure, which
+  until now was a `visible` property each vocabulary had to declare: a
+  component whose vocabulary omitted one could not be left out, and no
+  document could choose between two subtrees. The parser, gate, and
+  resolver of all three engines handle it, `milano schema` admits it, and
+  `milano validate` knows its keys. The samples' catalog uses it for the
+  case that needed it: hide every item and the list now says so instead
+  of leaving a bare heading.
+
+- **Five string functions on every engine.** `$substring`, `$indexOf`,
+  `$replace`, `$split`, and `$join`, implemented in the TypeScript,
+  Swift, and Kotlin engines against 261 new conformance vectors. Indices
+  count Unicode scalars in all three, which is the part that differs by
+  platform: JavaScript and Kotlin index UTF-16 natively, so both convert.
+- **A nested `Column` no longer eats the row it sits in.** `Column` gains
+  `width` (`fill`, `content`): the container filled the width
+  unconditionally, so the three columns inside the card detail's row each
+  claimed all of it and the expiry and CVV were squeezed out on Compose.
+  The default stays `fill`, which is what a screen's root column wants,
+  so no existing document changes. Same shape as the `padding` fix: a
+  column nested inside a tile or a row is not a screen, and the document
+  is what says so.
+
+- **A card detail demo in all four samples.** A card whose number,
+  expiry, and CVV are masked until an eye control is held: the masking is
+  the document's own work over values in context, so the host hands the
+  card over once and never a pre-masked copy. It exercises all five new
+  functions, and the reveal is bound to `pressStart` and `pressEnd` on a
+  new `IconButton`, a control whose point is the press rather than a tap.
+- **A quick actions demo in all four samples.** A horizontal strip of
+  tiles from one keyed `$repeat`: each tap records the tapped tile's
+  position through the repeat's `<as>_index` binding, writes the same
+  number to state so it is visible on screen, and asks the host to open a
+  screen. The samples' `examples` vocabulary moves to 1.4.0 for it, all
+  additive: an `Icon` component with an enum `name`, a `navigate` action
+  with an enum `screen`, and `track` gains a `tapped` event member and an
+  optional `position`. Every sample draws the same six icon names its own
+  way, so one document renders as SF Symbols, Material icons, or emoji.
+  The tile states its look rather than drawing it: `Card` gains `style`
+  (`surface`, `plain`) for a region that is tappable without being a
+  filled surface, `Icon` gains `container` (`plain`, `circle`) for an icon
+  shown inside something, `Text.role` gains `caption`, and `Row` gains
+  `alignment` (`top`, `center`, `bottom`), `horizontalPadding`, and
+  `scrolls`; `Column` gains `padding`. Top alignment is what keeps a strip
+  readable when labels wrap to different heights: centring them leaves the
+  icons on different lines. [Analytics](docs/analytics.md) explains
+  when a list reports position and when it reports identity.
+
+### Fixed
+
+- **A declaration key that is not an identifier was reported as a bad type
+  descriptor.** `{"context": {"$x": "string"}}` failed with `expected` `type
+  descriptor` in every engine, though the descriptor was fine and the rule
+  tables promise `identifier` for the key. The two defects are now
+  distinguished: a bad key names `identifier`, a bad descriptor names `type
+  descriptor`. No document that built before fails now, and none that failed
+  builds; only the detail changed.
+- **A string that is not a member of a declared enum was reported as a type
+  mismatch.** A `tone` of `"warn"` against `{"enum": ["info", "warning",
+  "danger"]}` said `expected` `enum`, `found` `string`, which is true and
+  useless: it hides which string was rejected. Property literals and supplied
+  context and state values now report `enum member` and the rejected string,
+  as the document model spec's rule tables say. Occurrences are unchanged:
+  `rejectedContextUpdate` and `rejectedStateUpdate` carry the declared type,
+  which is what the runtime spec specifies for them.
+- **Swift visited document declarations in dictionary order.** The
+  validation rules require every object's members to be visited in
+  lexicographic key order, so that a serializer reordering keys cannot
+  change which defect is reported; Swift's `Dictionary` has no order at
+  all, so a document with two malformed declarations could fail either
+  way, and differently between runs. It now sorts, as the TypeScript and
+  Kotlin engines already did.
+
+- **Generated files were drift-checked for one sample out of four.** CI
+  compared only the React Native bindings, because that is the one file a
+  CI job happened to regenerate; a stale committed `GeneratedBindings.kt`,
+  `GeneratedBindings.swift`, or `documents.schema.json` was invisible.
+  `check-consistency` now regenerates all of them from each vocabulary and
+  compares bytes, which needs neither Xcode nor Gradle and so covers every
+  sample whether or not anything built it.
+
+- **The render smoke test could pass over a template it never rendered.**
+  A document declaring an array in state gets the empty array from
+  synthesized state, so its `$repeat` renders nothing and the script still
+  reported "ok". Both documents that use one had gone uncovered that way.
+  A document that declares an array and supplies no elements is now a
+  failure, naming the key.
+
+- **The React Native sample would not bundle.** Metro was configured with
+  `disableHierarchicalLookup`, to guarantee one copy of React. That flag
+  also stops Metro looking inside a package's own `node_modules`, where
+  npm nests what it cannot hoist, so `expo` importing its own
+  `expo-modules-core` failed to resolve and no iOS or Android bundle
+  built. Hierarchical lookup is back on, and the React singleton is now
+  checked by `scripts/check-consistency.mjs`, where a second copy fails
+  the build instead of being prevented by a resolver rule that broke
+  unrelated packages.
+
+- **A wide row pushed a whole screen off the viewport.** A `Row` was as
+  wide as its children wanted, and the SwiftUI column was sized by its
+  widest child, so a strip of tiles that did not fit made the entire
+  column wider than the screen. A vertical `ScrollView` centres content it
+  cannot fit, so every line on the screen was clipped at both ends, not
+  just the row. Columns now occupy the width they are given, and a `Row`
+  with `scrolls` scrolls horizontally instead of overflowing. Verified on
+  an iPhone 17 simulator, before and after.
+
+- **The React Native sample rendered stale documents.**
+  `src/documents.generated.ts` is what the app bundles, and nothing
+  regenerated or compared it: an edited document could ship as the old
+  text while the sample's own render smoke test kept passing against the
+  stale copy. `npm test` now rebundles first, the way `npm run typecheck`
+  already regenerates the bindings, and `check-consistency` compares the
+  bundle against the JSON on disk.
+
+- **The samples find Node when the IDE cannot.** Xcode and Android Studio
+  inherit the PATH of whatever launched them, not a login shell's, so a
+  Node installed by nvm, fnm, volta, asdf, or mise was invisible to the
+  build step that regenerates the bindings and validates the documents:
+  the SwiftUI sample failed with "node is not on PATH" and the Compose
+  ones with "A problem occurred starting process 'command 'node''", both
+  on machines where `node` works in every terminal. All three now look
+  where those managers install, and `MILANO_NODE` names one explicitly.
+
+### Changed
+
+- **Built-in functions are called with a `$`.** `$str`, `$int`, `$double`,
+  `$concat`, `$length`, `$isEmpty`, `$contains`, `$startsWith`,
+  `$endsWith`, `$trim`, `$if`, `$abs`, `$min`, `$max`, `$floor`, `$ceil`,
+  `$round`. A bare name in call position is a host function the vocabulary
+  or builder declares, so a vocabulary may now declare `round` or
+  `concat` and keep both, and the contract can add built-ins later without
+  invalidating anyone's declarations. A document that calls a built-in
+  bare fails the gate with rule `expression`; the fix is mechanical, and
+  [Migrating](docs/migrating.md) lists the seventeen names. `BUILTIN_FUNCTIONS`
+  and the vocabulary's built-in-name rejection are removed from every
+  engine.
+
+- **The scope is document-driven UI, not two surfaces.** The docs no
+  longer present banners, interstitials, and forms as what the contract
+  targets; they are the worked examples. Nothing about them changed.
+- **Engines declare 1.0 and 2.1.** `SUPPORTED_VERSIONS` is `{1: 0, 2: 1}`,
+  `MilanoInfo.contract` is `"2.1"`, and `UnsupportedVersion.supported`
+  reads `["1.0", "2.1"]`.
+- **`MilanoUserInteraction` gains `dispatch`** and three kinds
+  (`viewAppeared`, `viewDisappeared`, `viewReplaced`); `MilanoOccurrence`
+  gains `completionAfterReplace` and `invalidFunctionResult`. A Swift host
+  switching exhaustively over either `Kind` has cases to add.
+- **The Compose engine is published to Maven Central.** Android and JVM
+  consumers resolve `dev.get-milano:engine-compose` with nothing but
+  `mavenCentral()`; Gradle picks the `-android` or `-jvm` variant. Releases
+  carry a sources jar, a javadoc jar built from the Dokka reference, and a
+  PGP signature per artifact. GitHub Packages keeps receiving every release
+  and the release page keeps carrying a loose AAR and JAR, so nothing that
+  worked stops working; they are simply no longer the documented path.
+  Snapshots go to Central's snapshot repository between releases; the
+  snapshot repository has to be declared explicitly, as
+  [Getting started](docs/getting-started.md) shows.
+- **Package metadata completed.** All three packages now declare `bugs`
+  (npm renders the Issues link from it), and `@get-milano/react` declares
+  the Node floor the other two already did. `check-consistency` now fails
+  if a published package grows a third-party runtime dependency or drops
+  any of that metadata.
+- **Generated bindings wrap what would overflow.** The doc comments
+  describing an action's `result` and `failure`, and the declarations that
+  render long (a union arm, a decode case, a record accessor, a factory
+  signature), used to be emitted on one line, past the 130-column limit
+  the generated Swift and Kotlin are linted against and with nothing at all
+  checking the TypeScript. `milano bindings` now wraps both, byte for byte
+  with the specs' generator, in a form ktlint accepts; regenerate and the
+  diff is formatting only.
+- **A `children` violation's `found` detail is `children`**, as the specs
+  table always said; every engine reported the node type. Pinned by the
+  regenerated order suite, which now states `found`.
+- The samples' vocabulary is `examples 1.2.0` (`submitContact` gains a
+  failure enum, `track` is added); their documents declare `2.1.0`.
+
 ## 2.0.0
 
 A major: contract 2.0 and the `$repeat` construct, the CLI as the

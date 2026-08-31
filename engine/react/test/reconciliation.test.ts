@@ -39,7 +39,7 @@ const DOCUMENT = JSON.stringify({
     children: [
       { type: "Field", id: "field", properties: { label: { $expr: "state.label" } },
         on: { change: [{ action: "$set", key: "label", value: { $expr: "event" } }] } },
-      { type: "Text", id: "readout", properties: { text: { $expr: "str(state.count)" } } },
+      { type: "Text", id: "readout", properties: { text: { $expr: "$str(state.count)" } } },
     ],
   },
 });

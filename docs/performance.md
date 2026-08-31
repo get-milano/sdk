@@ -42,7 +42,7 @@ The TypeScript engine has no row yet. Its benchmark exists and prints the same t
 
 ## Working budgets
 
-- **The contract's target surfaces (banners, interstitials, forms) are tens of nodes**: build well under a millisecond, updates in the tens of microseconds. Performance is not a consideration at this scale.
+- **Fragments and simple screens (banners, interstitials, forms) are tens of nodes**: build well under a millisecond, updates in the tens of microseconds. Performance is not a consideration at this scale.
 - **Up to ~1,000 nodes**, updates stay near 0.2 ms on a laptop; with a generous 10x device factor that still fits comfortably inside a 16 ms frame. Builds of a few milliseconds are absorbed by the loading view.
 - **Above that**, measure on your slowest target device before committing. The 5,000-node update (~1 ms laptop, worst-case a few ms on device) still fits a frame, but you are spending budget the rest of your UI may want.
 
@@ -50,7 +50,7 @@ The TypeScript engine has no row yet. Its benchmark exists and prints the same t
 
 Every engine resolves incrementally. At build, each expression's state and context references are indexed; an update re-evaluates only the expressions that read a key whose value changed, rebuilds only the path from those nodes to the root, and leaves untouched subtrees as they were, the same objects where the language can show it. An update that changes no value re-resolves nothing and does not notify the host. Update cost is therefore proportional to what the change reaches, not to tree size: the benchmark's update touches every other node by design and is the worst case for this document shape.
 
-The host is still invalidated once per update, at the root, on SwiftUI and Compose; their diffing keeps actual UI work small. Node-scoped invalidation in those two bindings is the next step if measurement on a low-end device shows the binding, not the engine, is now the cost. The React binding already benefits: unchanged subtrees keep their object identity, so keyed renderers reconcile without re-rendering.
+The host is still invalidated once per update, at the root, on SwiftUI and Compose; their diffing keeps actual UI work small. Node-scoped invalidation in those two bindings is the next step if measurement on a low-end device shows the binding, not the engine, is now the cost. The React binding already benefits: unchanged subtrees keep their object identity, so keyed renderers reconcile without re-rendering. A keyed `$repeat` helps every toolkit here: an instance's reference, and so its React key and its SwiftUI or Compose identity, follows the element rather than its position, so a list that reorders does not remount its rows.
 
 ## Running the benchmarks
 

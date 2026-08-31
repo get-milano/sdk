@@ -3,7 +3,8 @@ package dev.getmilano
 /**
  * The instantiable root of the framework. An engine holds one
  * configuration: the vocabulary, the registry, the default unknown-type
- * policy, and resource limits. It is immutable after creation and safe to
+ * policy, resource limits, the two observers, and the host function
+ * handler. It is immutable after creation and safe to
  * share across threads. MilanoViewBuilders are obtained from an engine,
  * so every MilanoView is traceable to exactly one configuration.
  */
@@ -18,6 +19,12 @@ class MilanoEngine(
      * interactions are not captured at all.
      */
     internal val userInteractionObserver: MilanoUserInteractionObserver? = null,
+    /**
+     * The resolver of host functions (contract 2.1), required when a
+     * document calls one the vocabulary or a surface declares; null means
+     * such a document fails at build (rule `function-handler`).
+     */
+    internal val functionHandler: MilanoFunctionHandler? = null,
 ) {
     internal val vocabulary: MilanoVocabulary
     internal val registry: MilanoRegistry

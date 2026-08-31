@@ -1,4 +1,5 @@
-import { MilanoEngine, MilanoValue, synthesizedState } from "@get-milano/core";
+import { MilanoActionFailure, MilanoEngine, MilanoValue, synthesizedState } from "@get-milano/core";
+import type { MilanoFunctionCall } from "@get-milano/core";
 import type { MilanoAction, MilanoObserver, MilanoUserInteractionObserver } from "@get-milano/core";
 import type {
   MilanoPlaceholderRenderer,
@@ -47,7 +48,26 @@ const engine = new MilanoEngine<MilanoRenderer, MilanoPlaceholderRenderer>({
   registry: sampleRegistry(),
   observer,
   userInteractionObserver: analytics,
+  functionHandler: hostFunction,
 });
+
+/**
+ * The host functions the vocabulary declares, answered here: pure over
+ * their arguments, so the engine may ask as often as it likes. A real
+ * app formats with its own locale services; the sample formats with the
+ * runtime's, in a fixed locale, so every platform shows the same string.
+ */
+function hostFunction(call: MilanoFunctionCall): MilanoValue | null {
+  switch (call.name) {
+    case "formatMoney": {
+      const amount = call.arguments[0]?.numberValue ?? 0;
+      const currency = call.arguments[1]?.stringValue ?? "EUR";
+      return MilanoValue.string(`${amount.toFixed(2)} ${currency}`);
+    }
+    default:
+      return null;
+  }
+}
 
 /** One shared context for every screen: each document reads only the keys
  * it declares; the rest are ignored by rule. */
@@ -102,6 +122,9 @@ const SPRITES = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprite
 
 function catalogItem(name: string, blurb: string, sprite: number, slug: string): MilanoValue {
   return MilanoValue.record({
+    // The `id` is what the document keys its `$repeat` on, so an item keeps
+    // its identity when the list is reordered.
+    id: MilanoValue.string(slug),
     name: MilanoValue.string(name),
     blurb: MilanoValue.string(blurb),
     imageUrl: MilanoValue.string(`${SPRITES}/${sprite}.png`),
@@ -125,9 +148,57 @@ export function catalogBuilder(): MilanoReactBuilder {
   return engine
     .viewBuilder(document("catalog"))
     .context(sharedContext)
-    .stateData(() => ({ items: MilanoValue.array(CATALOG_ITEMS) }))
+    .stateData(() => ({ items: MilanoValue.array(CATALOG_ITEMS), hidden: MilanoValue.int(0n) }))
     .actionHandler(handle)
     .label("catalog");
+}
+
+/**
+ * What the quick actions service answers: the strip is data, so the app
+ * decides which shortcuts it offers today without shipping a document.
+ */
+function quickAction(id: string, label: string, icon: string, screen: string): MilanoValue {
+  return MilanoValue.record({
+    id: MilanoValue.string(id),
+    label: MilanoValue.string(label),
+    // `icon` and `screen` are declared as enums in the document's state,
+    // so a value outside the declared members is refused at the build
+    // boundary rather than reaching a renderer as an icon nobody draws.
+    icon: MilanoValue.string(icon),
+    screen: MilanoValue.string(screen),
+  });
+}
+
+const QUICK_ACTIONS: readonly MilanoValue[] = [
+  quickAction("profile", "Profile", "person", "profile"),
+  quickAction("catalog", "Catalog", "list", "catalog"),
+  quickAction("pokemon", "Pokemon", "search", "pokemon"),
+  quickAction("contact", "Contact", "edit", "form"),
+];
+
+/**
+ * The quick actions strip: one `$repeat` of tiles whose tap records the
+ * tapped position and then asks the host to open a screen. `navigate` is
+ * interpreted by the presenting screen, as `dismiss` is; everything else
+ * takes the shared path, so the analytics `track` is handled once for the
+ * whole sample.
+ */
+export function quickActionsBuilder(onNavigate: (screen: string) => void): MilanoReactBuilder {
+  return engine
+    .viewBuilder(document("quick-actions"))
+    .context(sharedContext)
+    .stateData(() => ({
+      actions: MilanoValue.array(QUICK_ACTIONS),
+      lastTapped: MilanoValue.int(-1n),
+    }))
+    .actionHandler(async (action) => {
+      if (action.name === "navigate") {
+        onNavigate(action.parameters["screen"]?.stringValue ?? "");
+        return null;
+      }
+      return handle(action);
+    })
+    .label("quick-actions");
 }
 
 /**
@@ -170,7 +241,10 @@ export function formBuilder(): MilanoReactBuilder {
  * The single async funnel: navigation and submission live in the host.
  * The returned value is the completion result: `submitContact` declares
  * `result: "string"`, so its confirmation number flows back into the
- * document's `onSuccess` actions as the `result` root.
+ * document's `onSuccess` actions as the `result` root; a thrown
+ * `MilanoActionFailure` carries the declared failure payload back as the
+ * `failure` root. Every action arrives with its dispatch identity, the
+ * idempotency key a real handler would send along with its request.
  */
 async function handle(action: MilanoAction): Promise<MilanoValue | null> {
   switch (action.name) {
@@ -191,14 +265,33 @@ async function handle(action: MilanoAction): Promise<MilanoValue | null> {
       const name = action.parameters["name"]?.stringValue ?? "";
       const surname = action.parameters["surname"]?.stringValue ?? "";
       const email = action.parameters["email"]?.stringValue ?? "";
-      console.log(`[sample] submitting ${name} ${surname} <${email}>`);
+      console.log(`[sample] submitting ${name} ${surname} <${email}> dispatch ${action.dispatchId}`);
       // Simulated network call; the returned confirmation number is what a
-      // real backend would answer with.
+      // real backend would answer with. The failure payload is the declared
+      // enum: the document decides what to tell the user. A plain error
+      // would be an invalid completion against the non-optional
+      // declaration, so every failure is mapped here.
       await new Promise<void>((resolve) => {
         setTimeout(() => resolve(), 1000);
       });
+      if (email.endsWith(".invalid")) throw new MilanoActionFailure(MilanoValue.string("invalidEmail"));
+      if (email.startsWith("offline")) throw new MilanoActionFailure(MilanoValue.string("unavailable"));
       const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
       return MilanoValue.string(`MC-${suffix}`);
+    }
+    case "track": {
+      // Two sources, one sink: the interstitial's lifecycle bindings
+      // report an impression, the quick actions strip reports a tap with
+      // its position. A real app forwards both to its tracker.
+      const surface = action.parameters["surface"]?.stringValue ?? "";
+      const event = action.parameters["event"]?.stringValue ?? "";
+      // `position` is optional: an impression has no position, a tap on
+      // the third tile of a strip reports 2. The document supplies it
+      // from the repeat's index binding; nothing here counts.
+      const position = action.parameters["position"]?.intValue ?? null;
+      const suffix = position === null ? "" : ` position ${position}`;
+      console.log(`[sample] ${surface} ${event}${suffix}`);
+      return null;
     }
     case "dismiss":
       // Interpreted by the presenting screen's handler; inert here.

@@ -45,9 +45,9 @@ class RepeatTest {
          "root": {"type": "Column", "id": "list", "children": [
            {"type": "Text", "id": "head", "properties": {"text": "head"}},
            {"type": "${'$'}repeat", "id": "each", "items": {"${'$'}expr": "state.rows"}, "as": "row", "children": [
-             {"type": "Text", "id": "name", "properties": {"text": {"${'$'}expr": "concat(state.prefix, row.name)"}},
+             {"type": "Text", "id": "name", "properties": {"text": {"${'$'}expr": "${'$'}concat(state.prefix, row.name)"}},
               "on": {"tap": [{"action": "${'$'}set", "key": "prefix",
-                              "value": {"${'$'}expr": "concat(row.name, str(row_index))"}}]}}]},
+                              "value": {"${'$'}expr": "${'$'}concat(row.name, ${'$'}str(row_index))"}}]}}]},
            {"type": "Text", "id": "control", "properties": {"text": "x"},
             "on": {"tap": [{"action": "${'$'}set", "key": "other", "value": {"${'$'}expr": "state.other + 1"}}]}},
            {"type": "Text", "id": "prefixer", "properties": {"text": "x"},

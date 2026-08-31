@@ -13,10 +13,12 @@ public struct MilanoOccurrence: Equatable, Sendable {
         case invalidCompletion
         case duplicateCompletion
         case completionAfterTeardown
+        case completionAfterReplace
         case rejectedContextUpdate
         case rejectedMutation
         case divisionByZero
         case saturation
+        case invalidFunctionResult
     }
 
     public let kind: Kind

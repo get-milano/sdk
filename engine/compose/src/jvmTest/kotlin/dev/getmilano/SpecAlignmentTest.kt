@@ -184,18 +184,18 @@ class SpecAlignmentTest {
      */
     @Test
     fun expressionLimitCountsUnicodeScalars() {
-        // 30 emoji: 30 scalars, 60 UTF-16 units, in an expression of 45
-        // scalars against a limit of 45: at the boundary, accepted.
+        // 30 emoji: 30 scalars, 60 UTF-16 units, in an expression of 46
+        // scalars against a limit of 46: at the boundary, accepted.
         val padding = "😀".repeat(30)
-        val expr = "concat('$padding', 'y')"
-        assertEquals(45, expr.unicodeScalarCount())
+        val expr = "${'$'}concat('$padding', 'y')"
+        assertEquals(46, expr.unicodeScalarCount())
         val document =
             """{"version": "1.0.0",
                 "root": {"type": "Text", "id": "t",
                          "properties": {"text": {"${'$'}expr": "$expr"}}}}"""
         val view =
             runBlocking {
-                engine(MilanoLimits(maxExpressionLength = 45))
+                engine(MilanoLimits(maxExpressionLength = 46))
                     .viewBuilder(document)
                     .dispatcher(InlineDispatcher)
                     .build()
@@ -205,7 +205,7 @@ class SpecAlignmentTest {
         // One scalar over the boundary is a typed gate error.
         try {
             runBlocking {
-                engine(MilanoLimits(maxExpressionLength = 44))
+                engine(MilanoLimits(maxExpressionLength = 45))
                     .viewBuilder(document)
                     .dispatcher(InlineDispatcher)
                     .build()
@@ -213,7 +213,7 @@ class SpecAlignmentTest {
             fail("expected LimitExceeded")
         } catch (expected: MilanoBuildException.LimitExceeded) {
             assertEquals("maxExpressionLength", expected.limit)
-            assertEquals(45, expected.actual)
+            assertEquals(46, expected.actual)
         }
     }
 
@@ -261,7 +261,7 @@ class SpecAlignmentTest {
             """{"version": "1.0.0",
                 "state": {"a": "int"},
                 "root": {"type": "Text", "id": "t",
-                         "properties": {"text": {"${'$'}expr": "str(state.a)"}},
+                         "properties": {"text": {"${'$'}expr": "${'$'}str(state.a)"}},
                          "on": {"tap": [{"action": "${'$'}set", "key": "a",
                                          "value": {"${'$'}expr": "state.a + 1"}}]}}}"""
         val view =
@@ -322,7 +322,7 @@ class SpecAlignmentTest {
             """{"version": "1.0.0",
                 "state": {"a": "int"},
                 "root": {"type": "Text", "id": "t",
-                         "properties": {"text": {"${'$'}expr": "str(state.a)"}},
+                         "properties": {"text": {"${'$'}expr": "${'$'}str(state.a)"}},
                          "on": {"tap": [
                              {"action": "${'$'}set", "key": "a", "value": 1},
                              {"action": "work"},

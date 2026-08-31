@@ -12,6 +12,7 @@ struct TextModel {
         case title
         case subtitle
         case body
+        case caption
     }
 
     enum LiveRegion {
@@ -49,6 +50,8 @@ struct StyledText: View {
             Text(model.text).font(.subheadline).opacity(0.85)
         case .body:
             Text(model.text).font(.body)
+        case .caption:
+            Text(model.text).font(.caption)
         }
     }
 }

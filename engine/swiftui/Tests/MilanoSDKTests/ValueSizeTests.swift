@@ -67,7 +67,7 @@ struct ValueSizeTests {
                 {"action": "$set", "key": "n", "value": {"$expr": "state.n + 1"}},
                 {"action": "$when", "condition": true, "then": [
                   {"action": "$sequence", "actions": [
-                    {"action": "$set", "key": "s", "value": {"$expr": "concat(state.s, state.s)"}}]},
+                    {"action": "$set", "key": "s", "value": {"$expr": "$concat(state.s, state.s)"}}]},
                   {"action": "$set", "key": "n", "value": {"$expr": "state.n + 10"}}]},
                 {"action": "$set", "key": "n", "value": {"$expr": "state.n + 100"}}]}}}
             """, state: ["s": .string("abcde"), "n": .int(0)])
@@ -82,7 +82,7 @@ struct ValueSizeTests {
         let (view, collector) = try await build("""
             {"version": "1.0.0", "state": {"s": "string"},
              "root": {"type": "Text", "id": "t", "properties": {"text": {"$expr": "state.s"}},
-              "on": {"tap": [{"action": "$set", "key": "s", "value": {"$expr": "concat(state.s, 'x')"}}]}}}
+              "on": {"tap": [{"action": "$set", "key": "s", "value": {"$expr": "$concat(state.s, 'x')"}}]}}}
             """, state: ["s": .string("abcdefg")])
         view.emit(node: "t", event: "tap")
         #expect(view.state["s"] == .string("abcdefgx"))
@@ -96,7 +96,7 @@ struct ValueSizeTests {
         let (view, collector) = try await build("""
             {"version": "1.0.0", "context": {"who": "string", "n": "int"},
              "root": {"type": "Text", "id": "t",
-              "properties": {"text": {"$expr": "concat(context.who, str(context.n))"}}}}
+              "properties": {"text": {"$expr": "$concat(context.who, $str(context.n))"}}}}
             """, state: [:], context: handle)
         handle.update(["who": .string("a very long name"), "n": .int(2)])
         #expect(view.resolvedRoot.values["text"] == .string("Ada1"))

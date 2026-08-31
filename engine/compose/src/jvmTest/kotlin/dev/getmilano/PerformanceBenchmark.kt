@@ -59,7 +59,7 @@ class PerformanceBenchmark {
             children.append(",")
             children.append(
                 if (i % 2 == 0) {
-                    """{"type": "Text", "properties": {"text": {"${'$'}expr": "concat('v', state.value)"}}}"""
+                    """{"type": "Text", "properties": {"text": {"${'$'}expr": "${'$'}concat('v', state.value)"}}}"""
                 } else {
                     """{"type": "Text", "properties": {"text": "static $i"}}"""
                 },

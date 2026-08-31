@@ -50,7 +50,7 @@ function document(nodes: number): string {
   for (let index = 0; index < nodes; index += 1) {
     children.push(
       index % 2 === 0
-        ? '{"type": "Text", "properties": {"text": {"$expr": "concat(\'v\', state.value)"}}}'
+        ? '{"type": "Text", "properties": {"text": {"$expr": "$concat(\'v\', state.value)"}}}'
         : `{"type": "Text", "properties": {"text": "static ${index}"}}`,
     );
   }

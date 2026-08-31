@@ -36,7 +36,7 @@ class QuickStartTest {
     fun buildsWithSynthesizedStateAndContext() {
         val builder =
             milanoQuickBuilder(
-                documentText = document("concat(context.userName, ':', str(state.taps), ':', state.note ?? '-')"),
+                documentText = document("${'$'}concat(context.userName, ':', ${'$'}str(state.taps), ':', state.note ?? '-')"),
                 vocabularyJson = vocabulary,
                 renderers = mapOf("Greeting" to StubRenderer),
                 context = mapOf("userName" to MilanoValue.StringValue("Ada")),
@@ -51,7 +51,7 @@ class QuickStartTest {
     fun suppliedStateOverridesSynthesis() {
         val builder =
             milanoQuickBuilder(
-                documentText = document("str(state.taps)"),
+                documentText = document("${'$'}str(state.taps)"),
                 vocabularyJson = vocabulary,
                 renderers = mapOf("Greeting" to StubRenderer),
                 context = mapOf("userName" to MilanoValue.StringValue("Ada")),
@@ -100,7 +100,7 @@ class QuickStartTest {
                 "count" to MilanoType(MilanoType.Kind.Int),
                 "ratio" to MilanoType(MilanoType.Kind.Double),
                 "label" to MilanoType(MilanoType.Kind.Text),
-                "tone" to MilanoType(MilanoType.Kind.Enum(setOf("warm", "cool"))),
+                "tone" to MilanoType.enumeration(listOf("warm", "cool")),
                 "items" to MilanoType(MilanoType.Kind.Array(MilanoType(MilanoType.Kind.Int))),
                 "pair" to MilanoType(MilanoType.Kind.Record(mapOf("a" to MilanoType(MilanoType.Kind.Bool)))),
                 "maybe" to MilanoType(MilanoType.Kind.Text, optional = true),
@@ -110,10 +110,18 @@ class QuickStartTest {
         assertEquals(MilanoValue.IntValue(0), values["count"])
         assertEquals(MilanoValue.DoubleValue(0.0), values["ratio"])
         assertEquals(MilanoValue.StringValue(""), values["label"])
-        // The alphabetically first member: deterministic, always a member.
-        assertEquals(MilanoValue.StringValue("cool"), values["tone"])
+        // The contract's zero for an enum is its FIRST DECLARED member,
+        // and synthesis uses the same rule: the two once disagreed,
+        // synthesis taking the alphabetically first, so a preview could
+        // differ from the engine over one declaration. "cool" would be
+        // the old answer.
+        assertEquals(MilanoValue.StringValue("warm"), values["tone"])
         assertEquals(MilanoValue.ArrayValue(emptyList()), values["items"])
         assertEquals(MilanoValue.RecordValue(mapOf("a" to MilanoValue.BoolValue(false))), values["pair"])
         assertEquals(MilanoValue.Null, values["maybe"])
+        // Synthesis takes the contract's own zero, so the two cannot
+        // drift apart: they once did, synthesis taking the alphabetically
+        // first member while the contract takes the first declared.
+        assertEquals(zeroValueOf(declarations["tone"]!!), values["tone"])
     }
 }

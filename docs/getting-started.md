@@ -19,7 +19,7 @@ A tagged release resolves to a prebuilt, signed `MilanoSDK.xcframework`, integri
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/get-milano/sdk.git", from: "2.0.0")
+    .package(url: "https://github.com/get-milano/sdk.git", from: "2.1.0")
 ]
 ```
 
@@ -35,7 +35,20 @@ Either way, depend on the `MilanoSDK` product.
 
 ### Compose
 
-The binary from GitHub Packages (GitHub's Maven registry requires a token with `read:packages`, even for public packages):
+From Maven Central:
+
+```kotlin
+repositories {
+    mavenCentral()
+}
+dependencies {
+    implementation("dev.get-milano:engine-compose:2.1.0")
+}
+```
+
+Gradle picks the right variant for you: `engine-compose-android` for an Android module, `engine-compose-jvm` for a desktop or server one.
+
+Two other ways in. Every release also goes to **GitHub Packages**, whose Maven registry wants a token with `read:packages` even for public artifacts:
 
 ```kotlin
 repositories {
@@ -46,12 +59,19 @@ repositories {
         }
     }
 }
-dependencies {
-    implementation("dev.get-milano:engine-compose:2.0.0")
-}
 ```
 
-Without a token, download `engine-compose-android-<version>.aar` (Android) or `engine-compose-jvm-<version>.jar` (JVM) from the [releases](https://github.com/get-milano/sdk/releases), drop it into `libs/`, and depend on it with `files(...)`; declare `kotlinx-serialization-json`, `kotlinx-coroutines-core`, and the Compose runtime yourself, since a loose artifact carries no POM.
+Or download `engine-compose-android-<version>.aar` (Android) or `engine-compose-jvm-<version>.jar` (JVM) from the [releases](https://github.com/get-milano/sdk/releases), drop it into `libs/`, and depend on it with `files(...)`; declare `kotlinx-serialization-json`, `kotlinx-coroutines-core`, and the Compose runtime yourself, since a loose artifact carries no POM.
+
+Between releases, snapshots are published to Central's snapshot repository, which Gradle needs told about explicitly:
+
+```kotlin
+repositories {
+    maven("https://central.sonatype.com/repository/maven-snapshots/") {
+        mavenContent { snapshotsOnly() }
+    }
+}
+```
 
 Or build from source, as a composite build in `settings.gradle.kts`:
 
@@ -140,7 +160,7 @@ The vocabulary declares one component and one action:
 
 ```json
 {
-  "milano": "2.0.0",
+  "milano": "2.1.0",
   "name": "starter",
   "version": "2.0.0",
   "components": {
@@ -156,12 +176,12 @@ The document uses it:
 
 ```json
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "context": { "userName": "string" },
   "root": {
     "type": "Greeting",
     "id": "hello",
-    "properties": { "text": { "$expr": "concat('Hello, ', context.userName)" } },
+    "properties": { "text": { "$expr": "$concat('Hello, ', context.userName)" } },
     "on": { "tap": [ { "action": "openUrl", "url": "https://get-milano.dev" } ] }
   }
 }
@@ -287,7 +307,9 @@ On the web, the same imports and the same code, with DOM elements in the rendere
 
 The dispatcher defaults to the platform main thread on the Swift and Kotlin engines (Android's default is `MilanoMainDispatcher()`), so events and view updates serialize on the main thread without configuration; pass a dispatcher only to override the seam. The TypeScript engine inherits JavaScript's single-threaded model and serializes on the host's event loop.
 
-The action handler's return value is the **completion result**. Returning normally completes the action with success; throwing completes it with failure. If the action's declaration includes a `result` type, return the value the document should get back (it binds the `result` expression root inside the action's `onSuccess` list); for every other action, return `nil`/`null`. The [contact form sample](samples) returns a confirmation number from `submitContact`, and the document shows it in the thank-you line, all without host UI code.
+The action handler's return value is the **completion result**. Returning normally completes the action with success; throwing completes it with failure. If the action's declaration includes a `result` type, return the value the document should get back (it binds the `result` expression root inside the action's `onSuccess` list); for every other action, return `nil`/`null`. If it includes a `failure` type, fail by throwing `MilanoActionFailure` with a value of that type, which binds the `failure` root inside `onFailure`. Every action arrives with a `dispatchId`, unique per dispatch, for the request your handler makes. The [contact form sample](samples) returns a confirmation number from `submitContact` and fails it with a reason the document turns into a message, all without host UI code.
+
+`MilanoHost` also tells the view when it comes on screen and when it leaves, so a document's `appear` and `disappear` bindings run; a host that awaits `build()` itself calls `view.appear()` and `view.disappear()` from its own lifecycle. When the vocabulary declares host functions (formatting, typically), the engine is created with a function handler that answers them; see [Creating a bridge](bridge#host-functions).
 
 Unknown component types **fail the build by default**: a document using a type your vocabulary does not declare throws a typed error instead of rendering incompletely. Optional surfaces (promotional banners and the like) can opt into graceful degradation per engine or per builder with `unknownTypePolicy(.skip)` or `.placeholder`; keep the fail default for any surface whose meaning changes when content is missing.
 
@@ -295,7 +317,7 @@ Unknown component types **fail the build by default**: a document using a type y
 
 `build()` is asynchronous and all-or-nothing. The document is parsed and validated in full: schema, vocabulary conformance, expression type checking, limits. If the document declares `state`, your state data provider is awaited and its values are validated against the declarations. Only a document that passes every check produces a view; anything else throws one typed error. See [Guardrails](guardrails) for the full taxonomy.
 
-When your provider has nothing better than a zero-value for some keys, the synthesis the quick path uses is public: `MilanoQuickStart.synthesizedState(for:overriding:)` in Swift, `synthesizedState(declarations, supplied)` in Kotlin and TypeScript. Every synthesized value satisfies its declaration (an enum gets its alphabetically first member, a record is recursed), and supplied values override it per key; the sample apps use it for every document whose state is not fetched.
+When your provider has nothing better than a zero-value for some keys, the synthesis the quick path uses is public: `MilanoQuickStart.synthesizedState(for:overriding:)` in Swift, `synthesizedState(declarations, supplied)` in Kotlin and TypeScript. Every synthesized value satisfies its declaration and is exactly the contract's zero for that type, the same value an invalid function result would produce (an enum gets its first declared member, a record is recursed), and supplied values override it per key; the sample apps use it for every document whose state is not fetched.
 
 ## Working samples
 

@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Contract question or spec change
+    url: https://github.com/get-milano/specs/issues
+    about: Behaviour questions are answered by the specification, and mechanics change there first.
+  - name: Try it without installing anything
+    url: https://get-milano.dev/playground/
+    about: The playground runs the real engine in the browser; a shareable link is the best bug report.
+  - name: Security vulnerability
+    url: https://github.com/get-milano/sdk/security/advisories/new
+    about: Report privately, never as a public issue.

@@ -18,10 +18,39 @@ public struct MilanoType: Equatable, Sendable {
 
     public let kind: Kind
     public let optional: Bool
+    /// An enum's members in declaration order: what fixes the zero
+    /// value's member (expression language spec, Host functions). Every
+    /// path that has an order keeps it, whether the type came from a
+    /// descriptor or from `enumeration(_:optional:)`. Never part of the
+    /// type's identity: two enum types are equal by member set, so this
+    /// is carried beside the set rather than in it.
+    ///
+    /// It is nil only for a type built through `init(_:optional:)` with a
+    /// `Set` payload, which has no order to keep; such a type orders its
+    /// members alphabetically, deterministically but arbitrarily. Prefer
+    /// `enumeration(_:optional:)`, which cannot lose the order.
+    let declaredMembers: [String]?
 
     public init(_ kind: Kind, optional: Bool = false) {
+        self.init(kind, optional: optional, declaredMembers: nil)
+    }
+
+    /// An enum type from its members in declaration order. This is the
+    /// constructor to reach for: a `Set` literal has already lost the
+    /// order by the time an initializer sees it, and the order is what
+    /// the zero value reads.
+    public static func enumeration(_ members: [String], optional: Bool = false) -> MilanoType {
+        MilanoType(.enumeration(Set(members)), optional: optional, declaredMembers: members)
+    }
+
+    init(_ kind: Kind, optional: Bool, declaredMembers: [String]?) {
         self.kind = kind
         self.optional = optional
+        self.declaredMembers = declaredMembers
+    }
+
+    public static func == (lhs: MilanoType, rhs: MilanoType) -> Bool {
+        lhs.kind == rhs.kind && lhs.optional == rhs.optional
     }
 }
 
@@ -60,13 +89,15 @@ extension MilanoType {
                 // lets a descriptor grow in a minor contract version.
                 guard !memberList.isEmpty else { return nil }
                 var members: Set<String> = []
+                var ordered: [String] = []
                 for entry in memberList {
                     guard case .string(let member) = entry,
                         MilanoIdentifier.isValid(member),
                         members.insert(member).inserted
                     else { return nil }
+                    ordered.append(member)
                 }
-                self.init(.enumeration(members), optional: optional)
+                self.init(.enumeration(members), optional: optional, declaredMembers: ordered)
             } else if let element = object["array"] {
                 guard let elementType = MilanoType(descriptor: element) else { return nil }
                 self.init(.array(elementType), optional: optional)
@@ -141,6 +172,28 @@ extension MilanoType {
             return .record(canonical)
         default:
             return nil
+        }
+    }
+}
+
+// MARK: - Zero values
+
+extension MilanoType {
+    /// The zero value of the type (expression language spec, Host
+    /// functions): what an invalid function result evaluates to, so
+    /// evaluation stays total. Optionals are null; an enum is its first
+    /// declared member; a record has every field at its zero.
+    var zeroValue: MilanoValue {
+        if optional { return .null }
+        switch kind {
+        case .bool: return .bool(false)
+        case .int: return .int(0)
+        case .double: return .double(0)
+        case .string: return .string("")
+        case .enumeration(let members):
+            return .string(declaredMembers?.first ?? members.sorted().first ?? "")
+        case .array: return .array([])
+        case .record(let fields): return .record(fields.mapValues(\.zeroValue))
         }
     }
 }

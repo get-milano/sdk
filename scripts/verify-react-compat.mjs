@@ -61,7 +61,7 @@ const document = JSON.stringify({
   state: { name: "string" },
   root: { type: "Column", id: "root", children: [
     { type: "Label", id: "greeting",
-      properties: { text: { $expr: "concat('hi ', state.name)" } } },
+      properties: { text: { $expr: "$concat('hi ', state.name)" } } },
     { type: "Field", id: "field", properties: { value: { $expr: "state.name" } },
       on: { change: [{ action: "$set", key: "name", value: { $expr: "event" } }] } },
   ] },

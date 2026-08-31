@@ -8,6 +8,7 @@ import { usePalette } from "./design-system.tsx";
 import { initialRoute, routeTitle } from "./routes.ts";
 import type { Route } from "./routes.ts";
 import { CatalogScreen } from "./screens/CatalogScreen.tsx";
+import { QuickActionsScreen } from "./screens/QuickActionsScreen.tsx";
 import { DEMOS, DemoScreen } from "./screens/DemoScreen.tsx";
 import { EmbeddedScreen } from "./screens/EmbeddedScreen.tsx";
 import { InterstitialScreen } from "./screens/InterstitialScreen.tsx";
@@ -106,6 +107,8 @@ function CurrentScreen({
       return <ProfileScreen />;
     case "catalog":
       return <CatalogScreen />;
+    case "quickActions":
+      return <QuickActionsScreen onNavigate={onNavigate} />;
     case "embedded":
       return <EmbeddedScreen />;
   }

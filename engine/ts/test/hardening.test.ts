@@ -146,7 +146,7 @@ describe("untrusted input bounds", () => {
     assert.throws(() => parseJson(deep), MilanoJsonError);
   });
 
-  it("defines int() for non-finite numbers instead of throwing", () => {
+  it("defines $int() for non-finite numbers instead of throwing", () => {
     assert.equal(MilanoValue.int(Number.NaN).intValue, 0n);
     assert.equal(MilanoValue.int(Number.POSITIVE_INFINITY).intValue, 9223372036854775807n);
     assert.equal(MilanoValue.int(Number.NEGATIVE_INFINITY).intValue, -9223372036854775808n);
@@ -167,7 +167,7 @@ describe("what the engine hands out", () => {
     const view = await engineWith()
       .viewBuilder(
         document(
-          { type: "box", id: "n", properties: { label: { $expr: "str(state.count)" } } },
+          { type: "box", id: "n", properties: { label: { $expr: "$str(state.count)" } } },
           { state: { count: "int" }, context: { who: "string" } },
         ),
       )
@@ -214,7 +214,7 @@ describe("a misbehaving host", () => {
           {
             type: "box",
             id: "n",
-            properties: { label: { $expr: "str(state.count)" } },
+            properties: { label: { $expr: "$str(state.count)" } },
             on: { tap: [{ action: "$set", key: "count", value: { $expr: "state.count + 1" } }] },
           },
           { state: { count: "int" } },
@@ -279,7 +279,7 @@ describe("a misbehaving host", () => {
           {
             type: "box",
             id: "n",
-            properties: { label: { $expr: "str(state.count)" } },
+            properties: { label: { $expr: "$str(state.count)" } },
             on: {
               tap: [
                 { action: "$set", key: "count", value: 1 },

@@ -7,6 +7,7 @@ extension TextModel {
         switch text.role {
         case .title: role = .title
         case .subtitle: role = .subtitle
+        case .caption: role = .caption
         case .body, nil: role = .body
         }
         let liveRegion: LiveRegion?

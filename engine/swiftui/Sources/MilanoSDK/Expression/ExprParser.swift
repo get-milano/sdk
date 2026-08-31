@@ -109,14 +109,23 @@ struct ExprParser {
 
     private mutating func postfix() throws -> Expr {
         var expr = try primary()
-        while consume(".") {
-            guard case .identifier(let field) = tokens[position] else {
-                throw ExprError(detail: "expected field name after '.'")
+        while true {
+            if consume(".") {
+                guard case .identifier(let field) = tokens[position] else {
+                    throw ExprError(detail: "expected field name after '.'")
+                }
+                position += 1
+                expr = .member(expr, field)
+            } else if consume("[") {
+                // A lookup: the key is an expression, so the member is
+                // chosen at evaluation rather than written in the document.
+                let key = try expression()
+                guard consume("]") else { throw ExprError(detail: "expected ']'") }
+                expr = .lookup(expr, key)
+            } else {
+                return expr
             }
-            position += 1
-            expr = .member(expr, field)
         }
-        return expr
     }
 
     private mutating func primary() throws -> Expr {
@@ -138,17 +147,17 @@ struct ExprParser {
             case "null": return .nullLiteral
             default: break
             }
-            if consume("(") {
-                var arguments: [Expr] = []
-                if !consume(")") {
-                    repeat {
-                        arguments.append(try expression())
-                    } while consume(",")
-                    guard consume(")") else { throw ExprError(detail: "expected ')'") }
-                }
-                return .call(name, arguments)
-            }
+            // A bare name in call position is a host function the surface
+            // declares; anywhere else it is a root.
+            if at("(") { return .call(name, try arguments()) }
             return .root(name)
+        case .builtin(let name):
+            position += 1
+            // A built-in is a function: its name is never a value.
+            guard at("(") else {
+                throw ExprError(detail: "'\(name)' is a function and needs arguments")
+            }
+            return .call(name, try arguments())
         case .punct("("):
             position += 1
             let expr = try expression()
@@ -157,6 +166,23 @@ struct ExprParser {
         default:
             throw ExprError(detail: "unexpected token")
         }
+    }
+
+    /// The parenthesized argument list of a call, the `(` still unconsumed.
+    private mutating func arguments() throws -> [Expr] {
+        position += 1
+        var arguments: [Expr] = []
+        if !at(")") {
+            repeat {
+                arguments.append(try expression())
+            } while consume(",")
+        }
+        guard consume(")") else { throw ExprError(detail: "expected ')'") }
+        return arguments
+    }
+
+    private func at(_ punct: String) -> Bool {
+        tokens[position] == .punct(punct)
     }
 
     private mutating func consume(_ punct: String) -> Bool {

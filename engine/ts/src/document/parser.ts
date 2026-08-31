@@ -6,10 +6,13 @@ import type { MilanoValue } from "../core/value.ts";
 import { MilanoBuildError } from "./errors.ts";
 import type {
   ActionSpec,
+  ArrayActionName,
+  ConditionalSpec,
   DocValue,
   ParsedDocument,
   RawNode,
   RepeatSpec,
+  SwitchSpec,
   VocabularyRequirement,
 } from "./model.ts";
 import { parseSemver } from "./model.ts";
@@ -77,6 +80,28 @@ export function parseDocument(text: string): ParsedDocument {
     throw MilanoBuildError.malformedDocument("metadata must be an object");
   }
 
+  // Lifecycle bindings: a map of signal name to actions, like a node's on.
+  const lifecycle = emptyRecord<readonly ActionSpec[]>();
+  const lifecycleEntry = root["on"];
+  if (lifecycleEntry !== undefined) {
+    const entries = lifecycleEntry.recordValue;
+    if (entries === null) throw MilanoBuildError.malformedDocument("on is not an object");
+    for (const [signal, actions] of sortedEntries(entries)) {
+      lifecycle[signal] = actionList(actions, `on.${signal}`);
+    }
+  }
+
+  // Watch bindings: a map of state key to actions, like a node's on.
+  const watch = emptyRecord<readonly ActionSpec[]>();
+  const watchEntry = root["watch"];
+  if (watchEntry !== undefined) {
+    const entries = watchEntry.recordValue;
+    if (entries === null) throw MilanoBuildError.malformedDocument("watch is not an object");
+    for (const [key, actions] of sortedEntries(entries)) {
+      watch[key] = actionList(actions, `watch.${key}`);
+    }
+  }
+
   return {
     versionString,
     major: version[0],
@@ -85,6 +110,10 @@ export function parseDocument(text: string): ParsedDocument {
     contextDeclarations,
     stateDeclarations,
     root: parseNode(rootNodeEntry, "root"),
+    lifecycle,
+    hasLifecycle: lifecycleEntry !== undefined,
+    watch,
+    hasWatch: watchEntry !== undefined,
     metadata,
   };
 }
@@ -98,7 +127,12 @@ function declarations(
   if (object === null) throw MilanoBuildError.malformedDocument(`${section} is not an object`);
   const result = emptyRecord<MilanoType>();
   for (const [key, descriptor] of sortedEntries(object)) {
-    const type = isValidIdentifier(key) ? MilanoType.fromDescriptor(descriptor) : null;
+    // A key that is not an identifier and a descriptor the contract does
+    // not define are different defects, and the detail says which.
+    if (!isValidIdentifier(key)) {
+      throw MilanoBuildError.schemaViolation(`${section}-declaration`, null, "identifier", key);
+    }
+    const type = MilanoType.fromDescriptor(descriptor);
     if (type === null) {
       throw MilanoBuildError.schemaViolation(
         `${section}-declaration`,
@@ -169,13 +203,70 @@ function parseNode(entry: MilanoValue, path: string): RawNode {
   let repeat: RepeatSpec | null = null;
   if (type === "$repeat") {
     const itemsEntry = object["items"];
+    const keyEntry = object["key"];
     repeat = {
       items: itemsEntry === undefined ? null : docValue(itemsEntry, `${path}.items`),
       as: object["as"]?.stringValue ?? null,
+      key: keyEntry === undefined ? null : docValue(keyEntry, `${path}.key`),
     };
   }
 
-  return { type, id, properties, children, events, repeat, raw: entry };
+  let conditional: ConditionalSpec | null = null;
+  if (type === "$if") {
+    const branch = (name: string): readonly RawNode[] | null => {
+      const list = object[name];
+      if (list === undefined) return null;
+      const items = list.arrayValue;
+      if (items === null) {
+        throw MilanoBuildError.malformedDocument(`${path} ${name} is not an array`);
+      }
+      return items.map((child, index) => parseNode(child, `${path}/${name}[${index}]`));
+    };
+    const conditionEntry = object["condition"];
+    const declared = new Set(["type", "condition", "then", "else"]);
+    conditional = {
+      condition:
+        conditionEntry === undefined ? null : docValue(conditionEntry, `${path}.condition`),
+      then: branch("then"),
+      otherwise: branch("else"),
+      undeclared: Object.keys(object).filter((key) => !declared.has(key)).sort(),
+    };
+  }
+
+  let choice: SwitchSpec | null = null;
+  if (type === "$switch") {
+    const nodeList = (value: MilanoValue, where: string): readonly RawNode[] => {
+      const items = value.arrayValue;
+      if (items === null) {
+        throw MilanoBuildError.malformedDocument(`${path} ${where} is not an array`);
+      }
+      return items.map((child, index) => parseNode(child, `${path}/${where}[${index}]`));
+    };
+    const casesEntry = object["cases"];
+    let cases: Record<string, readonly RawNode[]> | null = null;
+    if (casesEntry !== undefined) {
+      const members = casesEntry.recordValue;
+      if (members === null) {
+        throw MilanoBuildError.malformedDocument(`${path} cases is not an object`);
+      }
+      cases = emptyRecord<readonly RawNode[]>();
+      for (const [member, branch] of sortedEntries(members)) {
+        cases[member] = nodeList(branch, `cases[${member}]`);
+      }
+    }
+    const fallbackEntry = object["default"];
+    const subjectEntry = object["subject"];
+    const declared = new Set(["type", "subject", "cases", "default"]);
+    choice = {
+      subject: subjectEntry === undefined ? null : docValue(subjectEntry, `${path}.subject`),
+      cases,
+      fallback: fallbackEntry === undefined ? null : nodeList(fallbackEntry, "default"),
+      hasFallback: fallbackEntry !== undefined,
+      undeclared: Object.keys(object).filter((key) => !declared.has(key)).sort(),
+    };
+  }
+
+  return { type, id, properties, children, events, repeat, conditional, choice, raw: entry };
 }
 
 /**
@@ -264,6 +355,32 @@ function action(entry: MilanoValue, path: string): ActionSpec {
       };
     }
 
+    case "$append":
+    case "$remove":
+    case "$update": {
+      // The parameters travel as carried; the gate applies the encoding
+      // rules, in the order the document model spec fixes.
+      const allowed: Record<ArrayActionName, readonly string[]> = {
+        $append: ["key", "value"],
+        $remove: ["at", "key"],
+        $update: ["at", "field", "key", "value"],
+      };
+      const takes = allowed[name];
+      const fieldEntry = object["field"];
+      const atEntry = object["at"];
+      const valueEntry = object["value"];
+      return {
+        kind: "arrayAction",
+        name,
+        key: object["key"]?.stringValue ?? null,
+        at: atEntry === undefined ? null : docValue(atEntry, `${path}.at`),
+        field: fieldEntry?.stringValue ?? null,
+        fieldFound: fieldEntry === undefined || fieldEntry.stringValue !== null ? null : fieldEntry.kind,
+        value: valueEntry === undefined ? null : docValue(valueEntry, `${path}.value`),
+        extra: keys.filter((key) => key !== "action" && !takes.includes(key)).sort(),
+      };
+    }
+
     default: {
       if (name.startsWith("$")) {
         throw MilanoBuildError.schemaViolation("action-encoding", null, "built-in action", name);
@@ -284,9 +401,9 @@ function action(entry: MilanoValue, path: string): ActionSpec {
           parameters[key] = docValue(value, `${path}.${key}`);
         }
       }
-      // The declared result type is unknown until the gate resolves the
-      // granted action set.
-      return { kind: "custom", name, parameters, onSuccess, onFailure, result: null };
+      // The declared result and failure types are unknown until the gate
+      // resolves the granted action set.
+      return { kind: "custom", name, parameters, onSuccess, onFailure, result: null, failure: null };
     }
   }
 }

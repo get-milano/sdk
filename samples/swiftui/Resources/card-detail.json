@@ -1,0 +1,309 @@
+{
+  "version": "2.1.0",
+  "vocabulary": {
+    "name": "examples",
+    "min": "1.5.0"
+  },
+  "context": {
+    "cardNumber": "string",
+    "cardHolder": "string",
+    "expiry": "string",
+    "cvv": "string",
+    "capabilities": "string",
+    "cardStatus": {
+      "enum": [
+        "active",
+        "frozen",
+        "expired"
+      ]
+    },
+    "statusLabels": {
+      "record": {
+        "active": "string",
+        "frozen": "string",
+        "expired": "string"
+      }
+    }
+  },
+  "state": {
+    "revealed": "bool"
+  },
+  "root": {
+    "type": "Column",
+    "id": "card-detail",
+    "children": [
+      {
+        "type": "Text",
+        "properties": {
+          "text": "Card detail",
+          "role": "title"
+        }
+      },
+      {
+        "type": "Card",
+        "id": "card",
+        "properties": {
+          "cornerRadius": 16,
+          "padding": 20,
+          "accessibilityLabel": {
+            "$expr": "$concat('Card ending ', $substring(context.cardNumber, $length(context.cardNumber) - 4, $length(context.cardNumber)))"
+          }
+        },
+        "children": [
+          {
+            "type": "Text",
+            "id": "number",
+            "properties": {
+              "text": {
+                "$expr": "$if(state.revealed, $concat($substring(context.cardNumber, 0, 4), ' ', $substring(context.cardNumber, 4, 8), ' ', $substring(context.cardNumber, 8, 12), ' ', $substring(context.cardNumber, 12, 16)), $concat('\u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 ', $substring(context.cardNumber, $length(context.cardNumber) - 4, $length(context.cardNumber))))"
+              },
+              "role": "subtitle"
+            }
+          },
+          {
+            "type": "Row",
+            "properties": {
+              "spacing": 24,
+              "alignment": "top"
+            },
+            "children": [
+              {
+                "type": "Column",
+                "properties": {
+                  "padding": 0,
+                  "width": "content"
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "properties": {
+                      "text": "Holder",
+                      "role": "caption"
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "id": "holder",
+                    "properties": {
+                      "text": {
+                        "$expr": "$concat($substring(context.cardHolder, 0, 1), '. ', $substring(context.cardHolder, $indexOf(context.cardHolder, ' ') + 1, $length(context.cardHolder)))"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Column",
+                "properties": {
+                  "padding": 0,
+                  "width": "content"
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "properties": {
+                      "text": "Expires",
+                      "role": "caption"
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "id": "expiry",
+                    "properties": {
+                      "text": {
+                        "$expr": "$if(state.revealed, $concat($substring(context.expiry, 0, 2), '/', $substring(context.expiry, 2, 4)), '\u2022\u2022/\u2022\u2022')"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Column",
+                "properties": {
+                  "padding": 0,
+                  "width": "content"
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "properties": {
+                      "text": "CVV",
+                      "role": "caption"
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "id": "cvv",
+                    "properties": {
+                      "text": {
+                        "$expr": "$if(state.revealed, context.cvv, $substring('\u2022\u2022\u2022\u2022\u2022\u2022', 0, $length(context.cvv)))"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Row",
+        "properties": {
+          "spacing": 12,
+          "alignment": "center"
+        },
+        "children": [
+          {
+            "type": "IconButton",
+            "id": "reveal",
+            "properties": {
+              "icon": {
+                "$expr": "$if(state.revealed, 'eyeOff', 'eye')"
+              },
+              "accessibilityLabel": "View details",
+              "accessibilityHint": "Shows the full number, expiry, and CVV while held."
+            },
+            "on": {
+              "pressStart": [
+                {
+                  "action": "$set",
+                  "key": "revealed",
+                  "value": true
+                }
+              ],
+              "pressEnd": [
+                {
+                  "action": "$set",
+                  "key": "revealed",
+                  "value": false
+                }
+              ]
+            }
+          },
+          {
+            "type": "Text",
+            "id": "hint",
+            "properties": {
+              "text": {
+                "$expr": "$if(state.revealed, 'Release to hide.', 'Press and hold to view details.')"
+              },
+              "role": "caption",
+              "liveRegion": "polite"
+            }
+          }
+        ]
+      },
+      {
+        "type": "Text",
+        "id": "status",
+        "properties": {
+          "text": {
+            "$expr": "context.statusLabels[context.cardStatus]"
+          },
+          "role": "subtitle"
+        }
+      },
+      {
+        "type": "$switch",
+        "subject": {
+          "$expr": "context.cardStatus"
+        },
+        "cases": {
+          "active": [
+            {
+              "type": "Text",
+              "properties": {
+                "text": "Contactless is on for this card.",
+                "role": "caption"
+              }
+            }
+          ],
+          "frozen": [
+            {
+              "type": "Text",
+              "properties": {
+                "text": "Unfreeze the card to pay with it again.",
+                "role": "caption"
+              }
+            }
+          ],
+          "expired": [
+            {
+              "type": "Text",
+              "properties": {
+                "text": "A replacement is on its way.",
+                "role": "caption"
+              }
+            },
+            {
+              "type": "Text",
+              "properties": {
+                "text": "Expired cards cannot be unfrozen.",
+                "role": "caption"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Text",
+        "properties": {
+          "text": "Enabled for",
+          "role": "caption"
+        }
+      },
+      {
+        "type": "Row",
+        "id": "capabilities",
+        "properties": {
+          "spacing": 8,
+          "alignment": "center",
+          "scrolls": true
+        },
+        "children": [
+          {
+            "type": "$repeat",
+            "id": "chips",
+            "items": {
+              "$expr": "$split($replace(context.capabilities, ', ', ','), ',')"
+            },
+            "as": "capability",
+            "children": [
+              {
+                "type": "Card",
+                "properties": {
+                  "cornerRadius": 14,
+                  "padding": 8
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "properties": {
+                      "text": {
+                        "$expr": "capability"
+                      },
+                      "role": "caption"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Text",
+        "id": "summary",
+        "properties": {
+          "text": {
+            "$expr": "$concat($str($length($split($replace(context.capabilities, ', ', ','), ','))), ' ways to pay: ', $join($split($replace(context.capabilities, ', ', ','), ','), ' / '))"
+          },
+          "role": "caption"
+        }
+      }
+    ]
+  },
+  "metadata": {
+    "screen": "card-detail"
+  }
+}

@@ -60,6 +60,12 @@ enum DocumentParser {
             contextDeclarations: contextDeclarations,
             stateDeclarations: stateDeclarations,
             root: rootNode,
+            // Lifecycle and watch bindings: maps of signal name, or state
+            // key, to actions, like a node's on.
+            lifecycle: try bindingMap(root["on"], section: "on"),
+            hasLifecycle: root["on"] != nil,
+            watch: try bindingMap(root["watch"], section: "watch"),
+            hasWatch: root["watch"] != nil,
             metadata: root["metadata"])
     }
 
@@ -71,14 +77,43 @@ enum DocumentParser {
             throw MilanoBuildError.malformedDocument(detail: "\(section) is not an object")
         }
         var result: [String: MilanoType] = [:]
-        for (key, descriptor) in object {
-            guard MilanoIdentifier.isValid(key), let type = MilanoType(descriptor: descriptor) else {
+        // Lexicographic key order, never dictionary order: a serializer
+        // that reorders members must not change which defect is reported
+        // (document model spec, Validation).
+        for key in object.keys.sorted() {
+            // A key that is not an identifier and a descriptor the
+            // contract does not define are different defects.
+            guard MilanoIdentifier.isValid(key) else {
+                throw MilanoBuildError.schemaViolation(
+                    rule: "\(section)-declaration", node: nil, expected: "identifier", found: key)
+            }
+            guard let descriptor = object[key],
+                  let type = MilanoType(descriptor: descriptor) else {
                 throw MilanoBuildError.schemaViolation(
                     rule: "\(section)-declaration", node: nil, expected: "type descriptor", found: key)
             }
             result[key] = type
         }
         return result
+    }
+
+    /// A top-level binding section (`on`, `watch`): a map from a name to
+    /// one action or an action list; any other shape is malformed.
+    private static func bindingMap(
+        _ entry: MilanoValue?, section: String
+    ) throws -> [String: [ActionSpec]] {
+        switch entry {
+        case nil:
+            return [:]
+        case .record(let entries):
+            var bindings: [String: [ActionSpec]] = [:]
+            for (name, actionsEntry) in entries {
+                bindings[name] = try actionList(actionsEntry, at: "\(section).\(name)")
+            }
+            return bindings
+        default:
+            throw MilanoBuildError.malformedDocument(detail: "\(section) is not an object")
+        }
     }
 
     private static func node(_ entry: MilanoValue, at path: String) throws -> RawNode {
@@ -141,12 +176,75 @@ enum DocumentParser {
         if type == "$repeat" {
             repeatSpec = RepeatSpec(
                 items: try object["items"].map { try docValue($0, at: "\(path).items") },
-                as: object["as"]?.stringValue)
+                as: object["as"]?.stringValue,
+                key: try object["key"].map { try docValue($0, at: "\(path).key") })
         }
+
+        var conditionalSpec: ConditionalSpec?
+        if type == "$if" {
+            func branch(_ name: String) throws -> [RawNode]? {
+                guard let list = object[name] else { return nil }
+                guard case .array(let items) = list else {
+                    throw MilanoBuildError.malformedDocument(
+                        detail: "\(path) \(name) is not an array")
+                }
+                return try items.enumerated().map { index, child in
+                    try node(child, at: "\(path)/\(name)[\(index)]")
+                }
+            }
+            let declared: Set<String> = ["type", "condition", "then", "else"]
+            conditionalSpec = ConditionalSpec(
+                condition: try object["condition"].map { try docValue($0, at: "\(path).condition") },
+                then: try branch("then"),
+                otherwise: try branch("else"),
+                undeclared: object.keys.filter { !declared.contains($0) }.sorted())
+        }
+
+        let switchSpec = try switchSpec(type, in: object, at: path)
 
         return RawNode(
             type: type, id: id, properties: properties,
-            children: children, events: events, raw: entry, repeatSpec: repeatSpec)
+            children: children, events: events, raw: entry, repeatSpec: repeatSpec,
+            conditionalSpec: conditionalSpec, switchSpec: switchSpec)
+    }
+
+    /// The `$switch` construct's own keys, parsed out of the node walk:
+    /// that function is at SwiftLint's body-length limit, and a construct
+    /// with three keys of its own is what pushed it over.
+    private static func switchSpec(
+        _ type: String, in object: [String: MilanoValue], at path: String
+    ) throws -> SwitchSpec? {
+        guard type == "$switch" else { return nil }
+
+            func nodeList(_ value: MilanoValue, _ slot: String) throws -> [RawNode] {
+            guard case .array(let items) = value else {
+                throw MilanoBuildError.malformedDocument(
+                    detail: "\(path) \(slot) is not an array")
+            }
+            return try items.enumerated().map { index, child in
+                try node(child, at: "\(path)/\(slot)[\(index)]")
+            }
+            }
+            var cases: [String: [RawNode]]?
+            if let casesEntry = object["cases"] {
+            guard case .record(let members) = casesEntry else {
+                throw MilanoBuildError.malformedDocument(
+                    detail: "\(path) cases is not an object")
+            }
+            var built: [String: [RawNode]] = [:]
+            for member in members.keys.sorted() {
+                built[member] = try nodeList(members[member]!, "cases[\(member)]")
+            }
+            cases = built
+            }
+            let fallbackEntry = object["default"]
+            let declared: Set<String> = ["type", "subject", "cases", "default"]
+        return SwitchSpec(
+            subject: try object["subject"].map { try docValue($0, at: "\(path).subject") },
+            cases: cases,
+            fallback: try fallbackEntry.map { try nodeList($0, "default") },
+            hasFallback: fallbackEntry != nil,
+            undeclared: object.keys.filter { !declared.contains($0) }.sorted())
     }
 
     /// A value is dynamic only when written as the reserved single-key
@@ -192,6 +290,9 @@ enum DocumentParser {
             }
             return .set(key: key, value: try docValue(valueEntry, at: "\(path).value"))
 
+        case "$append", "$remove", "$update":
+            return try arrayAction(name, object: object, at: path)
+
         case "$sequence":
             guard object.keys.allSatisfy({ ["action", "actions"].contains($0) }),
                 let actionsEntry = object["actions"], case .array = actionsEntry
@@ -235,11 +336,38 @@ enum DocumentParser {
                 default: parameters[key] = try docValue(value, at: "\(path).\(key)")
                 }
             }
-            // The declared result type is unknown until the gate resolves
-            // the granted action set.
+            // The declared result and failure types are unknown until the
+            // gate resolves the granted action set.
             return .custom(
                 name: name, parameters: parameters, onSuccess: onSuccess, onFailure: onFailure,
-                result: nil)
+                result: nil, failure: nil)
         }
+    }
+
+    /// An array action (contract 2.1): the parameters travel as carried;
+    /// the gate applies the encoding rules, in the order the document
+    /// model spec fixes.
+    private static func arrayAction(
+        _ name: String, object: [String: MilanoValue], at path: String
+    ) throws -> ActionSpec {
+        let takes: [String]
+        switch name {
+        case "$append": takes = ["key", "value"]
+        case "$remove": takes = ["at", "key"]
+        default: takes = ["at", "field", "key", "value"]
+        }
+        let fieldEntry = object["field"]
+        var fieldFound: String?
+        if let fieldEntry, fieldEntry.stringValue == nil {
+            fieldFound = MilanoGate.name(of: fieldEntry)
+        }
+        return .arrayAction(ArrayActionSpec(
+            name: name,
+            key: object["key"]?.stringValue,
+            at: try object["at"].map { try docValue($0, at: "\(path).at") },
+            field: fieldEntry?.stringValue,
+            fieldFound: fieldFound,
+            value: try object["value"].map { try docValue($0, at: "\(path).value") },
+            extra: object.keys.filter { $0 != "action" && !takes.contains($0) }.sorted()))
     }
 }

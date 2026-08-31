@@ -33,7 +33,7 @@ let project = Project(
                 // The three sample apps carry the SDK's version, so a
                 // screenshot or a TestFlight build says which release it
                 // demonstrates. Checked by scripts/check-consistency.mjs.
-                "CFBundleShortVersionString": "2.0.0"
+                "CFBundleShortVersionString": "2.1.0"
             ]),
             sources: ["Sources/**"],
             resources: ["Resources/**"],
@@ -49,19 +49,23 @@ let project = Project(
                 .pre(
                     script: """
                     MILANO_CLI="${MILANO_CLI:-$SRCROOT/../../cli/dist/bin.js}"
-                    export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
-                    command -v node >/dev/null || { echo "error: node is not on PATH; the Milano CLI runs on Node" >&2; exit 1; }
+                    # Xcode gives a build phase the PATH of whatever launched
+                    # it, not a login shell's, so a Node installed by nvm,
+                    # fnm, volta, asdf or mise is invisible here even though
+                    # `node` works in every terminal. find-node.sh looks where
+                    # those put it and explains itself when it cannot.
+                    NODE="$(sh "$SRCROOT/Scripts/find-node.sh")" || exit 1
                     [ -f "$MILANO_CLI" ] || { echo "error: Milano CLI not built at $MILANO_CLI: run npm ci && npm run build at the repository root" >&2; exit 1; }
-                    node "$MILANO_CLI" bindings "$SRCROOT/Resources/vocabulary.json" \
+                    "$NODE" "$MILANO_CLI" bindings "$SRCROOT/Resources/vocabulary.json" \
                         --swift-prefix Sample \
                         --swift-out "$SRCROOT/Sources/MilanoBridge/GeneratedBindings.swift"
-                    node "$MILANO_CLI" schema "$SRCROOT/Resources/vocabulary.json" \
+                    "$NODE" "$MILANO_CLI" schema "$SRCROOT/Resources/vocabulary.json" \
                         --out "$SRCROOT/documents.schema.json"
                     set --
                     for doc in "$SRCROOT"/Resources/*.json; do
                         [ "$(basename "$doc")" = "vocabulary.json" ] || set -- "$@" "$doc"
                     done
-                    node "$MILANO_CLI" validate "$@" --vocabulary "$SRCROOT/Resources/vocabulary.json"
+                    "$NODE" "$MILANO_CLI" validate "$@" --vocabulary "$SRCROOT/Resources/vocabulary.json"
                     """,
                     name: "Generate Milano bindings and validate documents",
                     basedOnDependencyAnalysis: false

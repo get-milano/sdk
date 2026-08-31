@@ -1,0 +1,161 @@
+{
+  "version": "2.1.0",
+  "vocabulary": {
+    "name": "examples",
+    "min": "1.4.0"
+  },
+  "state": {
+    "actions": {
+      "array": {
+        "record": {
+          "id": "string",
+          "label": "string",
+          "icon": {
+            "enum": [
+              "person",
+              "list",
+              "search",
+              "edit",
+              "settings",
+              "help"
+            ]
+          },
+          "screen": {
+            "enum": [
+              "profile",
+              "catalog",
+              "pokemon",
+              "form"
+            ]
+          }
+        }
+      }
+    },
+    "lastTapped": "int"
+  },
+  "root": {
+    "type": "Column",
+    "id": "quick-actions",
+    "children": [
+      {
+        "type": "Text",
+        "properties": {
+          "text": "Quick actions",
+          "role": "title"
+        }
+      },
+      {
+        "type": "Text",
+        "properties": {
+          "text": "One template, four tiles. Each tap records its position and opens a screen.",
+          "role": "body"
+        }
+      },
+      {
+        "type": "Row",
+        "id": "strip",
+        "properties": {
+          "spacing": 12,
+          "alignment": "top",
+          "horizontalPadding": 8,
+          "scrolls": true
+        },
+        "children": [
+          {
+            "type": "$repeat",
+            "id": "tiles",
+            "items": {
+              "$expr": "state.actions"
+            },
+            "as": "tile",
+            "key": {
+              "$expr": "tile.id"
+            },
+            "children": [
+              {
+                "type": "Card",
+                "id": "tile",
+                "properties": {
+                  "style": "plain",
+                  "padding": 8,
+                  "accessibilityLabel": {
+                    "$expr": "tile.label"
+                  },
+                  "accessibilityHint": "Opens the screen."
+                },
+                "on": {
+                  "tap": [
+                    {
+                      "action": "track",
+                      "event": "tapped",
+                      "surface": "quick-actions",
+                      "position": {
+                        "$expr": "tile_index"
+                      }
+                    },
+                    {
+                      "action": "$set",
+                      "key": "lastTapped",
+                      "value": {
+                        "$expr": "tile_index"
+                      }
+                    },
+                    {
+                      "action": "navigate",
+                      "screen": {
+                        "$expr": "tile.screen"
+                      }
+                    }
+                  ]
+                },
+                "children": [
+                  {
+                    "type": "Column",
+                    "properties": {
+                      "padding": 0,
+                      "width": "content"
+                    },
+                    "children": [
+                      {
+                        "type": "Icon",
+                        "properties": {
+                          "name": {
+                            "$expr": "tile.icon"
+                          },
+                          "container": "circle"
+                        }
+                      },
+                      {
+                        "type": "Text",
+                        "properties": {
+                          "text": {
+                            "$expr": "tile.label"
+                          },
+                          "role": "caption"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Text",
+        "id": "readout",
+        "properties": {
+          "text": {
+            "$expr": "$if(state.lastTapped < 0, 'Nothing tapped yet.', $concat('Tracked position ', $str(state.lastTapped), ', counting from zero.'))"
+          },
+          "role": "subtitle",
+          "liveRegion": "polite"
+        }
+      }
+    ]
+  },
+  "metadata": {
+    "screen": "quick-actions"
+  }
+}

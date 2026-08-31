@@ -58,6 +58,38 @@ internal object DocumentParser {
             }
         }
 
+        // Lifecycle bindings: a map of signal name to actions, like a node's on.
+        val lifecycle = LinkedHashMap<String, List<ActionSpec>>()
+        when (val onEntry = root["on"]) {
+            null -> {}
+
+            is MilanoValue.RecordValue -> {
+                for ((signal, actionsEntry) in onEntry.values.entries.sortedBy { it.key }) {
+                    lifecycle[signal] = actionList(actionsEntry, "on.$signal")
+                }
+            }
+
+            else -> {
+                throw MilanoBuildException.MalformedDocument("on is not an object")
+            }
+        }
+
+        // Watch bindings: a map of state key to actions, like a node's on.
+        val watch = LinkedHashMap<String, List<ActionSpec>>()
+        when (val watchEntry = root["watch"]) {
+            null -> {}
+
+            is MilanoValue.RecordValue -> {
+                for ((key, actionsEntry) in watchEntry.values.entries.sortedBy { it.key }) {
+                    watch[key] = actionList(actionsEntry, "watch.$key")
+                }
+            }
+
+            else -> {
+                throw MilanoBuildException.MalformedDocument("watch is not an object")
+            }
+        }
+
         return ParsedDocument(
             versionString,
             major,
@@ -67,6 +99,10 @@ internal object DocumentParser {
             stateDeclarations,
             rootNode,
             root["metadata"],
+            lifecycle,
+            root["on"] != null,
+            watch,
+            root["watch"] != null,
         )
     }
 
@@ -82,14 +118,22 @@ internal object DocumentParser {
         // Object members in lexicographic key order (document model spec,
         // Validation): JSON defines no order for them.
         for ((key, descriptor) in obj.entries.sortedBy { it.key }) {
-            val type = MilanoType.fromDescriptor(descriptor)
-            if (!MilanoIdentifier.isValid(key) || type == null) {
+            // A key that is not an identifier and a descriptor the contract
+            // does not define are different defects, and the detail says which.
+            if (!MilanoIdentifier.isValid(key)) {
                 throw MilanoBuildException.SchemaViolation(
                     rule = "$section-declaration",
-                    expected = "type descriptor",
+                    expected = "identifier",
                     found = key,
                 )
             }
+            val type =
+                MilanoType.fromDescriptor(descriptor)
+                    ?: throw MilanoBuildException.SchemaViolation(
+                        rule = "$section-declaration",
+                        expected = "type descriptor",
+                        found = key,
+                    )
             result[key] = type
         }
         return result
@@ -174,12 +218,106 @@ internal object DocumentParser {
                 RepeatSpec(
                     items = obj["items"]?.let { docValue(it, "$path.items") },
                     alias = (obj["as"] as? MilanoValue.StringValue)?.value,
+                    key = obj["key"]?.let { docValue(it, "$path.key") },
                 )
             } else {
                 null
             }
 
-        return RawNode(type, id, properties, children, events, entry, repeatSpec)
+        val conditionalSpec =
+            if (type == "\$if") {
+                fun branch(name: String): List<RawNode>? =
+                    when (val list = obj[name]) {
+                        null -> {
+                            null
+                        }
+
+                        is MilanoValue.ArrayValue -> {
+                            list.values.mapIndexed { index, child ->
+                                node(child, "$path/$name[$index]")
+                            }
+                        }
+
+                        else -> {
+                            throw MilanoBuildException.MalformedDocument(
+                                "$path $name is not an array",
+                            )
+                        }
+                    }
+                val declared = setOf("type", "condition", "then", "else")
+                ConditionalSpec(
+                    condition = obj["condition"]?.let { docValue(it, "$path.condition") },
+                    then = branch("then"),
+                    otherwise = branch("else"),
+                    undeclared = obj.keys.filterNot { it in declared }.sorted(),
+                )
+            } else {
+                null
+            }
+
+        val switchSpec =
+            if (type == "\$switch") {
+                fun nodeList(
+                    value: MilanoValue,
+                    where: String,
+                ): List<RawNode> =
+                    when (value) {
+                        is MilanoValue.ArrayValue -> {
+                            value.values.mapIndexed { index, child ->
+                                node(child, "$path/$where[$index]")
+                            }
+                        }
+
+                        else -> {
+                            throw MilanoBuildException.MalformedDocument(
+                                "$path $where is not an array",
+                            )
+                        }
+                    }
+
+                val casesEntry = obj["cases"]
+                val cases =
+                    when (casesEntry) {
+                        null -> {
+                            null
+                        }
+
+                        is MilanoValue.RecordValue -> {
+                            casesEntry.values.entries.sortedBy { it.key }.associate { (member, branch) ->
+                                member to nodeList(branch, "cases[$member]")
+                            }
+                        }
+
+                        else -> {
+                            throw MilanoBuildException.MalformedDocument(
+                                "$path cases is not an object",
+                            )
+                        }
+                    }
+                val fallbackEntry = obj["default"]
+                val declared = setOf("type", "subject", "cases", "default")
+                SwitchSpec(
+                    subject = obj["subject"]?.let { docValue(it, "$path.subject") },
+                    cases = cases,
+                    fallback = fallbackEntry?.let { nodeList(it, "default") },
+                    hasFallback = fallbackEntry != null,
+                    undeclared = obj.keys.filterNot { it in declared }.sorted(),
+                )
+            } else {
+                null
+            }
+
+        return RawNode(
+            type,
+            id,
+            properties,
+            children,
+            events,
+            entry,
+            repeatSpec,
+            conditionalSpec,
+            switchSpec,
+        )
     }
 
     /**
@@ -271,6 +409,22 @@ internal object DocumentParser {
                     condition = docValue(conditionEntry, "$path.condition"),
                     then = obj["then"]?.let { actionList(it, "$path.then") } ?: emptyList(),
                     otherwise = obj["else"]?.let { actionList(it, "$path.else") } ?: emptyList(),
+                )
+            }
+
+            "\$append", "\$remove", "\$update" -> {
+                // The parameters travel as carried; the gate applies the
+                // encoding rules, in the order the document model spec fixes.
+                val takes = ActionSpec.ArrayAction.PARAMETERS.getValue(name)
+                val fieldEntry = obj["field"]
+                ActionSpec.ArrayAction(
+                    name = name,
+                    key = (obj["key"] as? MilanoValue.StringValue)?.value,
+                    at = obj["at"]?.let { docValue(it, "$path.at") },
+                    field = (fieldEntry as? MilanoValue.StringValue)?.value,
+                    fieldFound = fieldEntry?.takeIf { it !is MilanoValue.StringValue }?.let { MilanoGate.name(it) },
+                    value = obj["value"]?.let { docValue(it, "$path.value") },
+                    extra = obj.keys.filter { it != "action" && it !in takes }.sorted(),
                 )
             }
 

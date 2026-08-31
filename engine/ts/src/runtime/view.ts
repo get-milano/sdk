@@ -1,17 +1,30 @@
 import { emptyRecord, hasOwn, own, recordFrom } from "../core/lookup.ts";
 import type { MilanoType } from "../core/type.ts";
 import { MilanoValue } from "../core/value.ts";
+import { MilanoBuildError } from "../document/errors.ts";
 import type { ActionSpec, DocValue, ParsedDocument } from "../document/model.ts";
 import type { MilanoLimits } from "../engine/configuration.ts";
 import type { MilanoUserInteractionKind, MilanoUserInteractionObserver } from "../engine/interaction.ts";
-import type { MilanoObserver, MilanoOccurrenceKind } from "../engine/observer.ts";
+import type { MilanoObserver, MilanoOccurrence, MilanoOccurrenceKind } from "../engine/observer.ts";
 import type { MilanoVocabulary } from "../engine/vocabulary.ts";
+import type { EvalEnvironment, ReportDetail } from "../expression/evaluator.ts";
 import { ExprEvaluator } from "../expression/evaluator.ts";
-import type { BuiltNode } from "../gate/gate.ts";
+import type { BuiltNode, MilanoGate } from "../gate/gate.ts";
 import type { DependencyNode, ResolvedNode } from "../gate/resolver.ts";
-import { countNodes, elementBindings, indexDependencies, refresh, repeatElements } from "../gate/resolver.ts";
+import {
+  RepeatKeyConflict,
+  countNodes,
+  elementBindings,
+  indexDependencies,
+  instanceIdentities,
+  refresh,
+  repeatElements,
+  resolve,
+  suffixOf,
+} from "../gate/resolver.ts";
 import type { MilanoDispatcher } from "./dispatcher.ts";
 import type { MilanoAction, MilanoActionHandler } from "./handlers.ts";
+import { MilanoActionFailure } from "./handlers.ts";
 
 export interface DispatchRecord {
   readonly action: MilanoAction;
@@ -22,27 +35,19 @@ export interface DispatchRecord {
   /** The `$repeat` bindings in scope at dispatch, kept for follow-ups. */
   readonly capturedBindings: Bindings;
   readonly resultType: MilanoType | null;
+  readonly failureType: MilanoType | null;
   readonly sourceNode: string | null;
+  /**
+   * Dispatched from a watch list: its follow-ups run with watches
+   * suppressed too, since a watch never triggers a watch.
+   */
+  readonly fromWatch: boolean;
 }
 
 type Bindings = Readonly<Record<string, MilanoValue>>;
 
-/**
- * An instance reference split into its template reference and the
- * element index per enclosing `$repeat`, outermost first: `line[2][0]`
- * is `line` at 2 then 0. A plain reference has no indices.
- */
-function splitInstanceReference(reference: string): { base: string; indices: number[] } {
-  const indices: number[] = [];
-  let base = reference;
-  for (;;) {
-    const match = /\[(\d+)\]$/.exec(base);
-    if (match === null) break;
-    indices.unshift(Number(match[1]));
-    base = base.slice(0, match.index);
-  }
-  return { base, indices };
-}
+/** A lifecycle signal the host delivers (state and actions spec, Lifecycle signals). */
+export type MilanoLifecycleSignal = "appear" | "disappear";
 
 interface NodeEvents {
   readonly declared: Readonly<Record<string, MilanoType | null>>;
@@ -50,6 +55,25 @@ interface NodeEvents {
   /** The enclosing `$repeat` constructs, outermost first. */
   readonly repeats: readonly BuiltNode[];
 }
+
+/** An instance in the current tree: its template and enclosing identities. */
+interface InstanceLocation {
+  readonly base: string;
+  readonly identities: readonly string[];
+}
+
+/** An occurrence held back until the update that raised it is accepted. */
+type HeldReport = [MilanoOccurrenceKind, string, string, ReportDetail | undefined];
+
+/** What a materialization produced, or why it was refused. */
+type Materialized =
+  | {
+      readonly kind: "tree";
+      readonly tree: ResolvedNode;
+      readonly count: number;
+      readonly reports: HeldReport[];
+    }
+  | { readonly kind: "conflict"; readonly key: string };
 
 /**
  * What a view needs from its engine: the vocabulary it validates against
@@ -62,35 +86,72 @@ export interface ViewRuntime {
   readonly userInteractionObserver: MilanoUserInteractionObserver | null;
 }
 
+/**
+ * A replacement's plan, prepared by the builder (state and actions spec,
+ * Document replacement): the new document through the gate, and the
+ * provider's values for the keys that do not carry over, or null when
+ * every key carries over and the provider was not consulted.
+ */
+export interface ReplacementPlan {
+  readonly gate: MilanoGate;
+  readonly document: ParsedDocument;
+  readonly root: BuiltNode;
+  readonly lifecycle: Readonly<Record<string, readonly ActionSpec[]>>;
+  readonly watch: Readonly<Record<string, readonly ActionSpec[]>>;
+  readonly pending: MilanoOccurrence[];
+  readonly provided: Readonly<Record<string, MilanoValue>> | null;
+}
+
+export type Replacer = (
+  text: string,
+  byteCount: number | null,
+  priorDeclarations: Readonly<Record<string, MilanoType>>,
+) => Promise<ReplacementPlan>;
+
 export interface ViewOptions {
   readonly identity: string;
+  /** Unique per view instance in the process; dispatch ids are minted from it. */
+  readonly instanceToken: string;
   readonly runtime: ViewRuntime;
   readonly document: ParsedDocument;
   readonly root: BuiltNode;
+  /** The document's lifecycle bindings, validated by the gate. */
+  readonly lifecycle: Readonly<Record<string, readonly ActionSpec[]>>;
+  /** The document's watch bindings, validated by the gate. */
+  readonly watch: Readonly<Record<string, readonly ActionSpec[]>>;
   readonly resolvedRoot: ResolvedNode;
   readonly context: Readonly<Record<string, MilanoValue>>;
   readonly state: Readonly<Record<string, MilanoValue>>;
   readonly dispatcher: MilanoDispatcher;
   readonly handler: MilanoActionHandler | null;
+  /** The host functions the surface declares and the engine's handler. */
+  readonly env: EvalEnvironment;
+  /** Prepares a replacement under the builder's configuration; null when unsupported. */
+  readonly replacer: Replacer | null;
 }
 
 /**
- * A built view, bound to one document for its lifetime. Everything mutable
- * runs through the view's dispatcher and its work queue, so an update
- * never lands mid-action-list.
+ * A built view, bound to one document at a time. Everything mutable runs
+ * through the view's dispatcher and its work queue, so an update never
+ * lands mid-action-list.
  */
 export class MilanoView {
   readonly identity: string;
-  /** @internal The parsed document; the view's own business. */
-  readonly document: ParsedDocument;
   private readonly runtime: ViewRuntime;
+  private readonly instanceToken: string;
 
-  private readonly root: BuiltNode;
-  /** What every expression reads, indexed once: the update path's map. */
-  private readonly dependencies: DependencyNode;
+  /** @internal The parsed document; the view's own business. */
+  private currentDocument: ParsedDocument;
+  private root: BuiltNode;
+  private lifecycle: Readonly<Record<string, readonly ActionSpec[]>>;
+  private watch: Readonly<Record<string, readonly ActionSpec[]>>;
+  /** What every expression reads, indexed once per document: the update path's map. */
+  private dependencies: DependencyNode;
   private readonly limits: MilanoLimits;
   private readonly dispatcher: MilanoDispatcher;
   private readonly handler: MilanoActionHandler | null;
+  private readonly env: EvalEnvironment;
+  private readonly replacer: Replacer | null;
   private readonly nodeEvents = new Map<string, NodeEvents>();
   private readonly listeners = new Set<() => void>();
 
@@ -101,10 +162,29 @@ export class MilanoView {
   private readonly queue: (() => void)[] = [];
   private processing = false;
   private tornDown = false;
+  /** The lifecycle state: appear is accepted only while false, disappear only while true. */
+  private appeared = false;
+  /**
+   * Above zero while a watch list, or a follow-up of a dispatch made from
+   * one, is executing: mutations then trigger no watch (state and actions
+   * spec, Watch bindings).
+   */
+  private watchDepth = 0;
+  /**
+   * Dispatches below this index belong to a document since replaced:
+   * their completions are dropped and reported.
+   */
+  private replacedBefore = 0;
 
   private currentResolvedRoot: ResolvedNode;
   private currentContext: Readonly<Record<string, MilanoValue>>;
   private currentState: Readonly<Record<string, MilanoValue>>;
+  /**
+   * Instance reference to its template and identities, for the current
+   * tree; built on the first emission after a commit, since references
+   * are compared, never parsed.
+   */
+  private instanceIndex: Map<string, InstanceLocation> | null = null;
 
   /** Cancels the context source subscription; invoked at teardown. */
   private cancelContextSubscription: (() => void) | null = null;
@@ -118,17 +198,27 @@ export class MilanoView {
   /** @internal Views are created by the builder, never by hosts. */
   constructor(options: ViewOptions) {
     this.identity = options.identity;
+    this.instanceToken = options.instanceToken;
     this.runtime = options.runtime;
-    this.document = options.document;
+    this.currentDocument = options.document;
     this.root = options.root;
+    this.lifecycle = options.lifecycle;
+    this.watch = options.watch;
     this.dependencies = indexDependencies(options.root);
     this.limits = options.runtime.limits;
     this.dispatcher = options.dispatcher;
     this.handler = options.handler;
+    this.env = options.env;
+    this.replacer = options.replacer;
     this.currentResolvedRoot = options.resolvedRoot;
     this.currentContext = options.context;
     this.currentState = options.state;
     this.indexNodes(options.root);
+  }
+
+  /** @internal The parsed document the view is currently bound to. */
+  get document(): ParsedDocument {
+    return this.currentDocument;
   }
 
   /**
@@ -172,7 +262,7 @@ export class MilanoView {
    * annotations reach host code without a side channel.
    */
   get metadata(): MilanoValue | null {
-    return this.document.metadata;
+    return this.currentDocument.metadata;
   }
 
   /** Notifies after every re-resolution; the React binding subscribes here. */
@@ -193,6 +283,20 @@ export class MilanoView {
   }
 
   /**
+   * The host's signal that the view has come on screen: accepted while
+   * not appeared, ignored otherwise, and after teardown. An accepted
+   * signal dispatches the document's `appear` bindings, if any.
+   */
+  appear(): void {
+    this.dispatcher.dispatch(() => this.processLifecycle("appear"));
+  }
+
+  /** The host's signal that the view has left the screen; the mirror of `appear`. */
+  disappear(): void {
+    this.dispatcher.dispatch(() => this.processLifecycle("disappear"));
+  }
+
+  /**
    * Reports a widget interaction to the engine's user-interaction stream,
    * for signals the document does not model as events. Never touches
    * dispatch or state.
@@ -203,6 +307,45 @@ export class MilanoView {
     value: MilanoValue | null = null,
   ): void {
     this.record(kind, node, null, value);
+  }
+
+  /**
+   * Replaces the document the view is bound to (state and actions spec,
+   * Document replacement): the new document passes the gate under the
+   * surface's configuration, state whose declaration is unchanged carries
+   * over, the provider supplies the rest, and the swap lands on the
+   * dispatcher, serialized with dispatch. Throws what `build()` throws; on
+   * a throw the view is exactly as it was. Ignored after teardown.
+   */
+  async replace(document: string | Uint8Array): Promise<void> {
+    if (this.tornDown || this.replacer === null) return;
+    let text: string;
+    let byteCount: number | null;
+    if (typeof document === "string") {
+      text = document;
+      byteCount = null;
+    } else {
+      if (typeof TextDecoder === "undefined") {
+        throw new Error("TextDecoder is required to replace a document from bytes");
+      }
+      text = new TextDecoder("utf-8").decode(document);
+      byteCount = document.byteLength;
+    }
+    // The gate and the provider run before anything touches the view; the
+    // swap itself is one queued unit, so it never lands mid-action-list.
+    const plan = await this.replacer(text, byteCount, this.currentDocument.stateDeclarations);
+    await new Promise<void>((settle, fail) => {
+      this.dispatcher.dispatch(() => {
+        this.enqueue(() => {
+          try {
+            this.swap(plan);
+            settle();
+          } catch (error) {
+            fail(error);
+          }
+        });
+      });
+    });
   }
 
   /**
@@ -244,23 +387,30 @@ export class MilanoView {
       return;
     }
     record.completed = true;
+    // A dispatch of a document since replaced: its follow-ups belong to a
+    // document that no longer exists. It still counts as completed.
+    if (dispatchIndex < this.replacedBefore) {
+      this.report("completionAfterReplace", null, { name: action });
+      return;
+    }
 
-    // The success value against the declared result type: a missing value
-    // counts as null, a value on failure or on an action declaring no
-    // result never validates. An invalid completion is consumed without
+    // The completion's value against the declared type for its outcome:
+    // a missing value counts as null, a value for an outcome declaring no
+    // type never validates. An invalid completion is consumed without
     // running either branch.
-    let resultValue: MilanoValue | null = null;
-    if (success && record.resultType !== null) {
-      const validated = record.resultType.validated(payload ?? MilanoValue.null);
+    const declared = success ? record.resultType : record.failureType;
+    let value: MilanoValue | null = null;
+    if (declared !== null) {
+      const validated = declared.validated(payload ?? MilanoValue.null);
       if (validated === null) {
         this.report("invalidCompletion", null, {
           name: action,
-          expected: record.resultType.name,
+          expected: declared.name,
           found: (payload ?? MilanoValue.null).kind,
         });
         return;
       }
-      resultValue = validated;
+      value = validated;
     } else if (payload !== null) {
       this.report("invalidCompletion", null, {
         name: action,
@@ -274,7 +424,8 @@ export class MilanoView {
       success ? "completionSucceeded" : "completionFailed",
       record.sourceNode,
       record.action.name,
-      null,
+      value,
+      record.action.dispatch,
     );
 
     const followUps = success ? record.onSuccess : record.onFailure;
@@ -282,13 +433,39 @@ export class MilanoView {
       const captured = record.capturedEvent;
       const bindings = record.capturedBindings;
       const source = record.sourceNode;
-      this.enqueue(() => this.execute(followUps, captured, resultValue, source, bindings));
+      const result = success ? value : null;
+      const failure = success ? null : value;
+      this.enqueue(() => {
+        // Follow-ups of a dispatch made from a watch list run with watches
+        // suppressed, like the list itself.
+        if (record.fromWatch) this.watchDepth += 1;
+        try {
+          this.execute(followUps, captured, result, source, bindings, failure);
+        } finally {
+          if (record.fromWatch) this.watchDepth -= 1;
+        }
+      });
     }
   }
 
   private indexNodes(node: BuiltNode, repeats: readonly BuiltNode[] = []): void {
     if (node.repeat !== null) {
       for (const template of node.children) this.indexNodes(template, [...repeats, node]);
+      return;
+    }
+    // A construct's branches hold ordinary nodes that are simply not
+    // reached through `children`. Missing them here leaves their
+    // emissions with no binding to find, reported as invalidEmission.
+    if (node.conditional !== null) {
+      for (const child of node.conditional.then) this.indexNodes(child, repeats);
+      for (const child of node.conditional.otherwise) this.indexNodes(child, repeats);
+      return;
+    }
+    if (node.choice !== null) {
+      for (const branch of Object.values(node.choice.cases)) {
+        for (const child of branch) this.indexNodes(child, repeats);
+      }
+      for (const child of node.choice.fallback ?? []) this.indexNodes(child, repeats);
       return;
     }
     if (!node.isPlaceholder) {
@@ -304,41 +481,89 @@ export class MilanoView {
     for (const child of node.children) this.indexNodes(child, repeats);
   }
 
+  /** Where every instance of the current tree comes from, built on demand. */
+  private locate(reference: string): InstanceLocation | undefined {
+    if (this.instanceIndex === null) {
+      const index = new Map<string, InstanceLocation>();
+      const walk = (node: ResolvedNode): void => {
+        if (node.identities.length > 0) {
+          index.set(node.reference, { base: node.base, identities: node.identities });
+        }
+        for (const child of node.children) walk(child);
+      };
+      walk(this.currentResolvedRoot);
+      this.instanceIndex = index;
+    }
+    return this.instanceIndex.get(reference);
+  }
+
   /**
    * The `$repeat` bindings an instance's emission dispatches with: the
-   * element at each index, evaluated now, outermost repeat first. Null
-   * when an index no longer exists.
+   * element each identity names, evaluated now, outermost repeat first.
+   * Null when an identity no longer names an element, with the detail the
+   * report carries.
    */
-  private bindingsFor(info: NodeEvents, indices: readonly number[]): Bindings | null {
+  private bindingsFor(
+    info: NodeEvents,
+    identities: readonly string[],
+  ): { bindings: Bindings } | { missing: string } {
     let bindings: Bindings = {};
-    let suffix = "";
+    const enclosing: string[] = [];
     for (let level = 0; level < info.repeats.length; level += 1) {
       const repeat = info.repeats[level] as BuiltNode;
-      const index = indices[level] as number;
-      const elements = repeatElements(
-        repeat, repeat.reference + suffix, this.currentState, this.currentContext, () => {}, bindings,
-      );
-      const element = elements[index];
-      if (element === undefined) return null;
-      bindings = elementBindings((repeat.repeat as { as: string }).as, element, index, bindings);
-      suffix += `[${index}]`;
+      const identity = identities[level] as string;
+      const reference = repeat.reference + suffixOf(enclosing);
+      const elements = repeatElements(repeat, reference, this.currentState, this.currentContext, () => {}, bindings, this.env);
+      const keyed = repeat.repeat?.key !== null;
+      let index: number;
+      if (keyed) {
+        // The identities of the current elements are their keys, distinct
+        // by the invariant every accepted update keeps.
+        let current: string[];
+        try {
+          current = instanceIdentities(repeat, reference, elements, this.currentState, this.currentContext, () => {}, bindings, this.env);
+        } catch (error) {
+          if (error instanceof RepeatKeyConflict) return { missing: `key ${identity}` };
+          throw error;
+        }
+        index = current.indexOf(identity);
+        if (index < 0) return { missing: `key ${identity}` };
+      } else {
+        index = /^\d+$/.test(identity) ? Number(identity) : -1;
+        if (index < 0 || elements[index] === undefined) return { missing: `index ${identity}` };
+      }
+      bindings = elementBindings((repeat.repeat as { as: string }).as, elements[index] as MilanoValue, index, bindings);
+      enclosing.push(identity);
     }
-    return bindings;
+    return { bindings };
   }
 
   private processEmission(node: string, event: string, payload: MilanoValue | null): void {
     if (this.tornDown) return;
-    // A plain reference, or an instance reference: the template's
-    // reference with one index per enclosing repeat.
+    // A plain reference, or an instance reference: located in the current
+    // tree, never parsed, so a key may contain any character.
     let info = this.nodeEvents.get(node);
-    let indices: number[] = [];
+    let identities: readonly string[] = [];
     if (info === undefined || info.repeats.length > 0) {
-      const split = splitInstanceReference(node);
-      const candidate = this.nodeEvents.get(split.base);
-      if (candidate !== undefined && candidate.repeats.length === split.indices.length) {
-        info = candidate;
-        indices = split.indices;
+      const located = this.locate(node);
+      if (located !== undefined) {
+        const candidate = this.nodeEvents.get(located.base);
+        info = candidate !== undefined && candidate.repeats.length === located.identities.length
+          ? candidate
+          : undefined;
+        identities = located.identities;
       } else {
+        // Not in the current tree: an instance that has vanished, which
+        // the report names, or a node that never existed.
+        const vanished = this.vanishedInstance(node);
+        if (vanished !== null) {
+          this.report("invalidEmission", node, {
+            name: event,
+            expected: "repeat element",
+            found: vanished,
+          });
+          return;
+        }
         info = undefined;
       }
     }
@@ -350,15 +575,16 @@ export class MilanoView {
       });
       return;
     }
-    const bindings = this.bindingsFor(info, indices);
-    if (bindings === null) {
+    const bound = this.bindingsFor(info, identities);
+    if ("missing" in bound) {
       this.report("invalidEmission", node, {
         name: event,
         expected: "repeat element",
-        found: `index ${indices[indices.length - 1] ?? 0}`,
+        found: bound.missing,
       });
       return;
     }
+    const bindings = bound.bindings;
     if (!hasOwn(info.declared, event)) {
       this.report("invalidEmission", node, {
         name: event,
@@ -404,13 +630,47 @@ export class MilanoView {
     this.enqueue(() => this.execute(actions, eventValue, null, node, bindings));
   }
 
+  /**
+   * An emission naming an instance the current tree no longer has: the
+   * reference ends in bracketed identities whose template is a repeated
+   * node. The detail names the last identity, as an index or a key by the
+   * innermost repeat's shape.
+   */
+  private vanishedInstance(reference: string): string | null {
+    const parts: string[] = [];
+    let base = reference;
+    for (;;) {
+      const match = /\[([^\[\]]*)\]$/.exec(base);
+      if (match === null) break;
+      parts.unshift(match[1] as string);
+      base = base.slice(0, match.index);
+    }
+    if (parts.length === 0) return null;
+    const info = this.nodeEvents.get(base);
+    if (info === undefined || info.repeats.length !== parts.length) return null;
+    const innermost = info.repeats[info.repeats.length - 1] as BuiltNode;
+    const last = parts[parts.length - 1] as string;
+    return innermost.repeat?.key !== null ? `key ${last}` : `index ${last}`;
+  }
+
+  private processLifecycle(signal: MilanoLifecycleSignal): void {
+    if (this.tornDown) return;
+    // A redundant signal carries no work: ignored silently.
+    if (this.appeared === (signal === "appear")) return;
+    this.appeared = signal === "appear";
+    this.record(signal === "appear" ? "viewAppeared" : "viewDisappeared", null, null, null);
+    const actions = own(this.lifecycle, signal);
+    if (actions === undefined || actions.length === 0) return;
+    this.enqueue(() => this.execute(actions, null, null, null, {}));
+  }
+
   private performContextUpdate(supplied: Readonly<Record<string, MilanoValue>>): void {
     if (this.tornDown) return;
     // Atomic: all declared keys validate or the whole update is rejected.
     const canonical = emptyRecord<MilanoValue>();
     const changed = new Set<string>();
     let lastKey: string | null = null;
-    for (const [key, type] of Object.entries(this.document.contextDeclarations)) {
+    for (const [key, type] of Object.entries(this.currentDocument.contextDeclarations)) {
       const value = own(supplied, key);
       const validated = value === undefined ? null : type.validated(value);
       if (validated === null) {
@@ -438,12 +698,21 @@ export class MilanoView {
     }
     // Only what reads a changed key re-evaluates; an update that changes
     // no value changes nothing. A tree materialized past the node count
-    // limit rejects the update whole.
+    // limit, or a keyed repeat rendering one key twice, rejects the
+    // update whole.
     if (changed.size === 0) {
       this.currentContext = canonical;
       return;
     }
     const materialized = this.materialize(changed, this.currentState, canonical);
+    if (materialized.kind === "conflict") {
+      this.report("rejectedContextUpdate", null, {
+        name: lastKey ?? undefined,
+        expected: "distinct key",
+        found: materialized.key,
+      });
+      return;
+    }
     if (materialized.count > this.limits.maxNodeCount) {
       this.report("rejectedContextUpdate", null, {
         name: lastKey ?? undefined,
@@ -454,6 +723,86 @@ export class MilanoView {
     }
     this.currentContext = canonical;
     this.commit(materialized);
+  }
+
+  /**
+   * The swap of a replacement (state and actions spec, Document
+   * replacement), one queued unit: the held context against the new
+   * declarations, state carried where the declaration is unchanged and
+   * taken from the provider otherwise, the tree resolved whole; any
+   * failure throws before anything changes. Then the view adopts the new
+   * document, keeps its identity, numbering, and appeared state, and
+   * reports what the gate held back.
+   */
+  private swap(plan: ReplacementPlan): void {
+    if (this.tornDown) return;
+    const gate = plan.gate;
+    const document = plan.document;
+    const context = gate.validateContext(document, this.currentContext);
+
+    const merged = emptyRecord<MilanoValue>();
+    for (const [key, type] of Object.entries(document.stateDeclarations)) {
+      const previous = own(this.currentDocument.stateDeclarations, key);
+      const current = own(this.currentState, key);
+      if (previous !== undefined && current !== undefined && previous.equals(type)) {
+        merged[key] = current;
+      } else if (plan.provided !== null) {
+        const provided = own(plan.provided, key);
+        if (provided !== undefined) merged[key] = provided;
+      }
+    }
+    const state =
+      Object.keys(document.stateDeclarations).length > 0 ? gate.validateState(document, merged) : {};
+
+    const pending = [...plan.pending];
+    let tree: ResolvedNode;
+    try {
+      tree = resolve(
+        plan.root,
+        state,
+        context,
+        (kind, node, name, detail) => {
+          pending.push({
+            kind,
+            viewIdentity: this.identity,
+            node,
+            name,
+            expected: detail?.expected ?? null,
+            found: detail?.found ?? null,
+          });
+        },
+        {},
+        [],
+        this.env,
+      );
+    } catch (error) {
+      if (error instanceof RepeatKeyConflict) {
+        throw MilanoBuildError.schemaViolation("repeat", error.reference, "distinct key", error.key);
+      }
+      throw error;
+    }
+    const count = countNodes(tree);
+    if (count > this.limits.maxNodeCount) {
+      throw MilanoBuildError.limitExceeded("maxNodeCount", this.limits.maxNodeCount, count);
+    }
+
+    // Nothing above changed the view; from here everything does, at once.
+    this.currentDocument = document;
+    this.root = plan.root;
+    this.lifecycle = plan.lifecycle;
+    this.watch = plan.watch;
+    this.dependencies = indexDependencies(plan.root);
+    this.nodeEvents.clear();
+    this.indexNodes(plan.root);
+    this.currentContext = context;
+    this.currentState = state;
+    this.currentResolvedRoot = tree;
+    this.instanceIndex = null;
+    this.replacedBefore = this.records.length;
+    const observer = this.runtime.observer;
+    if (observer !== null) for (const occurrence of pending) observer.occurrence(occurrence);
+    this.record("viewReplaced", null, null, document.metadata);
+    for (const listener of [...this.listeners]) listener();
   }
 
   private enqueue(work: () => void): void {
@@ -475,8 +824,9 @@ export class MilanoView {
   }
 
   /**
-   * Runs an action list. Returns false when the list ended early: a `$set`
-   * past the value size limit assigns nothing, is reported, and stops the
+   * Runs an action list. Returns false when the list ended early: a
+   * mutation past a limit, producing a repeated key, or addressing an
+   * index outside the array assigns nothing, is reported, and stops the
    * remaining actions of the dispatch; what the list already applied
    * stays.
    */
@@ -486,51 +836,28 @@ export class MilanoView {
     result: MilanoValue | null,
     sourceNode: string | null,
     bindings: Bindings = {},
+    failure: MilanoValue | null = null,
   ): boolean {
     for (const action of actions) {
       switch (action.kind) {
-        case "set": {
-          const declared = own(this.document.stateDeclarations, action.key);
-          const evaluated = this.evaluate(action.value, event, result, bindings);
-          const validated = declared?.validated(evaluated) ?? evaluated;
-          const size = validated.size;
-          if (size > this.limits.maxValueSize) {
-            this.report("rejectedMutation", sourceNode, {
-              name: action.key,
-              expected: "maxValueSize",
-              found: String(size),
-            });
-            return false;
-          }
-          const previous = own(this.currentState, action.key);
-          // A value that did not change re-resolves nothing.
-          if (previous !== undefined && previous.equals(validated)) break;
-          const next = recordFrom(this.currentState);
-          next[action.key] = validated;
-          // Visible immediately: the properties that read this key
-          // re-resolve before the next action. A tree materialized past
-          // the node count limit rejects the mutation instead.
-          const materialized = this.materialize(new Set([`state.${action.key}`]), next, this.currentContext);
-          if (materialized.count > this.limits.maxNodeCount) {
-            this.report("rejectedMutation", sourceNode, {
-              name: action.key,
-              expected: "maxNodeCount",
-              found: String(materialized.count),
-            });
-            return false;
-          }
-          this.currentState = next;
-          this.commit(materialized);
+        case "set":
+        case "append":
+        case "remove":
+        case "update":
+          if (!this.mutate(action, event, result, sourceNode, bindings, failure)) return false;
           break;
-        }
+
+        case "arrayAction":
+          // Unreachable: the gate replaces every parsed array action.
+          throw new Error(`unvalidated ${action.name}`);
 
         case "sequence":
-          if (!this.execute(action.actions, event, result, sourceNode, bindings)) return false;
+          if (!this.execute(action.actions, event, result, sourceNode, bindings, failure)) return false;
           break;
 
         case "when": {
-          const takeThen = this.evaluate(action.condition, event, result, bindings).boolValue === true;
-          if (!this.execute(takeThen ? action.then : action.otherwise, event, result, sourceNode, bindings)) {
+          const takeThen = this.evaluate(action.condition, event, result, bindings, failure).boolValue === true;
+          if (!this.execute(takeThen ? action.then : action.otherwise, event, result, sourceNode, bindings, failure)) {
             return false;
           }
           break;
@@ -539,20 +866,26 @@ export class MilanoView {
         case "custom": {
           const captured: Record<string, MilanoValue> = {};
           for (const [parameter, value] of Object.entries(action.parameters)) {
-            captured[parameter] = this.evaluate(value, event, result, bindings);
+            captured[parameter] = this.evaluate(value, event, result, bindings, failure);
           }
+          // The dispatch identity: the position among this view's
+          // dispatches, and a process-unique id minted from the view
+          // instance's token.
+          const index = this.records.length;
           const dispatchedAction: MilanoAction = {
             name: action.name,
             parameters: captured,
             viewIdentity: this.identity,
+            dispatch: index,
+            dispatchId: `${this.instanceToken}#${index}`,
           };
           this.record(
             "actionDispatched",
             sourceNode,
             action.name,
             MilanoValue.record(captured),
+            index,
           );
-          const index = this.records.length;
           this.records.push({
             action: dispatchedAction,
             completed: false,
@@ -561,7 +894,9 @@ export class MilanoView {
             capturedEvent: event,
             capturedBindings: bindings,
             resultType: action.result,
+            failureType: action.failure,
             sourceNode,
+            fromWatch: this.watchDepth > 0,
           });
           // Dispatch does not wait: the sequence continues immediately.
           const handler = this.handler;
@@ -572,8 +907,10 @@ export class MilanoView {
               try {
                 payload = (await handler(dispatchedAction)) ?? null;
                 success = true;
-              } catch {
-                payload = null;
+              } catch (error) {
+                // A MilanoActionFailure carries the failure payload; any
+                // other error is a failure with none.
+                payload = error instanceof MilanoActionFailure ? error.value : null;
                 success = false;
               }
               this.dispatcher.dispatch(() => this.complete(index, success, payload));
@@ -586,11 +923,151 @@ export class MilanoView {
     return true;
   }
 
+  /**
+   * A state mutation (state and actions spec, Action execution): the value
+   * `$set` assigns, or the array an array action produces, then the one
+   * assignment path. Returns false when the mutation was rejected and the
+   * list must end.
+   */
+  private mutate(
+    action: Extract<ActionSpec, { kind: "set" | "append" | "remove" | "update" }>,
+    event: MilanoValue | null,
+    result: MilanoValue | null,
+    sourceNode: string | null,
+    bindings: Bindings,
+    failure: MilanoValue | null,
+  ): boolean {
+    const key = action.key;
+    const declared = own(this.currentDocument.stateDeclarations, key);
+    const elementType = declared?.kind.kind === "array" ? declared.kind.element : null;
+    const current = own(this.currentState, key) ?? MilanoValue.null;
+    let next: MilanoValue;
+    switch (action.kind) {
+      case "set": {
+        const evaluated = this.evaluate(action.value, event, result, bindings, failure);
+        next = declared?.validated(evaluated) ?? evaluated;
+        break;
+      }
+      case "append": {
+        const evaluated = this.evaluate(action.value, event, result, bindings, failure);
+        const element = elementType?.validated(evaluated) ?? evaluated;
+        next = MilanoValue.array([...(current.arrayValue ?? []), element]);
+        break;
+      }
+      case "remove": {
+        const items = current.arrayValue ?? [];
+        const at = this.evaluate(action.at, event, result, bindings, failure).intValue ?? 0n;
+        if (at < 0n || at >= BigInt(items.length)) {
+          this.report("rejectedMutation", sourceNode, {
+            name: key,
+            expected: "index in range",
+            found: String(at),
+          });
+          return false;
+        }
+        next = MilanoValue.array(items.filter((_, index) => BigInt(index) !== at));
+        break;
+      }
+      case "update": {
+        const items = current.arrayValue ?? [];
+        const at = this.evaluate(action.at, event, result, bindings, failure).intValue ?? 0n;
+        const evaluated = this.evaluate(action.value, event, result, bindings, failure);
+        if (at < 0n || at >= BigInt(items.length)) {
+          this.report("rejectedMutation", sourceNode, {
+            name: key,
+            expected: "index in range",
+            found: String(at),
+          });
+          return false;
+        }
+        const fieldType =
+          elementType?.kind.kind === "record" ? own(elementType.kind.fields, action.field) : undefined;
+        const fieldValue = fieldType?.validated(evaluated) ?? evaluated;
+        const position = Number(at);
+        const element = items[position] as MilanoValue;
+        const updated = MilanoValue.record({
+          ...(element.recordValue ?? {}),
+          [action.field]: fieldValue,
+        });
+        next = MilanoValue.array(items.map((item, index) => (index === position ? updated : item)));
+        break;
+      }
+    }
+    return this.assign(key, next, sourceNode);
+  }
+
+  /**
+   * The one assignment path: the value against the value size limit, the
+   * no-change rule, the re-materialized tree against the node count limit
+   * and the distinct-key invariant, then commit, then the key's watch.
+   */
+  private assign(key: string, validated: MilanoValue, sourceNode: string | null): boolean {
+    const size = validated.size;
+    if (size > this.limits.maxValueSize) {
+      this.report("rejectedMutation", sourceNode, {
+        name: key,
+        expected: "maxValueSize",
+        found: String(size),
+      });
+      return false;
+    }
+    const previous = own(this.currentState, key);
+    // A value that did not change re-resolves nothing and triggers no watch.
+    if (previous !== undefined && previous.equals(validated)) return true;
+    const next = recordFrom(this.currentState);
+    next[key] = validated;
+    // Visible immediately: the properties that read this key re-resolve
+    // before the next action. A tree materialized past the node count
+    // limit, or a keyed repeat rendering one key twice, rejects the
+    // mutation instead.
+    const materialized = this.materialize(new Set([`state.${key}`]), next, this.currentContext);
+    if (materialized.kind === "conflict") {
+      this.report("rejectedMutation", sourceNode, {
+        name: key,
+        expected: "distinct key",
+        found: materialized.key,
+      });
+      return false;
+    }
+    if (materialized.count > this.limits.maxNodeCount) {
+      this.report("rejectedMutation", sourceNode, {
+        name: key,
+        expected: "maxNodeCount",
+        found: String(materialized.count),
+      });
+      return false;
+    }
+    this.currentState = next;
+    this.commit(materialized);
+    this.runWatch(key);
+    return true;
+  }
+
+  /**
+   * The key's watch list, as part of the mutation that changed it (state
+   * and actions spec, Watch bindings): before the next action of the list
+   * that applied it, with no event root and no repeat binding, anchored to
+   * no node. Never from inside a watch: a watch never triggers a watch. A
+   * rejection inside ends the watch list only.
+   */
+  private runWatch(key: string): void {
+    if (this.watchDepth > 0) return;
+    const actions = own(this.watch, key);
+    if (actions === undefined || actions.length === 0) return;
+    this.watchDepth += 1;
+    try {
+      this.execute(actions, null, null, null, {});
+    } finally {
+      this.watchDepth -= 1;
+    }
+  }
+
   private evaluate(
     value: DocValue,
     event: MilanoValue | null,
     result: MilanoValue | null,
     bindings: Bindings = {},
+    failure: MilanoValue | null = null,
   ): MilanoValue {
     switch (value.kind) {
       case "literal":
@@ -601,8 +1078,10 @@ export class MilanoView {
           this.currentContext,
           event,
           result,
-          (kind) => this.report(kind, null),
+          (kind, detail) => this.report(kind, null, detail),
           bindings,
+          failure,
+          this.env,
         );
         const evaluated = evaluator.evaluate(value.expr);
         return value.expected.validated(evaluated) ?? evaluated;
@@ -613,36 +1092,47 @@ export class MilanoView {
   }
 
   /**
-   * The tree an update would produce, with the arithmetic reports it
-   * raised held back: nothing reaches the observer until the update is
-   * accepted, and a rejected one leaves no trace.
+   * The tree an update would produce, with the reports it raised held
+   * back: nothing reaches the observer until the update is accepted, and
+   * a rejected one leaves no trace. A keyed repeat that would render one
+   * key twice is a conflict, not a tree.
    */
   private materialize(
     changed: ReadonlySet<string>,
     state: Readonly<Record<string, MilanoValue>>,
     context: Readonly<Record<string, MilanoValue>>,
-  ): { tree: ResolvedNode; count: number; reports: [MilanoOccurrenceKind, string, string][] } {
-    const reports: [MilanoOccurrenceKind, string, string][] = [];
-    const tree = refresh(
-      this.root,
-      this.dependencies,
-      this.currentResolvedRoot,
-      changed,
-      state,
-      context,
-      (kind, node, name) => reports.push([kind, node, name]),
-    );
+  ): Materialized {
+    const reports: HeldReport[] = [];
+    let tree: ResolvedNode;
+    try {
+      tree = refresh(
+        this.root,
+        this.dependencies,
+        this.currentResolvedRoot,
+        changed,
+        state,
+        context,
+        (kind, node, name, detail) => reports.push([kind, node, name, detail]),
+        this.env,
+      );
+    } catch (error) {
+      if (error instanceof RepeatKeyConflict) return { kind: "conflict", key: error.key };
+      throw error;
+    }
     const count = tree === this.currentResolvedRoot ? 0 : countNodes(tree);
-    return { tree, count, reports };
+    return { kind: "tree", tree, count, reports };
   }
 
   /** Adopts a materialized tree, flushes its reports, notifies the host. */
-  private commit(materialized: { tree: ResolvedNode; reports: [MilanoOccurrenceKind, string, string][] }): void {
-    for (const [kind, node, name] of materialized.reports) this.report(kind, node, { name });
+  private commit(materialized: Extract<Materialized, { kind: "tree" }>): void {
+    for (const [kind, node, name, detail] of materialized.reports) {
+      this.report(kind, node, { name, expected: detail?.expected, found: detail?.found });
+    }
     // Nothing depended on the change: the tree is the same object, and
     // there is nothing to tell the host.
     if (materialized.tree === this.currentResolvedRoot) return;
     this.currentResolvedRoot = materialized.tree;
+    this.instanceIndex = null;
     for (const listener of [...this.listeners]) listener();
   }
 
@@ -667,12 +1157,14 @@ export class MilanoView {
     node: string | null,
     name: string | null,
     value: MilanoValue | null,
+    dispatch: number | null = null,
   ): void {
     this.runtime.userInteractionObserver?.interaction({
       kind,
       viewIdentity: this.identity,
       node,
       name,
+      dispatch,
       value,
     });
   }

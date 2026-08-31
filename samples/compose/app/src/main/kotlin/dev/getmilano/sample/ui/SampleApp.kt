@@ -12,6 +12,7 @@ import dev.getmilano.sample.ui.screens.EmbeddedScreen
 import dev.getmilano.sample.ui.screens.InterstitialScreen
 import dev.getmilano.sample.ui.screens.MenuScreen
 import dev.getmilano.sample.ui.screens.PokemonScreen
+import dev.getmilano.sample.ui.screens.QuickActionsScreen
 import dev.getmilano.sample.ui.screens.QuickStartScreen
 
 enum class Screen(
@@ -29,6 +30,8 @@ enum class Screen(
     POKEMON("pokemon", "Pokemon · Screen context"),
     PROFILE("profile", "Profile · Whole screen"),
     CATALOG("catalog", "Catalog · Tap to open"),
+    QUICK_ACTIONS("quick-actions", "Quick actions · Tap to open"),
+    CARD_DETAIL("card-detail", "Card detail · Press to reveal"),
     EMBEDDED("embedded", "Embedded in native UI"),
     INTERSTITIAL("interstitial", "Interstitial"),
     ;
@@ -58,6 +61,8 @@ fun SampleApp(
         Screen.QUICKSTART -> QuickStartScreen()
         Screen.POKEMON -> PokemonScreen(environment)
         Screen.PROFILE -> DemoScreen(builder = environment.profileBuilder())
+        Screen.QUICK_ACTIONS -> QuickActionsScreen(environment, onOpen = { screen = it })
+        Screen.CARD_DETAIL -> DemoScreen(builder = environment.cardDetailBuilder())
         Screen.EMBEDDED -> EmbeddedScreen(environment)
         Screen.INTERSTITIAL -> InterstitialScreen(environment, onDismiss = { screen = Screen.MENU })
         else -> DemoScreen(builder = environment.builder(screen))

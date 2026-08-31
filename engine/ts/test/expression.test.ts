@@ -117,9 +117,9 @@ describe("expression typing", () => {
 
   it("widens enums wherever a string is expected", () => {
     const state = { tone: MilanoType.enumeration(["info"]) };
-    assert.equal(infer("concat(state.tone, '!')", state)?.name, "string");
-    assert.equal(infer("str(state.tone)", state)?.name, "string");
-    assert.equal(infer("length(state.tone)", state)?.name, "int");
+    assert.equal(infer("$concat(state.tone, '!')", state)?.name, "string");
+    assert.equal(infer("$str(state.tone)", state)?.name, "string");
+    assert.equal(infer("$length(state.tone)", state)?.name, "int");
     const checker = new ExprChecker(state, {});
     assert.ok(checker.accepts(MilanoType.string(), checker.infer(parseExpression("state.tone"))));
     assert.ok(
@@ -132,23 +132,23 @@ describe("expression typing", () => {
 
   it("keeps optionals resolvable only through ??", () => {
     const state = { maybe: MilanoType.string(true) };
-    assert.throws(() => infer("length(state.maybe)", state), ExprError);
+    assert.throws(() => infer("$length(state.maybe)", state), ExprError);
     assert.equal(infer("state.maybe ?? 'x'", state)?.name, "string");
     assert.equal(infer("state.maybe == null", state)?.name, "bool");
   });
 
   it("makes a single null branch optional and rejects two", () => {
-    assert.equal(infer("if(true, 'a', null)")?.name, "string?");
-    assert.throws(() => infer("if(true, null, null)"), ExprError);
-    assert.throws(() => infer("if(true, 1, 'a')"), ExprError);
+    assert.equal(infer("$if(true, 'a', null)")?.name, "string?");
+    assert.throws(() => infer("$if(true, null, null)"), ExprError);
+    assert.throws(() => infer("$if(true, 1, 'a')"), ExprError);
   });
 
   it("requires if branches to agree on optionality", () => {
     // A T? branch beside a T branch is rejected, as Swift and Kotlin
     // always did; the optional is resolved with ?? first.
     const state = { maybe: MilanoType.string(true) };
-    assert.throws(() => infer("if(true, state.maybe, 'x')", state), ExprError);
-    assert.equal(infer("if(true, state.maybe ?? 'y', 'x')", state)?.name, "string");
+    assert.throws(() => infer("$if(true, state.maybe, 'x')", state), ExprError);
+    assert.equal(infer("$if(true, state.maybe ?? 'y', 'x')", state)?.name, "string");
   });
 
   it("rejects out-of-range int literals and malformed syntax", () => {
@@ -158,6 +158,33 @@ describe("expression typing", () => {
     assert.throws(() => parseExpression("1 \n + 2"), ExprError);
     assert.throws(() => parseExpression("1.5.2"), ExprError);
     assert.throws(() => parseExpression("٥"), ExprError);
+  });
+});
+
+describe("the two function namespaces", () => {
+  const functions = {
+    round: { arguments: [MilanoType.double(), MilanoType.int()], returns: MilanoType.string() },
+  };
+  const checker = (): ExprChecker =>
+    new ExprChecker({}, {}, undefined, undefined, {}, undefined, [2, 1], functions, new Set());
+
+  it("keeps a host function and the built-in it is named after apart", () => {
+    assert.equal(checker().infer(parseExpression("round(1.5, 2)"))?.name, "string");
+    assert.equal(checker().infer(parseExpression("$round(1.5)"))?.name, "double");
+  });
+
+  it("never falls back from one namespace to the other", () => {
+    // A built-in called bare, with nothing declared under that name.
+    assert.throws(() => infer("trim('  x  ')"), ExprError);
+    // A `$` name the contract does not define.
+    assert.throws(() => infer("$nosuch('x')"), ExprError);
+  });
+
+  it("admits a built-in's name only in call position", () => {
+    assert.throws(() => parseExpression("$trim"), ExprError);
+    assert.throws(() => parseExpression("$trim + 'x'"), ExprError);
+    assert.throws(() => parseExpression("$"), ExprError);
+    assert.throws(() => parseExpression("$1(2)"), ExprError);
   });
 });
 
@@ -190,17 +217,17 @@ describe("expression evaluation", () => {
     assert.equal(evaluate("(0 - 9223372036854775807 - 1) % (0 - 1)").value.intValue, 0n);
   });
 
-  it("saturates int() and reports it", () => {
-    const saturated = evaluate("int(100000000000000000000.0)");
+  it("saturates $int() and reports it", () => {
+    const saturated = evaluate("$int(100000000000000000000.0)");
     assert.equal(saturated.value.intValue, 9223372036854775807n);
     assert.deepEqual(saturated.occurrences, ["saturation"]);
-    const nan = evaluate("int(0.0 / 0.0)");
+    const nan = evaluate("$int(0.0 / 0.0)");
     assert.equal(nan.value.intValue, 0n);
     assert.deepEqual(nan.occurrences, ["saturation"]);
   });
 
   it("evaluates only the taken branch, suppressing its guard's reports", () => {
-    const guarded = evaluate("if(false, str(1 / 0), 'safe')");
+    const guarded = evaluate("$if(false, $str(1 / 0), 'safe')");
     assert.equal(guarded.value.stringValue, "safe");
     assert.deepEqual(guarded.occurrences, []);
   });
@@ -212,8 +239,8 @@ describe("expression evaluation", () => {
   });
 
   it("counts and trims in unicode scalars", () => {
-    assert.equal(evaluate("length('😀')").value.intValue, 1n);
-    assert.equal(evaluate("trim(' x ')").value.stringValue, "x");
-    assert.equal(evaluate("isEmpty('')").value.boolValue, true);
+    assert.equal(evaluate("$length('😀')").value.intValue, 1n);
+    assert.equal(evaluate("$trim(' x ')").value.stringValue, "x");
+    assert.equal(evaluate("$isEmpty('')").value.boolValue, true);
   });
 });

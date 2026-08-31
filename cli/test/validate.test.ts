@@ -59,7 +59,7 @@ describe("validate", () => {
           type: "Column",
           id: "c",
           children: [
-            { type: "Text", id: "t", properties: { text: { $expr: "concat(context.who, str(state.n))" } } },
+            { type: "Text", id: "t", properties: { text: { $expr: "$concat(context.who, $str(state.n))" } } },
             {
               type: "Button",
               id: "b",
@@ -105,7 +105,7 @@ describe("validate", () => {
 
   it("reports arithmetic occurrences of a valid document with node and property", async () => {
     const report = await validate({
-      document: document({ type: "Text", id: "t", properties: { text: { $expr: "str(1 / 0)" } } }),
+      document: document({ type: "Text", id: "t", properties: { text: { $expr: "$str(1 / 0)" } } }),
       vocabulary: VOCABULARY,
     });
     assert.equal(report.valid, true);
@@ -165,6 +165,34 @@ describe("validate", () => {
     });
     assert.equal(report.valid, true);
     assert.deepEqual([...report.warnings], ['root/children[0]: unknown envelope key "each"']);
+  });
+
+  it("answers declared host functions with their zero value, silently", async () => {
+    const vocabulary = JSON.stringify({
+      milano: "2.1.0",
+      name: "functions",
+      version: "1.0.0",
+      components: { Text: { properties: { text: "string" } } },
+      functions: { formatMoney: { arguments: ["int", "string"], returns: "string" } },
+    });
+    const report = await validate({
+      document: JSON.stringify({
+        version: "2.1.0",
+        root: { type: "Text", id: "t", properties: { text: { $expr: "$concat('x', formatMoney(1, 'EUR'))" } } },
+      }),
+      vocabulary,
+    });
+    assert.equal(report.error, null);
+    assert.deepEqual(report.occurrences, []);
+    // The gate still rules: an ill-typed call is refused like any expression.
+    const refused = await validate({
+      document: JSON.stringify({
+        version: "2.1.0",
+        root: { type: "Text", id: "t", properties: { text: { $expr: "formatMoney('1', 'EUR')" } } },
+      }),
+      vocabulary,
+    });
+    assert.equal(refused.error?.detail["rule"], "expression");
   });
 
   it("throws for an invalid vocabulary: the setup, not the document", async () => {

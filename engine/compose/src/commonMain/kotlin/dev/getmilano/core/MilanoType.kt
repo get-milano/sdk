@@ -102,6 +102,19 @@ data class MilanoType(
 
     companion object {
         /**
+         * An enum type from its members in declaration order. This is the
+         * constructor to reach for: [Kind.Enum] takes any [Set], and a
+         * set that does not keep insertion order loses the declaration
+         * order, which is what the zero value reads (expression language
+         * spec, Host functions). The order is never part of the type's
+         * identity: two enum types are equal by member set.
+         */
+        fun enumeration(
+            members: List<String>,
+            optional: Boolean = false,
+        ): MilanoType = MilanoType(Kind.Enum(LinkedHashSet(members)), optional)
+
+        /**
          * Parses a JSON type descriptor:
          * - a primitive name string, with a trailing `?` for optional ("int", "string?")
          * - {"enum": [<member>...], "optional": <bool>}

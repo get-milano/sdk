@@ -8,6 +8,9 @@ import type { MilanoValue } from "../core/value.ts";
 export type MilanoUserInteractionKind =
   // Runtime-captured: nothing required from renderers or documents.
   | "viewBuilt"
+  | "viewReplaced"
+  | "viewAppeared"
+  | "viewDisappeared"
   | "viewTornDown"
   | "event"
   | "actionDispatched"
@@ -40,9 +43,16 @@ export interface MilanoUserInteraction {
   /** The event or action name, when one applies. */
   readonly name: string | null;
   /**
+   * The dispatch number, when the record is about a custom action
+   * dispatch (`actionDispatched`, `completionSucceeded`,
+   * `completionFailed`): the same number the action carried.
+   */
+  readonly dispatch: number | null;
+  /**
    * The interaction's data: the emission payload, the captured action
-   * parameters, the document metadata for `viewBuilt`, or whatever a
-   * renderer supplies for widget kinds.
+   * parameters, the validated result or failure payload of a completion,
+   * the document metadata for `viewBuilt`, or whatever a renderer supplies
+   * for widget kinds.
    */
   readonly value: MilanoValue | null;
 }

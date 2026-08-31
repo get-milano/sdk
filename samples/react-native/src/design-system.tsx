@@ -133,7 +133,7 @@ export function Failure({
   );
 }
 
-export type TextRole = "title" | "subtitle" | "body";
+export type TextRole = "title" | "subtitle" | "body" | "caption";
 export type LiveRegion = "polite" | "assertive";
 
 /**
@@ -165,7 +165,9 @@ export function StyledText({ text, role, liveRegion }: StyledTextProps): ReactNo
       ? { fontSize: 24, fontWeight: "700" as const, color: palette.text }
       : role === "subtitle"
         ? { fontSize: 16, fontWeight: "600" as const, color: palette.secondaryText }
-        : { fontSize: 15, color: palette.text };
+        : role === "caption"
+          ? { fontSize: 13, color: palette.secondaryText, textAlign: "center" as const }
+          : { fontSize: 15, color: palette.text };
   return (
     <Text
       style={style}
@@ -174,6 +176,78 @@ export function StyledText({ text, role, liveRegion }: StyledTextProps): ReactNo
     >
       {text}
     </Text>
+  );
+}
+
+export type IconName = "person" | "list" | "search" | "edit" | "settings" | "help";
+
+/**
+ * The sample's icon set. A document names a meaning (`person`), never a
+ * glyph, and this is where the design system decides what that looks
+ * like: emoji here, SF Symbols in the SwiftUI sample, Material icons in
+ * the Compose ones, from the same document. Four tiles do not justify an
+ * icon library, and the sample keeps its dependencies to React Native and
+ * Milano.
+ */
+const GLYPHS: Readonly<Record<IconName, string>> = {
+  person: "\u{1F464}",
+  list: "\u{1F5C2}\u{FE0F}",
+  search: "\u{1F50D}",
+  edit: "\u{270F}\u{FE0F}",
+  settings: "\u{2699}\u{FE0F}",
+  help: "\u{2753}",
+};
+
+export type ButtonIconName = "eye" | "eyeOff";
+
+/** The reveal control's own pair, separate from the Icon set. */
+const BUTTON_GLYPHS: Readonly<Record<ButtonIconName, string>> = {
+  eye: "\u{1F441}\u{FE0F}",
+  eyeOff: "\u{1F648}",
+};
+
+export type IconContainer = "plain" | "circle";
+
+/**
+ * The glyph is decorative: whatever contains the icon carries the label
+ * and its own accessibility label, so announcing the emoji as well would
+ * read the same thing twice.
+ *
+ * `container` is the second thing a document may say about an icon:
+ * whether it stands alone or is shown inside something. What "inside
+ * something" looks like, a tinted circle of this size, is decided here.
+ */
+export function IconGlyph({
+  name,
+  container = "plain",
+}: {
+  readonly name: IconName;
+  readonly container?: IconContainer | undefined;
+}): ReactNode {
+  const palette = usePalette();
+  const glyph = (
+    <Text
+      accessibilityElementsHidden
+      importantForAccessibility="no"
+      style={{ fontSize: container === "circle" ? 26 : 28 }}
+    >
+      {GLYPHS[name]}
+    </Text>
+  );
+  if (container === "plain") return glyph;
+  return (
+    <View
+      style={{
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: palette.accentContainer,
+      }}
+    >
+      {glyph}
+    </View>
   );
 }
 
@@ -439,9 +513,57 @@ export function BannerView({
   }
 }
 
+/**
+ * A control whose whole point is the press, not the tap: the card detail
+ * reveals its numbers while a finger is down and hides them on release,
+ * so the document binds pressStart and pressEnd rather than tap.
+ */
+export function PressableIcon({
+  name,
+  accessibilityLabel,
+  accessibilityHint,
+  onPressIn,
+  onPressOut,
+}: {
+  readonly name: ButtonIconName;
+  readonly accessibilityLabel: string;
+  readonly accessibilityHint?: string | undefined;
+  readonly onPressIn: () => void;
+  readonly onPressOut: () => void;
+}): ReactNode {
+  const palette = usePalette();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      style={({ pressed }) => [
+        {
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: palette.accentContainer,
+          opacity: pressed ? 0.8 : 1,
+        },
+      ]}
+    >
+      <Text accessibilityElementsHidden importantForAccessibility="no" style={{ fontSize: 20 }}>
+        {BUTTON_GLYPHS[name]}
+      </Text>
+    </Pressable>
+  );
+}
+
+export type CardStyle = "surface" | "plain";
+
 export interface SurfaceCardProps {
   readonly cornerRadius: number;
   readonly padding: number;
+  readonly style?: CardStyle | undefined;
   readonly accessibilityLabel?: string | undefined;
   readonly accessibilityHint?: string | undefined;
   readonly onPress: () => void;
@@ -451,12 +573,18 @@ export interface SurfaceCardProps {
 export function SurfaceCard({
   cornerRadius,
   padding,
+  style = "surface",
   accessibilityLabel,
   accessibilityHint,
   onPress,
   children,
 }: SurfaceCardProps): ReactNode {
   const palette = usePalette();
+  // `plain` is a card that is tappable without looking like a surface: no
+  // fill, no width of its own, children centred. It is what a strip of
+  // quick action tiles is made of, where the only filled shape is the
+  // circle behind each icon.
+  const plain = style === "plain";
   return (
     <Pressable
       accessibilityRole="button"
@@ -465,8 +593,9 @@ export function SurfaceCard({
       onPress={onPress}
       style={({ pressed }) => [
         {
-          backgroundColor: palette.surface,
-          borderRadius: cornerRadius,
+          alignItems: plain ? "center" : "stretch",
+          backgroundColor: plain ? "transparent" : palette.surface,
+          borderRadius: plain ? 0 : cornerRadius,
           padding,
           gap: 8,
           opacity: pressed ? 0.9 : 1,

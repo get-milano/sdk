@@ -6,13 +6,16 @@ import type {
 } from "@get-milano/react";
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
-import { View } from "react-native";
+import { ScrollView, View } from "react-native";
 
 import {
   SampleBannerNode,
   SampleButtonNode,
   SampleCardNode,
   SampleCheckboxNode,
+  SampleColumnNode,
+  SampleIconButtonNode,
+  SampleIconNode,
   SampleImageNode,
   SampleNumberFieldNode,
   SampleRowNode,
@@ -21,6 +24,8 @@ import {
 } from "./bindings.generated.ts";
 import {
   BannerView,
+  IconGlyph,
+  PressableIcon,
   LabeledNumberField,
   LabeledTextField,
   LabeledToggle,
@@ -53,21 +58,57 @@ function pixels(value: bigint | null, fallback: number): number {
   return value === null ? fallback : Number(value);
 }
 
-const ColumnRenderer: MilanoRenderer = ({ node }) => (
-  <View style={{ gap: 12, padding: 16 }}>{node.children}</View>
-);
+/**
+ * `padding` is what tells a screen's root column from a column nested
+ * inside a tile: the root wants the screen's inset, a tile's inner column
+ * wants none, and a nested column that kept the screen inset would make
+ * every tile 32 points wider than its content.
+ */
+const ColumnRenderer: MilanoRenderer = ({ node }) => {
+  const column = new SampleColumnNode(node);
+  return (
+    <View
+      style={{
+        gap: 12,
+        padding: pixels(column.padding, 16),
+        // A column inside a row sizes to its content; one that stretches
+        // leaves its siblings with none of the row.
+        alignSelf: column.width === "content" ? "flex-start" : "auto",
+      }}
+    >
+      {node.children}
+    </View>
+  );
+};
 
-const RowRenderer: MilanoRenderer = ({ node }) => (
-  <View
-    style={{
-      alignItems: "center",
-      flexDirection: "row",
-      gap: pixels(new SampleRowNode(node).spacing, 8),
-    }}
-  >
-    {node.children}
-  </View>
-);
+/**
+ * Top alignment is what keeps a strip of tiles readable: labels wrap to
+ * different heights, and centring them would leave the icons on different
+ * lines.
+ */
+const ALIGNMENT = { top: "flex-start", center: "center", bottom: "flex-end" } as const;
+
+const RowRenderer: MilanoRenderer = ({ node }) => {
+  const row = new SampleRowNode(node);
+  const content = {
+    alignItems: ALIGNMENT[row.alignment ?? "center"],
+    flexDirection: "row" as const,
+    gap: pixels(row.spacing, 8),
+    paddingHorizontal: pixels(row.horizontalPadding, 0),
+  };
+  // A scrolling row is how a strip of tiles stays on screen whatever its
+  // content: without it anything past the edge is unreachable. The
+  // padding sits inside the scroll, so it reads as the strip's leading
+  // and trailing inset rather than as a gap that scrolls away. Opt-in,
+  // because a scrolling row gives its children unbounded width, and the
+  // catalog's rows must keep wrapping.
+  if (row.scrolls !== true) return <View style={content}>{node.children}</View>;
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={content}>
+      {node.children}
+    </ScrollView>
+  );
+};
 
 const TextRenderer: MilanoRenderer = ({ node }) => {
   const text = new SampleTextNode(node);
@@ -176,12 +217,38 @@ const CardRenderer: MilanoRenderer = ({ node }) => {
     <SurfaceCard
       cornerRadius={pixels(card.cornerRadius, 12)}
       padding={pixels(card.padding, 12)}
+      style={card.style ?? "surface"}
       accessibilityLabel={orUndefined(card.accessibilityLabel)}
       accessibilityHint={orUndefined(card.accessibilityHint)}
       onPress={() => card.emitTap()}
     >
       {node.children}
     </SurfaceCard>
+  );
+};
+
+const IconRenderer: MilanoRenderer = ({ node }) => {
+  const icon = new SampleIconNode(node);
+  if (icon.visible === false) return null;
+  // `icon.name` is a union of the declared members, not a string: a
+  // document can only ask for an icon this design system draws, and a
+  // member added to the vocabulary fails the typecheck here until the
+  // glyph map covers it.
+  return <IconGlyph name={icon.name} container={icon.container ?? "plain"} />;
+};
+
+const IconButtonRenderer: MilanoRenderer = ({ node }) => {
+  const button = new SampleIconButtonNode(node);
+  return (
+    <PressableIcon
+      name={button.icon}
+      accessibilityLabel={button.accessibilityLabel}
+      accessibilityHint={orUndefined(button.accessibilityHint)}
+      // The document models the press itself, so both edges are declared
+      // events: no interaction is reported here, or it would double-count.
+      onPressIn={() => button.emitPressStart()}
+      onPressOut={() => button.emitPressEnd()}
+    />
   );
 };
 
@@ -216,6 +283,8 @@ export function sampleRegistry(): MilanoReactRegistry {
   registry.register("Banner", BannerRenderer);
   registry.register("Card", CardRenderer);
   registry.register("Image", ImageRenderer);
+  registry.register("Icon", IconRenderer);
+  registry.register("IconButton", IconButtonRenderer);
   registry.register("Text", TextRenderer);
   registry.register("Button", ButtonRenderer);
   registry.register("TextField", TextFieldRenderer);

@@ -36,8 +36,8 @@ const DOCUMENT = JSON.stringify({
     type: "Column",
     id: "root",
     children: [
-      { type: "Text", id: "ratio", properties: { text: { $expr: "str(100 / state.divisor)" } } },
-      { type: "Text", id: "greeting", properties: { text: { $expr: "concat('hi ', context.who)" } } },
+      { type: "Text", id: "ratio", properties: { text: { $expr: "$str(100 / state.divisor)" } } },
+      { type: "Text", id: "greeting", properties: { text: { $expr: "$concat('hi ', context.who)" } } },
       { type: "Text", id: "name", properties: { text: { $expr: "state.person.name" } } },
       { type: "Column", id: "static", children: [
         { type: "Text", id: "fixed", properties: { text: "fixed" } },
@@ -85,7 +85,7 @@ describe("dependency extraction", () => {
 
   it("collects state and context keys through every construct", () => {
     assert.deepEqual(
-      keys("if(state.flag, context.a ?? 'x', str(state.n + -state.m))"),
+      keys("$if(state.flag, context.a ?? 'x', $str(state.n + -state.m))"),
       ["context.a", "state.flag", "state.m", "state.n"],
     );
   });

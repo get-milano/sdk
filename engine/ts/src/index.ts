@@ -23,8 +23,18 @@ export { formatDouble, unicodeScalarCount, utf8ByteLength } from "./core/text.ts
 // Engine and configuration.
 export { MilanoEngine, MilanoRegistry } from "./engine/engine.ts";
 export type { MilanoEngineOptions } from "./engine/engine.ts";
-export { MilanoVocabulary, SUPPORTED_VERSIONS, supportedRanges } from "./engine/vocabulary.ts";
-export type { MilanoAction as MilanoActionDeclaration, MilanoComponent } from "./engine/vocabulary.ts";
+export {
+  FEATURE_VERSIONS,
+  MilanoVocabulary,
+  SUPPORTED_VERSIONS,
+  hasFeature,
+  supportedRanges,
+} from "./engine/vocabulary.ts";
+export type {
+  MilanoAction as MilanoActionDeclaration,
+  MilanoComponent,
+  MilanoFunction as MilanoFunctionDeclaration,
+} from "./engine/vocabulary.ts";
 export { defaultLimits } from "./engine/configuration.ts";
 export type { MilanoLimits, MilanoUnknownTypePolicy } from "./engine/configuration.ts";
 
@@ -44,11 +54,15 @@ export { MilanoContextHandle, StaticContextSource } from "./runtime/context-sour
 export type { MilanoContextSource } from "./runtime/context-source.ts";
 export { inlineDispatcher } from "./runtime/dispatcher.ts";
 export type { MilanoDispatcher } from "./runtime/dispatcher.ts";
+export { MilanoActionFailure } from "./runtime/handlers.ts";
 export type {
   MilanoAction,
   MilanoActionHandler,
+  MilanoFunctionCall,
+  MilanoFunctionHandler,
   MilanoStateDataProvider,
 } from "./runtime/handlers.ts";
+export { zeroValueOf } from "./expression/evaluator.ts";
 export { quickBuilder, synthesizedState } from "./runtime/quick-start.ts";
 export type { QuickStartOptions } from "./runtime/quick-start.ts";
 

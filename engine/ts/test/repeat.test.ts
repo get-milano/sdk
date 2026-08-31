@@ -59,7 +59,7 @@ const DOCUMENT = {
         id: "each",
         items: { $expr: "state.rows" },
         as: "row",
-        children: [{ type: "Text", id: "name", properties: { text: { $expr: "concat(state.prefix, row.name)" } } }],
+        children: [{ type: "Text", id: "name", properties: { text: { $expr: "$concat(state.prefix, row.name)" } } }],
       },
       {
         type: "Text",
@@ -133,7 +133,7 @@ describe("$repeat under incremental resolution", () => {
                 type: "Text",
                 id: "name",
                 properties: { text: { $expr: "row.name" } },
-                on: { tap: [{ action: "$set", key: "prefix", value: { $expr: "concat(row.name, str(row_index))" } }] },
+                on: { tap: [{ action: "$set", key: "prefix", value: { $expr: "$concat(row.name, $str(row_index))" } }] },
               },
             ],
           },

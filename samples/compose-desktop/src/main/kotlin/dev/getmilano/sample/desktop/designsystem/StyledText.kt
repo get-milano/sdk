@@ -19,7 +19,7 @@ data class TextModel(
     val role: Role = Role.BODY,
     val liveRegion: LiveRegion? = null,
 ) {
-    enum class Role { TITLE, SUBTITLE, BODY }
+    enum class Role { TITLE, SUBTITLE, BODY, CAPTION }
 
     enum class LiveRegion { POLITE, ASSERTIVE }
 }
@@ -45,5 +45,6 @@ fun StyledText(model: TextModel) {
         TextModel.Role.TITLE -> Text(model.text, style = MaterialTheme.typography.titleLarge, modifier = modifier)
         TextModel.Role.SUBTITLE -> Text(model.text, style = MaterialTheme.typography.bodyMedium, modifier = modifier)
         TextModel.Role.BODY -> Text(model.text, style = MaterialTheme.typography.bodyLarge, modifier = modifier)
+        TextModel.Role.CAPTION -> Text(model.text, style = MaterialTheme.typography.labelMedium, modifier = modifier)
     }
 }

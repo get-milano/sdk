@@ -33,7 +33,7 @@ export function identifierFrom(name: string): string {
 
 function vocabulary(name: string): JsonObject {
   return {
-    milano: "2.0.0",
+    milano: "2.1.0",
     name,
     version: "1.0.0",
     components: {
@@ -60,10 +60,10 @@ function vocabulary(name: string): JsonObject {
 
 function welcome(name: string): JsonObject {
   return {
-    version: "2.0.0",
+    version: "2.1.0",
     vocabulary: { name, min: "1.0.0" },
     context: { userName: "string" },
-    state: { taps: "int" },
+    state: { taps: "int", milestone: "string", seen: "bool" },
     root: {
       type: "Column",
       id: "welcome",
@@ -71,14 +71,14 @@ function welcome(name: string): JsonObject {
         {
           type: "Text",
           properties: {
-            text: { $expr: "concat('Hello, ', context.userName)" },
+            text: { $expr: "$concat('Hello, ', context.userName)" },
             role: "title",
           },
         },
         {
           type: "Text",
           properties: {
-            text: { $expr: "concat('Tapped ', str(state.taps), ' times')" },
+            text: { $expr: "$concat('Tapped ', $str(state.taps), ' times')" },
             role: "body",
           },
         },
@@ -91,12 +91,30 @@ function welcome(name: string): JsonObject {
           },
         },
         {
+          type: "Text",
+          properties: { text: { $expr: "state.milestone" }, role: "body" },
+        },
+        {
           type: "Button",
           id: "docs",
           properties: { label: "Read the docs", enabled: { $expr: "state.taps > 0" } },
           on: {
             tap: [{ action: "openUrl", url: "https://get-milano.dev" }],
           },
+        },
+      ],
+    },
+    // Runs when the host says the view is on screen. `disappear` is the
+    // other half; both are optional.
+    on: { appear: [{ action: "$set", key: "seen", value: true }] },
+    // Runs whenever `taps` changes, as part of that change: derived values
+    // belong here rather than in an expression repeated at every use.
+    watch: {
+      taps: [
+        {
+          action: "$set",
+          key: "milestone",
+          value: { $expr: "$if(state.taps >= 5, 'Nicely done', '')" },
         },
       ],
     },

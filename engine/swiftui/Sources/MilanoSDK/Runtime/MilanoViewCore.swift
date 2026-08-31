@@ -1,28 +1,44 @@
 import Foundation
 
-/// The runtime behind a MilanoView: bound to one document for its lifetime.
+/// The runtime behind a MilanoView: bound to one document at a time.
 /// Runtime semantics per the state and actions spec; everything mutable
-/// runs through the view's serial dispatcher.
+/// runs through the view's serial dispatcher. Action lists and mutations
+/// live in MilanoViewCore+Actions, emissions, lifecycle signals, and
+/// context updates in MilanoViewCore+Updates, and document replacement in
+/// MilanoViewCore+Replacement.
 final class MilanoViewCore: @unchecked Sendable {
     let identity: String
     let engine: MilanoEngine
-    let document: ParsedDocument
-    let root: BuiltNode
-    /// What every expression reads, indexed once: the update path's map.
-    private let dependencies: DependencyNode
+    /// The document the view is bound to, its built tree, its lifecycle and
+    /// watch bindings, and its dependency index (the update path's map).
+    /// One document at a time: only the swap of a replacement rebinds
+    /// them, whole, on the dispatcher.
+    var document: ParsedDocument
+    var root: BuiltNode
+    var lifecycle: [String: [ActionSpec]]
+    var watch: [String: [ActionSpec]]
+    var dependencies: DependencyNode
     let dispatcher: any MilanoDispatcher
     let handler: (any MilanoActionHandler)?
     let occurrencesAtBuild: [MilanoOccurrence]
+    /// The host functions the surface declares and the engine's handler.
+    let env: EvalEnvironment
+    /// Prepares a replacement under the builder's configuration; nil when
+    /// the view cannot be replaced.
+    let replacer: Replacer?
+    /// Unique per view instance in the process, whatever the builder's
+    /// label; dispatch ids are minted from it.
+    let instanceToken: String
 
-    private(set) var resolvedRoot: ResolvedNode
-    private(set) var context: [String: MilanoValue]
-    private(set) var state: [String: MilanoValue]
+    var resolvedRoot: ResolvedNode
+    var context: [String: MilanoValue]
+    var state: [String: MilanoValue]
 
     /// Rendering hook: invoked after every re-resolution, on the dispatcher.
     var onChange: (() -> Void)?
 
     // Runtime, guarded by the serial dispatcher.
-    private struct NodeEvents {
+    struct NodeEvents {
         let declared: [String: MilanoType?]
         let bindings: [String: [ActionSpec]]
         /// The enclosing `$repeat` constructs, outermost first.
@@ -37,52 +53,116 @@ final class MilanoViewCore: @unchecked Sendable {
         /// The `$repeat` bindings in scope at dispatch, kept for follow-ups.
         let capturedBindings: [String: MilanoValue]
         let resultType: MilanoType?
+        let failureType: MilanoType?
         let sourceNode: String?
+        /// Dispatched from a watch list: its follow-ups run with watches
+        /// suppressed too, since a watch never triggers a watch.
+        var fromWatch = false
+    }
+    /// What an action list evaluates against: the payload captured at
+    /// dispatch, the completion's result or failure payload, the `$repeat`
+    /// bindings in scope, and the node whose binding dispatched (nil for a
+    /// lifecycle or watch binding).
+    struct ActionScope {
+        var event: MilanoValue?
+        var result: MilanoValue?
+        var failure: MilanoValue?
+        var bindings: [String: MilanoValue] = [:]
+        var sourceNode: String?
     }
     /// A tree an update would produce, with the reports it raised held
-    /// back until the update is accepted.
-    private struct Materialized {
-        let tree: ResolvedNode?
-        let count: Int
-        let reports: [(MilanoOccurrence.Kind, String, String)]
+    /// back until the update is accepted; or the key a keyed repeat would
+    /// render twice, which refuses the update.
+    enum Materialized {
+        case tree(ResolvedNode?, count: Int, reports: [ResolutionReport])
+        case conflict(key: String)
     }
-    private var nodeEvents: [String: NodeEvents] = [:]
+    /// An instance in the current tree: its template and enclosing identities.
+    struct InstanceLocation {
+        let base: String
+        let identities: [String]
+    }
+    struct MissingInstance: Error {
+        let detail: String
+    }
+    var nodeEvents: [String: NodeEvents] = [:]
+    /// Instance reference to its template and identities, for the current
+    /// tree; built on the first emission after a commit, since references
+    /// are compared, never parsed.
+    var instanceIndex: [String: InstanceLocation]?
     /// One serialized work queue: action lists and context updates both run
     /// through it, so an update can never land mid-action-list even when a
     /// re-entrant post arrives on the dispatcher thread.
     private var queue: [() -> Void] = []
     private var processing = false
-    private var tornDown = false
+    var tornDown = false
+    /// The lifecycle state: appear is accepted only while false, disappear
+    /// only while true.
+    var appeared = false
+    /// Above zero while a watch list, or a follow-up of a dispatch made
+    /// from one, is executing: mutations then trigger no watch (state and
+    /// actions spec, Watch bindings).
+    var watchDepth = 0
+    /// Dispatches below this index belong to a document since replaced:
+    /// their completions are dropped and reported.
+    var replacedBefore = 0
     /// Cancels the context source subscription; invoked at teardown.
     var cancelContextSubscription: (@Sendable () -> Void)?
-    private(set) var dispatched: [DispatchRecord] = []
+    var dispatched: [DispatchRecord] = []
+
+    private static let instanceCounter = InstanceCounter()
+
+    private final class InstanceCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var next = 0
+        func mint() -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            next += 1
+            return "\(next)-\(UUID().uuidString.lowercased())"
+        }
+    }
 
     init(
         identity: String, engine: MilanoEngine, document: ParsedDocument,
-        root: BuiltNode, resolvedRoot: ResolvedNode,
+        root: BuiltNode, lifecycle: [String: [ActionSpec]] = [:], watch: [String: [ActionSpec]] = [:],
+        resolvedRoot: ResolvedNode,
         context: [String: MilanoValue], state: [String: MilanoValue],
         dispatcher: any MilanoDispatcher, handler: (any MilanoActionHandler)?,
+        env: EvalEnvironment = .none, replacer: Replacer? = nil,
         occurrencesAtBuild: [MilanoOccurrence]
     ) {
         self.identity = identity
         self.engine = engine
         self.document = document
         self.root = root
+        self.lifecycle = lifecycle
+        self.watch = watch
         self.dependencies = MilanoResolver.index(root)
         self.resolvedRoot = resolvedRoot
         self.context = context
         self.state = state
         self.dispatcher = dispatcher
         self.handler = handler
+        self.env = env
+        self.replacer = replacer
         self.occurrencesAtBuild = occurrencesAtBuild
+        self.instanceToken = Self.instanceCounter.mint()
         indexNodes(root)
     }
 
-    private func indexNodes(_ node: BuiltNode, repeats: [BuiltNode] = []) {
+    func indexNodes(_ node: BuiltNode, repeats: [BuiltNode] = []) {
         if node.repeatSpec != nil {
             for template in node.children {
                 indexNodes(template, repeats: repeats + [node])
             }
+            return
+        }
+        // A construct's branches hold ordinary nodes that are simply not
+        // reached through `children`. Missing them here leaves their
+        // emissions with no binding to find, reported as invalidEmission.
+        if let branches = node.branchNodes {
+            for child in branches { indexNodes(child, repeats: repeats) }
             return
         }
         if !node.isPlaceholder, let component = engine.vocabulary.components[node.type] {
@@ -94,37 +174,60 @@ final class MilanoViewCore: @unchecked Sendable {
         }
     }
 
-    /// An instance reference split into its template reference and the
-    /// element index per enclosing `$repeat`, outermost first: `line[2][0]`
-    /// is `line` at 2 then 0. A plain reference has no indices.
-    private static func splitInstanceReference(_ reference: String) -> (base: String, indices: [Int]) {
-        var base = Substring(reference)
-        var indices: [Int] = []
-        while base.hasSuffix("]"), let open = base.lastIndex(of: "["),
-            let index = Int(base[base.index(after: open)..<base.index(before: base.endIndex)]) {
-            indices.insert(index, at: 0)
-            base = base[..<open]
+    /// Where every instance of the current tree comes from, built on demand.
+    func locate(_ reference: String) -> InstanceLocation? {
+        if instanceIndex == nil {
+            var index: [String: InstanceLocation] = [:]
+            func walk(_ node: ResolvedNode) {
+                if !node.identities.isEmpty {
+                    index[node.reference] = InstanceLocation(base: node.base, identities: node.identities)
+                }
+                for child in node.children { walk(child) }
+            }
+            walk(resolvedRoot)
+            instanceIndex = index
         }
-        return (String(base), indices)
+        return instanceIndex?[reference]
     }
 
     /// The `$repeat` bindings an instance's emission dispatches with: the
-    /// element at each index, evaluated now, outermost repeat first. Nil
-    /// when an index no longer exists.
-    private func bindingsFor(_ info: NodeEvents, indices: [Int]) -> [String: MilanoValue]? {
+    /// element each identity names, evaluated now, outermost repeat first.
+    /// The detail names what is missing when an identity no longer names
+    /// an element.
+    func bindingsFor(
+        _ info: NodeEvents, identities: [String]
+    ) -> Result<[String: MilanoValue], MissingInstance> {
         var bindings: [String: MilanoValue] = [:]
-        var suffix = ""
+        var enclosing: [String] = []
         for (level, repeatNode) in info.repeats.enumerated() {
-            let index = indices[level]
+            let identity = identities[level]
+            let reference = repeatNode.reference + MilanoResolver.suffix(of: enclosing)
             let elements = MilanoResolver.repeatElements(
-                repeatNode, reference: repeatNode.reference + suffix,
-                state: state, context: context, report: { _, _, _ in }, bindings: bindings)
-            guard index < elements.count, let spec = repeatNode.repeatSpec else { return nil }
+                repeatNode, reference: reference,
+                state: state, context: context, report: { _ in }, bindings: bindings, env: env)
+            guard let spec = repeatNode.repeatSpec else { return .failure(MissingInstance(detail: "index \(identity)")) }
+            let index: Int
+            if spec.key != nil {
+                // The identities of the current elements are their keys,
+                // distinct by the invariant every accepted update keeps.
+                let current = (try? MilanoResolver.instanceIdentities(
+                    repeatNode, reference: reference, elements: elements,
+                    state: state, context: context, report: { _ in }, bindings: bindings, env: env)) ?? []
+                guard let found = current.firstIndex(of: identity) else {
+                    return .failure(MissingInstance(detail: "key \(identity)"))
+                }
+                index = found
+            } else {
+                guard let parsed = Int(identity), parsed >= 0, parsed < elements.count else {
+                    return .failure(MissingInstance(detail: "index \(identity)"))
+                }
+                index = parsed
+            }
             bindings = MilanoResolver.elementBindings(
                 as: spec.as, element: elements[index], index: index, outer: bindings)
-            suffix += "[\(index)]"
+            enclosing.append(identity)
         }
-        return bindings
+        return .success(bindings)
     }
 
     // MARK: - Renderer-facing surface
@@ -135,6 +238,21 @@ final class MilanoViewCore: @unchecked Sendable {
     func emit(node: String, event: String, payload: MilanoValue? = nil) {
         dispatcher.dispatch { [weak self] in
             self?.processEmission(node: node, event: event, payload: payload)
+        }
+    }
+
+    /// The host's signal that the view has come on screen (state and
+    /// actions spec, Lifecycle signals).
+    func appear() {
+        dispatcher.dispatch { [weak self] in
+            self?.processLifecycle(appear: true)
+        }
+    }
+
+    /// The host's signal that the view has left the screen.
+    func disappear() {
+        dispatcher.dispatch { [weak self] in
+            self?.processLifecycle(appear: false)
         }
     }
 
@@ -156,118 +274,6 @@ final class MilanoViewCore: @unchecked Sendable {
 
     // MARK: - Runtime (always on the dispatcher)
 
-    private func processEmission(node: String, event: String, payload: MilanoValue?) {
-        guard !tornDown else { return }
-        // A plain reference, or an instance reference: the template's
-        // reference with one index per enclosing repeat.
-        var info = nodeEvents[node]
-        var indices: [Int] = []
-        if info == nil || !(info?.repeats.isEmpty ?? true) {
-            let split = Self.splitInstanceReference(node)
-            if let candidate = nodeEvents[split.base], candidate.repeats.count == split.indices.count {
-                info = candidate
-                indices = split.indices
-            } else {
-                info = nil
-            }
-        }
-        guard let info else {
-            report(.invalidEmission, node: node, name: event, expected: "declared event", found: "unknown node")
-            return
-        }
-        guard let bindings = bindingsFor(info, indices: indices) else {
-            report(
-                .invalidEmission, node: node, name: event,
-                expected: "repeat element", found: "index \(indices.last ?? 0)")
-            return
-        }
-        guard let declaredPayload = info.declared[event] else {
-            report(.invalidEmission, node: node, name: event, expected: "declared event", found: "undeclared event")
-            return
-        }
-        // Payload against the declared type: payload-less events take none.
-        var eventValue: MilanoValue?
-        if let payloadType = declaredPayload {
-            guard let supplied = payload, let validated = payloadType.validated(supplied) else {
-                report(
-                    .invalidEmission, node: node, name: event,
-                    expected: MilanoGate.name(of: payloadType),
-                    found: payload.map { MilanoGate.name(of: $0) } ?? "null")
-                return
-            }
-            eventValue = validated
-        } else if let supplied = payload {
-            report(
-                .invalidEmission, node: node, name: event,
-                expected: "no payload", found: MilanoGate.name(of: supplied))
-            return
-        }
-        // Analytics sees every declared emission with a valid payload,
-        // before the binding lookup: unbound taps are signal for the host
-        // even while droppedEvent keeps its defect meaning.
-        record(.event, node: node, name: event, value: eventValue)
-        guard let actions = info.bindings[event], !actions.isEmpty else {
-            report(.droppedEvent, node: node, name: event)
-            return
-        }
-        let payload = eventValue
-        enqueue { [weak self] in
-            self?.execute(actions, event: payload, result: nil, sourceNode: node, bindings: bindings)
-        }
-    }
-
-    func applyContextUpdate(_ supplied: [String: MilanoValue]) {
-        // Serialized with dispatch through the queue: an update never lands
-        // mid-action-list (state and actions spec).
-        enqueue { [weak self] in
-            self?.performContextUpdate(supplied)
-        }
-    }
-
-    private func performContextUpdate(_ supplied: [String: MilanoValue]) {
-        guard !tornDown else { return }
-        // Atomic: all declared keys validate or the whole update is rejected.
-        var canonical: [String: MilanoValue] = [:]
-        var changed: Set<String> = []
-        var lastKey: String?
-        for (key, type) in document.contextDeclarations.byKey {
-            guard let value = supplied[key], let validated = type.validated(value) else {
-                report(
-                    .rejectedContextUpdate, node: nil, name: key,
-                    expected: MilanoGate.name(of: type),
-                    found: supplied[key].map { MilanoGate.name(of: $0) } ?? "missing")
-                return
-            }
-            // A value past the value size limit rejects the update whole.
-            let size = validated.size
-            if size > engine.limits.maxValueSize {
-                report(
-                    .rejectedContextUpdate, node: nil, name: key,
-                    expected: "maxValueSize", found: "\(size)")
-                return
-            }
-            canonical[key] = validated
-            if context[key] != validated { changed.insert("context.\(key)") }
-            lastKey = key
-        }
-        // Only what reads a changed key re-evaluates; an update that changes
-        // no value changes nothing. A tree materialized past the node count
-        // limit rejects the update whole.
-        guard !changed.isEmpty else {
-            context = canonical
-            return
-        }
-        let materialized = materialize(changed: changed, state: state, context: canonical)
-        if materialized.count > engine.limits.maxNodeCount {
-            report(
-                .rejectedContextUpdate, node: nil, name: lastKey,
-                expected: "maxNodeCount", found: "\(materialized.count)")
-            return
-        }
-        context = canonical
-        commit(materialized)
-    }
-
     /// Internal completion path; the async funnel lands here, and the
     /// conformance harness drives it directly.
     func complete(dispatchIndex: Int, success: Bool, payload: MilanoValue? = nil) {
@@ -282,22 +288,29 @@ final class MilanoViewCore: @unchecked Sendable {
             return
         }
         dispatched[dispatchIndex].completed = true
+        // A dispatch of a document since replaced: its follow-ups belong to
+        // a document that no longer exists. It still counts as completed.
+        if dispatchIndex < replacedBefore {
+            report(.completionAfterReplace, node: nil, name: action)
+            return
+        }
         let record = dispatched[dispatchIndex]
 
-        // The success value against the declared result type: a missing
-        // value counts as null, a value on failure or on an action
-        // declaring no result never validates. An invalid completion is
+        // The completion's value against the declared type for its
+        // outcome: a missing value counts as null, a value for an outcome
+        // declaring no type never validates. An invalid completion is
         // consumed without running either branch (state and actions spec).
-        var resultValue: MilanoValue?
-        if success, let resultType = record.resultType {
-            guard let validated = resultType.validated(payload ?? .null) else {
+        let declared = success ? record.resultType : record.failureType
+        var value: MilanoValue?
+        if let declared {
+            guard let validated = declared.validated(payload ?? .null) else {
                 report(
                     .invalidCompletion, node: nil, name: action,
-                    expected: MilanoGate.name(of: resultType),
+                    expected: MilanoGate.name(of: declared),
                     found: MilanoGate.name(of: payload ?? .null))
                 return
             }
-            resultValue = validated
+            value = validated
         } else if let supplied = payload {
             report(
                 .invalidCompletion, node: nil, name: action,
@@ -308,22 +321,26 @@ final class MilanoViewCore: @unchecked Sendable {
 
         self.record(
             success ? .completionSucceeded : .completionFailed,
-            node: record.sourceNode, name: record.action.name, value: nil)
+            node: record.sourceNode, name: record.action.name, value: value,
+            dispatch: record.action.dispatch)
 
         let followUps = success ? record.onSuccess : record.onFailure
-        if !followUps.isEmpty {
-            let captured = record.capturedEvent
-            let bindings = record.capturedBindings
-            let source = record.sourceNode
-            enqueue { [weak self] in
-                self?.execute(
-                    followUps, event: captured, result: resultValue, sourceNode: source,
-                    bindings: bindings)
-            }
+        guard !followUps.isEmpty else { return }
+        let scope = ActionScope(
+            event: record.capturedEvent, result: success ? value : nil, failure: success ? nil : value,
+            bindings: record.capturedBindings, sourceNode: record.sourceNode)
+        let fromWatch = record.fromWatch
+        enqueue { [weak self] in
+            guard let self else { return }
+            // Follow-ups of a dispatch made from a watch list run with
+            // watches suppressed, like the list itself.
+            if fromWatch { self.watchDepth += 1 }
+            defer { if fromWatch { self.watchDepth -= 1 } }
+            self.execute(followUps, scope: scope)
         }
     }
 
-    private func enqueue(_ work: @escaping () -> Void) {
+    func enqueue(_ work: @escaping () -> Void) {
         queue.append(work)
         guard !processing else { return }
         processing = true
@@ -340,156 +357,41 @@ final class MilanoViewCore: @unchecked Sendable {
         }
     }
 
-    /// Runs an action list. Returns false when the list ended early: a
-    /// `$set` past the value size limit assigns nothing, is reported, and
-    /// stops the remaining actions of the dispatch; what the list already
-    /// applied stays.
-    @discardableResult
-    private func execute(
-        _ actions: [ActionSpec], event: MilanoValue?, result: MilanoValue?,
-        sourceNode: String?, bindings: [String: MilanoValue] = [:]
-    ) -> Bool {
-        for action in actions {
-            switch action {
-            case .set(let key, let value):
-                let declared = document.stateDeclarations[key]
-                let evaluated = evaluate(value, event: event, result: result, bindings: bindings)
-                let next = declared?.validated(evaluated) ?? evaluated
-                let size = next.size
-                if size > engine.limits.maxValueSize {
-                    report(
-                        .rejectedMutation, node: sourceNode, name: key,
-                        expected: "maxValueSize", found: "\(size)")
-                    return false
-                }
-                // A value that did not change re-resolves nothing.
-                if state[key] == next { continue }
-                var nextState = state
-                nextState[key] = next
-                // Visible immediately: the properties that read this key
-                // re-resolve before the next action. A tree materialized
-                // past the node count limit rejects the mutation instead.
-                let materialized = materialize(changed: ["state.\(key)"], state: nextState, context: context)
-                if materialized.count > engine.limits.maxNodeCount {
-                    report(
-                        .rejectedMutation, node: sourceNode, name: key,
-                        expected: "maxNodeCount", found: "\(materialized.count)")
-                    return false
-                }
-                state = nextState
-                commit(materialized)
-
-            case .sequence(let nested):
-                guard execute(
-                    nested, event: event, result: result, sourceNode: sourceNode,
-                    bindings: bindings)
-                else { return false }
-
-            case .when(let condition, let then, let otherwise):
-                let takeThen = evaluate(condition, event: event, result: result, bindings: bindings)
-                    .boolValue == true
-                guard execute(
-                    takeThen ? then : otherwise, event: event, result: result,
-                    sourceNode: sourceNode, bindings: bindings)
-                else { return false }
-
-            case .custom(let name, let parameters, let onSuccess, let onFailure, let resultType):
-                var captured: [String: MilanoValue] = [:]
-                for (parameter, value) in parameters.byKey {
-                    captured[parameter] = evaluate(value, event: event, result: result, bindings: bindings)
-                }
-                let action = MilanoAction(
-                    name: name, parameters: captured, viewIdentity: identity)
-                record(
-                    .actionDispatched, node: sourceNode, name: name,
-                    value: .record(captured))
-                let index = dispatched.count
-                dispatched.append(
-                    DispatchRecord(
-                        action: action, completed: false,
-                        onSuccess: onSuccess, onFailure: onFailure,
-                        capturedEvent: event, capturedBindings: bindings,
-                        resultType: resultType, sourceNode: sourceNode))
-                // Dispatch does not wait: the sequence continues immediately.
-                if let handler {
-                    // Captured strongly so a completion for a deallocated
-                    // view (deallocation counts as teardown) still reports.
-                    let observer = engine.observer
-                    let identity = identity
-                    Task { [weak self] in
-                        let success: Bool
-                        let payload: MilanoValue?
-                        do {
-                            payload = try await handler.handle(action)
-                            success = true
-                        } catch {
-                            payload = nil
-                            success = false
-                        }
-                        guard let self else {
-                            observer?.occurrence(MilanoOccurrence(
-                                kind: .completionAfterTeardown,
-                                viewIdentity: identity, node: nil, name: action.name))
-                            return
-                        }
-                        self.dispatcher.dispatch {
-                            self.complete(
-                                dispatchIndex: index, success: success, payload: payload)
-                        }
-                    }
-                }
-            }
-        }
-        return true
-    }
-
-    private func evaluate(
-        _ value: DocValue, event: MilanoValue?, result: MilanoValue?,
-        bindings: [String: MilanoValue] = [:]
-    ) -> MilanoValue {
-        switch value {
-        case .literal(let literal):
-            return literal
-        case .typedExpression(_, let expr, let expected):
-            let evaluator = ExprEvaluator(
-                state: state, context: context, event: event, result: result, node: nil,
-                report: { [weak self] kind in self?.report(kind, node: nil) },
-                bindings: bindings)
-            let evaluated = evaluator.evaluate(expr)
-            return expected.validated(evaluated) ?? evaluated
-        case .expression:
-            return .null
-        }
-    }
-
-    /// The tree an update would produce, with the arithmetic reports it
-    /// raised held back: nothing reaches the observer until the update is
-    /// accepted, and a rejected one leaves no trace.
-    private func materialize(
+    /// The tree an update would produce, with the reports it raised held
+    /// back: nothing reaches the observer until the update is accepted,
+    /// and a rejected one leaves no trace. A keyed repeat that would render
+    /// one key twice is a conflict, not a tree.
+    func materialize(
         changed: Set<String>, state: [String: MilanoValue], context: [String: MilanoValue]
     ) -> Materialized {
-        var reports: [(MilanoOccurrence.Kind, String, String)] = []
-        let tree = MilanoResolver.refresh(
-            root, index: dependencies, resolved: resolvedRoot, changed: changed,
-            state: state, context: context,
-            report: { kind, node, name in reports.append((kind, node, name)) })
-        return Materialized(
-            tree: tree, count: tree.map(MilanoResolver.countNodes) ?? 0, reports: reports)
+        var reports: [ResolutionReport] = []
+        do {
+            let tree = try MilanoResolver.refresh(
+                root, index: dependencies, resolved: resolvedRoot, changed: changed,
+                state: state, context: context,
+                report: { reports.append($0) }, env: env)
+            return .tree(tree, count: tree.map(MilanoResolver.countNodes) ?? 0, reports: reports)
+        } catch let conflict as RepeatKeyConflict {
+            return .conflict(key: conflict.key)
+        } catch {
+            return .tree(nil, count: 0, reports: reports)
+        }
     }
 
     /// Adopts a materialized tree, flushes its reports, notifies the host.
-    private func commit(_ materialized: Materialized) {
-        for (kind, node, name) in materialized.reports {
-            report(kind, node: node, name: name)
+    func commit(_ tree: ResolvedNode?, reports: [ResolutionReport]) {
+        for held in reports {
+            report(held.kind, node: held.node, name: held.name, expected: held.expected, found: held.found)
         }
         // Nothing depended on the change: the tree stays, and there is
         // nothing to tell the host.
-        guard let next = materialized.tree else { return }
+        guard let next = tree else { return }
         resolvedRoot = next
+        instanceIndex = nil
         onChange?()
     }
 
-    private func report(
+    func report(
         _ kind: MilanoOccurrence.Kind, node: String?,
         name: String? = nil, expected: String? = nil, found: String? = nil
     ) {
@@ -502,11 +404,11 @@ final class MilanoViewCore: @unchecked Sendable {
     /// The product-analytics seam: a no-op without an observer.
     func record(
         _ kind: MilanoUserInteraction.Kind, node: String?, name: String?,
-        value: MilanoValue?
+        value: MilanoValue?, dispatch: Int? = nil
     ) {
         engine.userInteractionObserver?.interaction(
             MilanoUserInteraction(
                 kind: kind, viewIdentity: identity,
-                node: node, name: name, value: value))
+                node: node, name: name, value: value, dispatch: dispatch))
     }
 }

@@ -159,6 +159,33 @@ describe("shapes the goldens cannot show", () => {
     assert.ok(swift.includes("\n    case fire\n"));
   });
 
+  it("names the failure payload an action fails with, and types its sites", () => {
+    const artifact = vocabulary({}, {
+      submit: { failure: { enum: ["rejected", "offline"] } },
+      order: { result: "string", failure: { record: { code: "int" } } },
+    });
+    const swift = generateSwift(artifact, "Shop");
+    assert.ok(swift.includes("public enum ShopSubmitFailure: String {"));
+    assert.ok(swift.includes("public struct ShopOrderFailure {"));
+    // The failure note is longer than a doc line allows, so it wraps: the
+    // generated files are linted, and an unwrapped comment trips the
+    // line-length rule.
+    assert.ok(
+      swift.includes(
+        "    /// The handler completes it with a `string` result, bound to `result` in onSuccess.\n" +
+          "    /// The handler fails it with a `{\"record\": {\"code\": \"int\"}}` payload (a MilanoActionFailure), bound to\n" +
+          "    /// `failure` in onFailure.\n" +
+          "    case order",
+      ),
+    );
+    const kotlin = generateKotlin(artifact, "com.example.shop", "");
+    assert.ok(kotlin.includes("enum class SubmitFailure("));
+    assert.ok(kotlin.includes("bound to `failure` in onFailure"));
+    const ts = generateTs(artifact, "Shop", "@get-milano/core");
+    assert.ok(ts.includes('export type ShopSubmitFailure = "offline" | "rejected";'));
+    assert.ok(ts.includes("bound to `failure` in onFailure"));
+  });
+
   it("refuses enum members that collide when capitalized", () => {
     const artifact = vocabulary({ Box: { properties: { tone: { enum: ["warm", "Warm"] } } } });
     assert.throws(
@@ -183,7 +210,8 @@ describe("shapes the goldens cannot show", () => {
     assert.ok(swift.includes("public func emitChanged(_ payload: ShopCartChangedPayload?) {"));
     const kotlin = generateKotlin(artifact, "com.acme", "");
     assert.ok(kotlin.includes("class CartLinesItem("));
-    assert.ok(kotlin.includes("val tags: List<List<Long?>> get() ="));
+    // Long enough to be wrapped: the accessor's type and its body split.
+    assert.ok(kotlin.includes("val tags: List<List<Long?>>\n        get() ="));
     assert.ok(kotlin.includes("item -> item.arrayOrNull!!.map { item1 -> item1.intOrNull }"));
     const ts = generateTs(artifact, "Shop", "@get-milano/core");
     assert.ok(ts.includes("export class ShopCartLinesItem {"));

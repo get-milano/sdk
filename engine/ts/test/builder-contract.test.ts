@@ -103,7 +103,7 @@ describe("what a surface must supply", () => {
     const withState = JSON.stringify({
       version: "1.0.0",
       state: { count: "int" },
-      root: { type: "Text", properties: { text: { $expr: "str(state.count)" } } },
+      root: { type: "Text", properties: { text: { $expr: "$str(state.count)" } } },
     });
     const error = await buildError(engine().viewBuilder(withState));
     assert.equal(error.rule, "state-declaration");
@@ -113,7 +113,7 @@ describe("what a surface must supply", () => {
     const withState = JSON.stringify({
       version: "1.0.0",
       state: { count: "int" },
-      root: { type: "Text", properties: { text: { $expr: "str(state.count)" } } },
+      root: { type: "Text", properties: { text: { $expr: "$str(state.count)" } } },
     });
     const failure = new Error("the network is down");
     await assert.rejects(

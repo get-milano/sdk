@@ -103,11 +103,13 @@ describe("specialize", () => {
 
   it("closes the component types to a sorted enum plus the construct", () => {
     const node = (schema["$defs"] as JsonObject)["node"] as JsonObject;
-    assert.deepEqual((node["properties"] as JsonObject)["type"], { enum: ["Column", "Text", "$repeat"] });
+    assert.deepEqual((node["properties"] as JsonObject)["type"], {
+      enum: ["Column", "Text", "$if", "$repeat", "$switch"],
+    });
   });
 
   it("emits one conditional per component in a fixed order, then the construct", () => {
-    assert.deepEqual(Object.keys(branches(schema)), ["Column", "Text", "$repeat"]);
+    assert.deepEqual(Object.keys(branches(schema)), ["Column", "Text", "$repeat", "$if", "$switch"]);
   });
 
   it("requires the construct's own keys and refuses a component's", () => {
@@ -115,6 +117,17 @@ describe("specialize", () => {
     assert.deepEqual(repeat["required"], ["items", "as", "children"]);
     assert.deepEqual((repeat["properties"] as JsonObject)["properties"], { type: "object", maxProperties: 0 });
     assert.deepEqual((repeat["properties"] as JsonObject)["on"], { type: "object", maxProperties: 0 });
+
+    const conditional = branches(schema)["$if"] as JsonObject;
+    assert.deepEqual(conditional["required"], ["condition", "then"]);
+    assert.deepEqual(
+      (conditional["properties"] as JsonObject)["properties"],
+      { type: "object", maxProperties: 0 },
+    );
+    assert.deepEqual((conditional["properties"] as JsonObject)["on"], { type: "object", maxProperties: 0 });
+
+    const choice = branches(schema)["$switch"] as JsonObject;
+    assert.deepEqual(choice["required"], ["subject", "cases"]);
   });
 
   it("rejects children on childless components only", () => {

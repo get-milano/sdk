@@ -2,17 +2,17 @@
 
 # Milano SDK
 
-Milano is a client-only, design-system-agnostic **Document-Driven UI (DDUI)** framework for **SwiftUI**, **Compose**, and **React / React Native**. Documents describe structure and behavior; your design system draws every pixel. Milano guarantees that what reaches your renderers is validated, typed, and behaviorally identical on every platform.
+Milano is a client-only, design-system-agnostic **Document-Driven UI (DDUI)** framework for **SwiftUI**, **Compose**, and **React / React Native**. Documents describe structure and behavior, from a banner embedded in a native screen to a whole screen with lists, forms, and flows; your design system draws every pixel. Milano guarantees that what reaches your renderers is validated, typed, and behaviorally identical on every platform.
 
 Milano is **not** server-driven UI (it never talks to a server), **not** a SaaS (nothing hosted, nothing to sign up for), and **not** a design system (it draws nothing).
 
-The normative specifications and the conformance suite live in [get-milano/specs](https://github.com/get-milano/specs). **Every engine passes the full conformance suite; that is the definition of correct.** This repository is held to suite release 2.0.0 of the specs (the ref its CI checks out); every engine implements contract 2.0, and accepts 1.x documents, which 2.0 keeps valid unchanged.
+The normative specifications and the conformance suite live in [get-milano/specs](https://github.com/get-milano/specs). **Every engine passes the full conformance suite; that is the definition of correct.** This repository is held to suite release 2.1.0 of the specs (the ref its CI checks out); every engine implements contract 2.1, and accepts 1.x and 2.0 documents, which 2.1 keeps valid unchanged.
 
 Consumer documentation lives in [`docs/`](docs/index.md), published at [get-milano.dev/sdk](https://get-milano.dev/sdk/): getting started, philosophy, guidelines, creating a bridge, writing documents, expressions, and guardrails.
 
 Try Milano without installing anything: the [Playground](https://get-milano.dev/playground/) runs the published engine in the browser, with live state, expressions, dispatched actions you can complete, and both observability streams. Its source is also the worked example of the React binding.
 
-Status: stable. From 1.0.0 the SDK follows semantic versioning: within a major version, releases are additive and documents, vocabularies, and integrations keep working. The SDK implements contract v1.0 of the [Milano specs](https://github.com/get-milano/specs).
+Status: stable. From 1.0.0 the SDK follows semantic versioning: within a major version, releases are additive and documents, vocabularies, and integrations keep working. The SDK implements contract 2.1 of the [Milano specs](https://github.com/get-milano/specs).
 
 ## iOS (SwiftUI)
 
@@ -41,7 +41,7 @@ From source (works on any ref, no credentials), in `settings.gradle.kts`:
 includeBuild("path/to/sdk/engine/compose")
 ```
 
-then depend on `dev.get-milano:engine-compose:2.0.0`; the composite build substitutes it. Your build's Gradle drives the engine's, so this path needs **Gradle 9.6 or newer** (the engine builds with AGP 9, which does not run on older Gradle). Consuming the published artifact has no such requirement. On tagged releases the same coordinate is published to GitHub Packages Maven (note: GitHub Packages requires an authenticated Gradle repository even for public packages).
+then depend on `dev.get-milano:engine-compose:2.1.0`; the composite build substitutes it. Your build's Gradle drives the engine's, so this path needs **Gradle 9.6 or newer** (the engine builds with AGP 9, which does not run on older Gradle). Consuming the published artifact has no such requirement. On tagged releases the same coordinate is published to Maven Central, which needs nothing but `mavenCentral()`, and to GitHub Packages Maven as well (that one requires an authenticated Gradle repository even for public packages).
 
 ```kotlin
 val engine = MilanoEngine(
@@ -111,7 +111,7 @@ Exit status `1` names every rejected document with the typed error an engine wou
 | `samples/compose-desktop` | Desktop sample app (Compose Multiplatform on the JVM; same composite build) |
 | `samples/react-native` | React Native sample app (Expo; consumes the packages through the npm workspace) |
 
-The four samples render the same documents and demonstrate every capability of the contract and beyond: three banner layouts, an interstitial, a Milano fragment embedded between native components, a form with document-driven validation, a whole user-profile screen, and a catalog of tappable item cards repeated from state, all through a pure design system bridged to Milano in a single bridging module. That split, design system with zero Milano imports plus one bridging module, is the recommended integration architecture.
+The four samples render the same documents and demonstrate every capability of the contract: three banner layouts, an interstitial that tracks its own appearances through lifecycle bindings, a Milano fragment embedded between native components, a form with document-driven validation and a typed failure payload the document turns into a message, a whole user-profile screen, a catalog of tappable item cards repeated from state with keyed identity that the document edits in place and watches, and a tip calculator formatted through a host function, all through a pure design system bridged to Milano in a single bridging module. That split, design system with zero Milano imports plus one bridging module, is the recommended integration architecture.
 
 ## Development
 
@@ -119,7 +119,7 @@ The four samples render the same documents and demonstrate every capability of t
 - **Lockstep.** The engines advance one milestone at a time; the shared vectors are the finish line.
 - **Conformance.** Drivers read `MILANO_SPECS_DIR` (or default to a sibling `specs` checkout). Run `swift test` at the repo root, `./gradlew jvmTest` in `engine/compose`, and `npm test` at the repo root for the TypeScript packages.
 - **Lint gate.** SwiftLint and ktlint (`ktlint_official`) must pass with zero violations on engines and samples; the TypeScript packages typecheck under `strict` with `npm run typecheck`.
-- **Distribution.** Tags carry binaries (XCFramework on the GitHub release for SPM `binaryTarget`; AAR/KMP artifacts to GitHub Packages; the two npm packages to npmjs). `main` and every other ref are source-only: SPM consumes the root package, Gradle consumes the composite build, and npm consumes the workspace, exactly as the samples do.
+- **Distribution.** Tags carry binaries (XCFramework on the GitHub release for SPM `binaryTarget`; AAR/KMP artifacts to Maven Central and to GitHub Packages; the two npm packages to npmjs). `main` and every other ref are source-only: SPM consumes the root package, Gradle consumes the composite build, and npm consumes the workspace, exactly as the samples do.
 
 ## License
 

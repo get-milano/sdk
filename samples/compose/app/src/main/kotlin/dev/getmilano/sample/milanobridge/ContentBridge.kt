@@ -8,10 +8,14 @@ import dev.getmilano.MilanoUserInteraction
 import dev.getmilano.sample.designsystem.ButtonModel
 import dev.getmilano.sample.designsystem.CheckboxModel
 import dev.getmilano.sample.designsystem.ColumnContainer
+import dev.getmilano.sample.designsystem.IconModel
+import dev.getmilano.sample.designsystem.IconView
 import dev.getmilano.sample.designsystem.LabeledCheckbox
 import dev.getmilano.sample.designsystem.LabeledNumberField
 import dev.getmilano.sample.designsystem.LabeledTextField
 import dev.getmilano.sample.designsystem.NumberFieldModel
+import dev.getmilano.sample.designsystem.PressableIcon
+import dev.getmilano.sample.designsystem.PressableIconModel
 import dev.getmilano.sample.designsystem.PrimaryButton
 import dev.getmilano.sample.designsystem.StyledText
 import dev.getmilano.sample.designsystem.TextFieldModel
@@ -24,6 +28,7 @@ internal fun TextModel(text: TextNode): TextModel =
             when (text.role) {
                 TextRole.Title -> TextModel.Role.TITLE
                 TextRole.Subtitle -> TextModel.Role.SUBTITLE
+                TextRole.Caption -> TextModel.Role.CAPTION
                 TextRole.Body, null -> TextModel.Role.BODY
             },
         liveRegion =
@@ -31,6 +36,27 @@ internal fun TextModel(text: TextNode): TextModel =
                 TextLiveRegion.Polite -> TextModel.LiveRegion.POLITE
                 TextLiveRegion.Assertive -> TextModel.LiveRegion.ASSERTIVE
                 null -> null
+            },
+    )
+
+internal fun IconModel(icon: IconNode): IconModel =
+    IconModel(
+        // `icon.name` is the generated enum, not a string: a document can
+        // only ask for an icon this design system draws, and a member
+        // added to the vocabulary fails this `when` until it is covered.
+        name =
+            when (icon.name) {
+                IconName.Person -> IconModel.Name.PERSON
+                IconName.List -> IconModel.Name.LIST
+                IconName.Search -> IconModel.Name.SEARCH
+                IconName.Edit -> IconModel.Name.EDIT
+                IconName.Settings -> IconModel.Name.SETTINGS
+                IconName.Help -> IconModel.Name.HELP
+            },
+        container =
+            when (icon.container) {
+                IconContainer.Circle -> IconModel.Container.CIRCLE
+                IconContainer.Plain, null -> IconModel.Container.NONE
             },
     )
 
@@ -84,6 +110,38 @@ internal object TextRenderer : MilanoRenderer {
     }
 }
 
+internal object IconButtonRenderer : MilanoRenderer {
+    @Composable
+    override fun Render(node: MilanoNode) {
+        val button = IconButtonNode(node)
+        PressableIcon(
+            PressableIconModel(
+                icon =
+                    when (button.icon) {
+                        IconButtonIcon.Eye -> PressableIconModel.Icon.EYE
+                        IconButtonIcon.EyeOff -> PressableIconModel.Icon.EYE_OFF
+                    },
+                accessibilityLabel = button.accessibilityLabel,
+                accessibilityHint = button.accessibilityHint,
+                // The document models the press itself, so both edges are
+                // declared events; reporting an interaction here as well
+                // would double-count.
+                onPressStart = { button.emitPressStart() },
+                onPressEnd = { button.emitPressEnd() },
+            ),
+        )
+    }
+}
+
+internal object IconRenderer : MilanoRenderer {
+    @Composable
+    override fun Render(node: MilanoNode) {
+        val icon = IconNode(node)
+        if (icon.visible == false) return
+        IconView(IconModel(icon))
+    }
+}
+
 internal object ButtonRenderer : MilanoRenderer {
     @Composable
     override fun Render(node: MilanoNode) {
@@ -123,7 +181,11 @@ internal object CheckboxRenderer : MilanoRenderer {
 internal object ColumnRenderer : MilanoRenderer {
     @Composable
     override fun Render(node: MilanoNode) {
-        ColumnContainer {
+        val column = ColumnNode(node)
+        ColumnContainer(
+            padding = (column.padding ?: 16).toInt(),
+            fillsWidth = column.width != ColumnWidth.Content,
+        ) {
             for (child in node.children) {
                 key(child.key) { child.Render() }
             }

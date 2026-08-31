@@ -34,6 +34,82 @@ function contextFor(text: string): Record<string, MilanoValue> {
   return synthesizedState(types);
 }
 
+/**
+ * Elements for the documents whose point is a `$repeat`. Synthesized
+ * state gives a declared array its zero value, the empty array, so the
+ * template renders nothing and the renderers inside it are never
+ * exercised: without these, a broken Icon or Card renderer passes here.
+ */
+const ELEMENTS: Readonly<Record<string, Record<string, MilanoValue>>> = {
+  "quick-actions": {
+    actions: MilanoValue.array([
+      MilanoValue.record({
+        id: MilanoValue.string("profile"),
+        label: MilanoValue.string("Profile"),
+        icon: MilanoValue.string("person"),
+        screen: MilanoValue.string("profile"),
+      }),
+      MilanoValue.record({
+        id: MilanoValue.string("catalog"),
+        label: MilanoValue.string("Catalog"),
+        icon: MilanoValue.string("list"),
+        screen: MilanoValue.string("catalog"),
+      }),
+    ]),
+    lastTapped: MilanoValue.int(-1n),
+  },
+  catalog: {
+    items: MilanoValue.array([
+      MilanoValue.record({
+        id: MilanoValue.string("bulbasaur"),
+        name: MilanoValue.string("Bulbasaur"),
+        blurb: MilanoValue.string("Grass and poison."),
+        imageUrl: MilanoValue.string("https://example.com/1.png"),
+        url: MilanoValue.string("https://example.com/bulbasaur"),
+      }),
+    ]),
+    hidden: MilanoValue.int(0n),
+  },
+};
+
+/**
+ * Which documents declare an array in state, and so need elements before
+ * anything inside their `$repeat` renders. Synthesized state gives a
+ * declared array its zero value, the empty array, so a document missing
+ * from ELEMENTS renders its template zero times and this script reports a
+ * cheerful "ok" over a tree that never exercised the renderers inside it.
+ * Opting in silently was how the catalog and the quick actions strip both
+ * went uncovered; this makes leaving one out a failure.
+ */
+function needsElements(text: string): readonly string[] {
+  const declarations = parseJson(text).recordValue?.["state"]?.recordValue ?? {};
+  return Object.entries(declarations)
+    .filter(([, descriptor]) => MilanoType.fromDescriptor(descriptor)?.kind.kind === "array")
+    .map(([key]) => key);
+}
+
+/**
+ * Context for documents whose content is context, not markup. Synthesized
+ * context is the zero value of each declared type, so a card whose number
+ * arrives that way renders an empty mask and proves nothing about the
+ * masking it exists to demonstrate.
+ */
+const CONTEXT: Readonly<Record<string, Record<string, MilanoValue>>> = {
+  "card-detail": {
+    cardNumber: MilanoValue.string("4111111111111111"),
+    cardHolder: MilanoValue.string("Ada Lovelace"),
+    expiry: MilanoValue.string("0929"),
+    cvv: MilanoValue.string("123"),
+    capabilities: MilanoValue.string("Contactless, Online, ATM"),
+    cardStatus: MilanoValue.string("frozen"),
+    statusLabels: MilanoValue.record({
+      active: MilanoValue.string("Active"),
+      frozen: MilanoValue.string("Frozen"),
+      expired: MilanoValue.string("Expired"),
+    }),
+  },
+};
+
 async function main(): Promise<void> {
   let failures = 0;
 
@@ -46,14 +122,31 @@ async function main(): Promise<void> {
       // The banners in the sample degrade rather than fail; matching the
       // app keeps this honest about what it renders.
       defaultUnknownTypePolicy: name.startsWith("banner") ? "skip" : "fail",
+      // The app's host functions, answered here as the app answers them.
+      functionHandler: (call) =>
+        call.name === "formatMoney"
+          ? MilanoValue.string(`${(call.arguments[0]?.numberValue ?? 0).toFixed(2)} ${call.arguments[1]?.stringValue ?? "EUR"}`)
+          : null,
     });
+
+    const arrays = needsElements(text);
+    const supplied = Object.keys(ELEMENTS[name] ?? {});
+    const missing = arrays.filter((key) => !supplied.includes(key));
+    if (missing.length > 0) {
+      failures += 1;
+      console.error(
+        `FAIL ${name}: declares ${missing.join(", ")} as an array with no elements in ELEMENTS, ` +
+          "so its $repeat would render nothing and prove nothing",
+      );
+      continue;
+    }
 
     try {
       const view = await engine
         .viewBuilder(text)
         .label(name)
-        .context(contextFor(text))
-        .stateData((declarations) => synthesizedState(declarations))
+        .context({ ...contextFor(text), ...CONTEXT[name] })
+        .stateData((declarations) => ({ ...synthesizedState(declarations), ...ELEMENTS[name] }))
         .actionHandler(() => MilanoValue.string("rendered"))
         .build();
 

@@ -56,6 +56,10 @@ export function MenuScreen({
       <SectionHeader title="Whole screens" />
       <MenuRow title="Profile" onPress={() => onNavigate({ kind: "profile" })} />
       <MenuRow title="Catalog · Tap to open" onPress={() => onNavigate({ kind: "catalog" })} />
+      <MenuRow
+        title="Quick actions · Tap to open"
+        onPress={() => onNavigate({ kind: "quickActions" })}
+      />
 
       <SectionHeader title="Integration" />
       <MenuRow title="Embedded in native UI" onPress={() => onNavigate({ kind: "embedded" })} />

@@ -24,6 +24,11 @@ private fun Expr.collectDependencies(keys: MutableSet<String>) {
             }
         }
 
+        is Expr.Lookup -> {
+            base.collectDependencies(keys)
+            key.collectDependencies(keys)
+        }
+
         is Expr.Call -> {
             for (argument in arguments) argument.collectDependencies(keys)
         }

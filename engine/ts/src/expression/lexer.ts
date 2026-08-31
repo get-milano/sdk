@@ -2,6 +2,8 @@ import { ExprError } from "./ast.ts";
 
 export type Token =
   | { readonly kind: "identifier"; readonly value: string }
+  /** A built-in function, `$` included: the contract's namespace. */
+  | { readonly kind: "builtin"; readonly value: string }
   | { readonly kind: "int"; readonly value: bigint }
   | { readonly kind: "double"; readonly value: number }
   | { readonly kind: "string"; readonly value: string }
@@ -13,7 +15,7 @@ const INT_MAX = 2n ** 63n - 1n;
 
 const TWO_CHARACTER = new Set(["??", "||", "&&", "==", "!=", "<=", ">="]);
 const ONE_CHARACTER = new Set([
-  "+", "-", "*", "/", "%", "<", ">", "!", "(", ")", ".", ",",
+  "+", "-", "*", "/", "%", "<", ">", "!", "(", ")", ".", ",", "[", "]",
 ]);
 
 /** ASCII only: the grammar's letters and digits are not Unicode-wide. */
@@ -58,6 +60,25 @@ export function tokenize(source: string): Token[] {
         position += 1;
       }
       tokens.push({ kind: "identifier", value: name });
+      continue;
+    }
+
+    if (character === "$") {
+      // A built-in function (expression spec, Grammar): `$` and a name,
+      // valid only in call position, which the parser enforces.
+      position += 1;
+      const first = peek();
+      if (first === undefined || !isLetter(first)) {
+        throw new ExprError("'$' must be followed by a function name");
+      }
+      let name = "$";
+      while (position < scalars.length) {
+        const next = peek() as string;
+        if (!isLetter(next) && !isDigit(next) && next !== "_") break;
+        name += next;
+        position += 1;
+      }
+      tokens.push({ kind: "builtin", value: name });
       continue;
     }
 

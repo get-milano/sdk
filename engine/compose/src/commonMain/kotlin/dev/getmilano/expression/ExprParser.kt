@@ -7,6 +7,11 @@ private sealed class Token {
         val name: String,
     ) : Token()
 
+    /** A built-in function, `$` included: the contract's namespace. */
+    data class Builtin(
+        val name: String,
+    ) : Token()
+
     data class IntLit(
         val value: Long,
     ) : Token()
@@ -58,6 +63,22 @@ private class Lexer(
             return Token.Identifier(String(chars, start, position - start))
         }
 
+        if (c == '$') {
+            // A built-in function (expression spec, Grammar): `$` and a
+            // name, valid only in call position, which the parser enforces.
+            val start = position
+            position += 1
+            if (position >= chars.size || !isLetter(chars[position])) {
+                throw ExprException("'${'$'}' must be followed by a function name")
+            }
+            while (position < chars.size &&
+                (isLetter(chars[position]) || isDigit(chars[position]) || chars[position] == '_')
+            ) {
+                position += 1
+            }
+            return Token.Builtin(String(chars, start, position - start))
+        }
+
         if (isDigit(c)) {
             val start = position
             while (position < chars.size && isDigit(chars[position])) position += 1
@@ -104,7 +125,7 @@ private class Lexer(
                 return Token.Punct(op)
             }
         }
-        for (op in listOf("!", "-", "+", "*", "/", "%", "<", ">", ".", ",", "(", ")")) {
+        for (op in listOf("!", "-", "+", "*", "/", "%", "<", ">", ".", ",", "(", ")", "[", "]")) {
             if (c.toString() == op) {
                 position += 1
                 return Token.Punct(op)
@@ -225,14 +246,35 @@ private class Parser(
 
     private fun postfix(): Expr {
         var expr = primary()
-        while (consume(".")) {
-            val field =
-                (current() as? Token.Identifier)?.name
-                    ?: throw ExprException("expected field name after '.'")
-            position += 1
-            expr = Expr.Member(expr, field)
+        while (true) {
+            if (consume(".")) {
+                val field =
+                    (current() as? Token.Identifier)?.name
+                        ?: throw ExprException("expected field name after '.'")
+                position += 1
+                expr = Expr.Member(expr, field)
+            } else if (consume("[")) {
+                // A lookup: the key is an expression, so the member is
+                // chosen at evaluation rather than written in the document.
+                val key = expression()
+                if (!consume("]")) throw ExprException("expected ']'")
+                expr = Expr.Lookup(expr, key)
+            } else {
+                return expr
+            }
         }
-        return expr
+    }
+
+    /** The parenthesized argument list of a call, the `(` already taken. */
+    private fun arguments(): List<Expr> {
+        val arguments = ArrayList<Expr>()
+        if (!consume(")")) {
+            do {
+                arguments.add(expression())
+            } while (consume(","))
+            if (!consume(")")) throw ExprException("expected ')'")
+        }
+        return arguments
     }
 
     private fun primary(): Expr {
@@ -259,17 +301,19 @@ private class Parser(
                     "false" -> return Expr.BoolLiteral(false)
                     "null" -> return Expr.NullLiteral
                 }
-                if (consume("(")) {
-                    val arguments = ArrayList<Expr>()
-                    if (!consume(")")) {
-                        do {
-                            arguments.add(expression())
-                        } while (consume(","))
-                        if (!consume(")")) throw ExprException("expected ')'")
-                    }
-                    return Expr.Call(token.name, arguments)
-                }
+                // A bare name in call position is a host function the
+                // surface declares; anywhere else it is a root.
+                if (consume("(")) return Expr.Call(token.name, arguments())
                 return Expr.Root(token.name)
+            }
+
+            is Token.Builtin -> {
+                position += 1
+                // A built-in is a function: its name is never a value.
+                if (!consume("(")) {
+                    throw ExprException("'${token.name}' is a function and needs arguments")
+                }
+                return Expr.Call(token.name, arguments())
             }
 
             is Token.Punct -> {

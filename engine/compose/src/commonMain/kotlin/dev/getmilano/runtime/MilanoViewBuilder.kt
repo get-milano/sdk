@@ -19,6 +19,7 @@ class MilanoViewBuilder internal constructor(
     private var label: String? = null
     private var allowedActions: List<String>? = null
     private val declaredActions = LinkedHashMap<String, MilanoVocabulary.Action>()
+    private val declaredFunctions = LinkedHashMap<String, MilanoVocabulary.Function>()
 
     /**
      * Grants only the listed custom actions to this surface: a document
@@ -32,8 +33,9 @@ class MilanoViewBuilder internal constructor(
         }
 
     /**
-     * Declares (or overrides) a custom action for this surface: the name
-     * and parameter shape join the granted set for this builder only.
+     * Declares (or overrides) a custom action for this surface: the name,
+     * parameter shape, optional success result type, and optional failure
+     * payload type join the granted set for this builder only.
      * Declarations type the payload; meaning is assigned by this surface's
      * action handler.
      */
@@ -41,9 +43,25 @@ class MilanoViewBuilder internal constructor(
         name: String,
         parameters: Map<String, MilanoType> = emptyMap(),
         result: MilanoType? = null,
+        failure: MilanoType? = null,
     ): MilanoViewBuilder =
         apply {
-            declaredActions[name] = MilanoVocabulary.Action(parameters, result)
+            declaredActions[name] = MilanoVocabulary.Action(parameters, result, failure)
+        }
+
+    /**
+     * Declares (or overrides) a host function for this surface (contract
+     * 2.1): its argument types in order and its return type join the
+     * vocabulary's declarations for this builder only. The engine's
+     * function handler resolves it by name like any other.
+     */
+    fun function(
+        name: String,
+        arguments: List<MilanoType>,
+        returns: MilanoType,
+    ): MilanoViewBuilder =
+        apply {
+            declaredFunctions[name] = MilanoVocabulary.Function(arguments.toList(), returns)
         }
 
     /** Supplies fixed context values for the keys the document declares. */
@@ -88,6 +106,75 @@ class MilanoViewBuilder internal constructor(
         }
 
     /**
+     * The surface's granted action set: vocabulary declarations, overridden
+     * by builder declarations, narrowed by the allowlist.
+     */
+    private fun grantedActions(): Map<String, MilanoVocabulary.Action> {
+        val granted: Map<String, MilanoVocabulary.Action> = engine.vocabulary.actions + declaredActions
+        val allowed = allowedActions ?: return granted
+        return granted.filterKeys { it in allowed }
+    }
+
+    /** The surface's declared host functions: the vocabulary's, overridden by the builder's. */
+    private fun declaredFunctionSet(): Map<String, MilanoVocabulary.Function> = engine.vocabulary.functions + declaredFunctions
+
+    /**
+     * Steps 1 to 5 of the gate for one document under this surface's
+     * configuration, plus the two handler checks. Shared by the first
+     * build and every replacement.
+     */
+    private fun prepare(
+        text: String,
+        byteCount: Int?,
+        identity: String,
+        policy: MilanoUnknownTypePolicy,
+    ): PreparedDocument {
+        val pending = ArrayList<MilanoOccurrence>()
+        val gate = MilanoGate(engine, policy, identity, grantedActions(), declaredFunctionSet()) { pending.add(it) }
+
+        // Steps 1 to 4, and the lifecycle and watch bindings.
+        val validated = gate.validateDocument(text, byteCount)
+
+        // A document using custom actions needs somewhere to send them, and
+        // one calling host functions needs something to answer.
+        if (gate.usesCustomActions && handler == null) {
+            throw MilanoBuildException.SchemaViolation(rule = "action-handler", expected = "action handler")
+        }
+        if (gate.usedFunctions.isNotEmpty() && engine.functionHandler == null) {
+            throw MilanoBuildException.SchemaViolation(rule = "function-handler", expected = "function handler")
+        }
+        return PreparedDocument(gate, validated.document, validated.root, validated.lifecycle, validated.watch, pending)
+    }
+
+    /**
+     * A replacement's plan (state and actions spec, Document replacement):
+     * the new document through the gate, and the provider's values for the
+     * keys that do not carry over from the prior declarations, invoked once
+     * with exactly those declarations, or not at all. The view completes
+     * the swap on its dispatcher.
+     */
+    private suspend fun plan(
+        text: String,
+        byteCount: Int?,
+        identity: String,
+        policy: MilanoUnknownTypePolicy,
+        priorDeclarations: Map<String, MilanoType>,
+    ): PreparedDocument {
+        val prepared = prepare(text, byteCount, identity, policy)
+        val needed = LinkedHashMap<String, MilanoType>()
+        for ((key, type) in prepared.document.stateDeclarations) {
+            // Optionality is part of the type: only an identical declaration carries over.
+            if (priorDeclarations[key] != type) needed[key] = type
+        }
+        if (needed.isEmpty()) return prepared
+        val provider =
+            stateProvider
+                ?: throw MilanoBuildException.SchemaViolation(rule = "state-declaration", expected = "state data provider")
+        // Awaited here; the provider's own errors propagate unchanged.
+        return prepared.withProvided(provider.initialState(needed))
+    }
+
+    /**
      * Building is asynchronous: the document is parsed and validated in
      * full, then the state data provider is awaited and its values are
      * validated against the document's declarations. Throws typed
@@ -101,21 +188,11 @@ class MilanoViewBuilder internal constructor(
             throw MilanoEngineException.IncompleteRegistry(listOf("(placeholder renderer)"))
         }
 
-        // The surface's granted action set: vocabulary declarations,
-        // overridden by builder declarations, narrowed by the allowlist.
-        var granted: Map<String, MilanoVocabulary.Action> = engine.vocabulary.actions + declaredActions
-        allowedActions?.let { allowed -> granted = granted.filterKeys { it in allowed } }
-
-        val pending = ArrayList<MilanoOccurrence>()
-        val gate = MilanoGate(engine, policy, identity, granted) { pending.add(it) }
-
-        // Steps 1 to 4.
-        val (document, root) = gate.validateDocument(documentText, documentByteCount)
-
-        // A document using custom actions needs somewhere to send them.
-        if (gate.usesCustomActions && handler == null) {
-            throw MilanoBuildException.SchemaViolation(rule = "action-handler", expected = "action handler")
-        }
+        val prepared = prepare(documentText, documentByteCount, identity, policy)
+        val gate = prepared.gate
+        val document = prepared.document
+        val root = prepared.root
+        val pending = prepared.pending
 
         // Step 5: cross-checks over supplied data.
         val context = gate.validateContext(document, contextSource?.current ?: emptyMap())
@@ -130,10 +207,23 @@ class MilanoViewBuilder internal constructor(
             state = gate.validateState(document, provided)
         }
 
-        // Initial resolution: every property expression evaluated.
+        val env = EvalEnvironment(declaredFunctionSet(), engine.functionHandler)
+
+        // Initial resolution: every property expression evaluated, every
+        // `$repeat` materialized; a keyed repeat rendering one key twice is
+        // a data defect.
         val resolvedRoot =
-            MilanoResolver.resolve(root, state, context) { kind, node, name ->
-                pending.add(MilanoOccurrence(kind, identity, node, name = name))
+            try {
+                MilanoResolver.resolve(root, state, context, env = env) { kind, node, name, detail ->
+                    pending.add(MilanoOccurrence(kind, identity, node, name, detail?.expected, detail?.found))
+                }
+            } catch (conflict: RepeatKeyConflict) {
+                throw MilanoBuildException.SchemaViolation(
+                    rule = "repeat",
+                    node = conflict.reference,
+                    expected = "distinct key",
+                    found = conflict.key,
+                )
             }
 
         // The node count limit is measured on the materialized tree.
@@ -164,13 +254,16 @@ class MilanoViewBuilder internal constructor(
                 engine,
                 document,
                 root,
+                prepared.lifecycle,
+                prepared.watch,
                 resolvedRoot,
                 context,
                 state,
                 dispatcher,
                 handler,
                 pending,
-            )
+                env,
+            ) { text, byteCount, priorDeclarations -> plan(text, byteCount, identity, policy, priorDeclarations) }
 
         // Context updates flow through the view's dispatcher and are
         // validated atomically there.

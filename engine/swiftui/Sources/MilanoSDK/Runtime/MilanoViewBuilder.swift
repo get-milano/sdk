@@ -16,6 +16,21 @@ public final class MilanoViewBuilder: @unchecked Sendable {
     private var label: String?
     private var allowedActions: [String]?
     private var declaredActions: [String: MilanoVocabulary.Action] = [:]
+    private var declaredFunctions: [String: MilanoVocabulary.Function] = [:]
+
+    /// The gate's reports for one document, collected by reference so the
+    /// gate's closure and the builder see one list; reported only when the
+    /// build, or the replacement, succeeds.
+    private final class PendingOccurrences {
+        var items: [MilanoOccurrence] = []
+    }
+
+    /// What the gate produced for one document, before the data checks.
+    private struct Prepared {
+        let gate: MilanoGate
+        let validated: ValidatedDocument
+        let pending: PendingOccurrences
+    }
 
     init(engine: MilanoEngine, documentData: Data) {
         self.engine = engine
@@ -33,14 +48,27 @@ public final class MilanoViewBuilder: @unchecked Sendable {
     }
 
     /// Declares (or overrides) a custom action for this surface: the name,
-    /// parameter shape, and optional success result type join the granted
-    /// set for this builder only. Declarations type the payload; meaning is
-    /// assigned by this surface's action handler.
+    /// parameter shape, optional success result type, and optional failure
+    /// payload type join the granted set for this builder only.
+    /// Declarations type the payload; meaning is assigned by this surface's
+    /// action handler.
     @discardableResult
     public func action(
-        _ name: String, parameters: [String: MilanoType] = [:], result: MilanoType? = nil
+        _ name: String, parameters: [String: MilanoType] = [:], result: MilanoType? = nil,
+        failure: MilanoType? = nil
     ) -> Self {
-        declaredActions[name] = MilanoVocabulary.Action(parameters: parameters, result: result)
+        declaredActions[name] = MilanoVocabulary.Action(
+            parameters: parameters, result: result, failure: failure)
+        return self
+    }
+
+    /// Declares (or overrides) a host function for this surface (contract
+    /// 2.1): its argument types in order and its return type join the
+    /// vocabulary's declarations for this builder only. The engine's
+    /// function handler resolves it by name like any other.
+    @discardableResult
+    public func function(_ name: String, arguments: [MilanoType], returns: MilanoType) -> Self {
+        declaredFunctions[name] = MilanoVocabulary.Function(arguments: arguments, returns: returns)
         return self
     }
 
@@ -110,6 +138,76 @@ public final class MilanoViewBuilder: @unchecked Sendable {
         return self
     }
 
+    /// The surface's granted action set: vocabulary declarations,
+    /// overridden by builder declarations, narrowed by the allowlist.
+    private func grantedActions() -> [String: MilanoVocabulary.Action] {
+        let granted = engine.vocabulary.actions.merging(declaredActions) { _, builder in builder }
+        guard let allowedActions else { return granted }
+        return granted.filter { allowedActions.contains($0.key) }
+    }
+
+    /// The surface's declared host functions: the vocabulary's, overridden
+    /// by the builder's.
+    private func declaredFunctionSet() -> [String: MilanoVocabulary.Function] {
+        engine.vocabulary.functions.merging(declaredFunctions) { _, builder in builder }
+    }
+
+    /// Steps 1 to 5 of the gate for one document under this surface's
+    /// configuration, plus the two handler checks. Shared by the first
+    /// build and every replacement.
+    private func prepare(_ data: Data, identity: String, policy: MilanoUnknownTypePolicy) throws -> Prepared {
+        let pending = PendingOccurrences()
+        let gate = MilanoGate(
+            engine: engine, policy: policy, viewIdentity: identity,
+            grantedActions: grantedActions(), declaredFunctions: declaredFunctionSet(),
+            report: { pending.items.append($0) })
+        let validated = try gate.validateDocument(data)
+
+        // A document using custom actions needs somewhere to send them, and
+        // one calling host functions needs something to answer.
+        if gate.flags.usesCustomActions, handler == nil {
+            throw MilanoBuildError.schemaViolation(
+                rule: "action-handler", node: nil, expected: "action handler", found: nil)
+        }
+        if !gate.flags.usedFunctions.isEmpty, engine.functionHandler == nil {
+            throw MilanoBuildError.schemaViolation(
+                rule: "function-handler", node: nil, expected: "function handler", found: nil)
+        }
+        return Prepared(gate: gate, validated: validated, pending: pending)
+    }
+
+    /// A replacement's plan (state and actions spec, Document replacement):
+    /// the new document through the gate, and the provider's values for
+    /// the keys that do not carry over from the prior declarations,
+    /// invoked once with exactly those declarations, or not at all. The
+    /// view completes the swap on its dispatcher.
+    private func plan(
+        _ data: Data, identity: String, policy: MilanoUnknownTypePolicy,
+        priorDeclarations: [String: MilanoType]
+    ) async throws -> ReplacementPlan {
+        let prepared = try prepare(data, identity: identity, policy: policy)
+        let document = prepared.validated.document
+        // A key carries over when its declared type is identical,
+        // optionality included; every other key comes from the provider.
+        var needed: [String: MilanoType] = [:]
+        for (key, type) in document.stateDeclarations where priorDeclarations[key] != type {
+            needed[key] = type
+        }
+        var provided: [String: MilanoValue]?
+        if !needed.isEmpty {
+            guard let stateProvider else {
+                throw MilanoBuildError.schemaViolation(
+                    rule: "state-declaration", node: nil, expected: "state data provider", found: nil)
+            }
+            // Awaited here; the provider's own errors propagate unchanged.
+            provided = try await stateProvider.initialState(for: needed)
+        }
+        return ReplacementPlan(
+            document: document, root: prepared.validated.root,
+            lifecycle: prepared.validated.lifecycle, watch: prepared.validated.watch,
+            pending: prepared.pending.items, provided: provided)
+    }
+
     /// Building is asynchronous: the document is parsed and validated in
     /// full, then the state data provider is awaited and its values are
     /// validated against the document's declarations. Throws typed
@@ -122,32 +220,14 @@ public final class MilanoViewBuilder: @unchecked Sendable {
             throw MilanoEngineError.incompleteRegistry(missing: ["(placeholder renderer)"])
         }
 
-        // The surface's granted action set: vocabulary declarations,
-        // overridden by builder declarations, narrowed by the allowlist.
-        var granted = engine.vocabulary.actions.merging(declaredActions) { _, builder in builder }
-        if let allowedActions {
-            granted = granted.filter { allowedActions.contains($0.key) }
-        }
+        // Steps 1 to 5, the bindings, and the handler checks.
+        let prepared = try prepare(documentData, identity: identity, policy: policy)
+        let document = prepared.validated.document
+        let root = prepared.validated.root
+        let pending = prepared.pending
 
-        var pending: [MilanoOccurrence] = []
-        let gate = MilanoGate(
-            engine: engine, policy: policy, viewIdentity: identity,
-            grantedActions: granted,
-            report: { pending.append($0) })
-
-        // Steps 1 to 4.
-        let (document, root) = try gate.validateDocument(documentData)
-
-        // A document using custom actions needs somewhere to send them.
-        if gate.flags.usesCustomActions, handler == nil {
-            throw MilanoBuildError.schemaViolation(
-                rule: "action-handler", node: nil, expected: "action handler", found: nil)
-        }
-
-        // Step 5: cross-checks over supplied data.
-        let suppliedContext = contextSource?.current ?? [:]
-        let context = try gate.validateContext(document, supplied: suppliedContext)
-
+        // The data checks over supplied context and provided state.
+        let context = try prepared.gate.validateContext(document, supplied: contextSource?.current ?? [:])
         var state: [String: MilanoValue] = [:]
         if !document.stateDeclarations.isEmpty {
             guard let stateProvider else {
@@ -157,16 +237,23 @@ public final class MilanoViewBuilder: @unchecked Sendable {
             }
             // Awaited here; the provider's own errors propagate unchanged.
             let provided = try await stateProvider.initialState(for: document.stateDeclarations)
-            state = try gate.validateState(document, provided: provided)
+            state = try prepared.gate.validateState(document, provided: provided)
         }
 
-        // Initial resolution: every property expression evaluated.
-        let resolvedRoot = MilanoResolver.resolve(
-            root, state: state, context: context,
-            report: { kind, node, name in
-                pending.append(
-                    MilanoOccurrence(kind: kind, viewIdentity: identity, node: node, name: name))
-            })
+        // Initial resolution: every property expression evaluated, every
+        // `$repeat` materialized; a keyed repeat rendering one key twice
+        // is a data defect.
+        let env = EvalEnvironment(functions: declaredFunctionSet(), handler: engine.functionHandler)
+        let resolvedRoot: ResolvedNode
+        do {
+            resolvedRoot = try MilanoResolver.resolve(
+                root, state: state, context: context,
+                report: { pending.items.append($0.occurrence(in: identity)) },
+                env: env)
+        } catch let conflict as RepeatKeyConflict {
+            throw MilanoBuildError.schemaViolation(
+                rule: "repeat", node: conflict.reference, expected: "distinct key", found: conflict.key)
+        }
 
         // The node count limit is measured on the materialized tree.
         let materialized = MilanoResolver.countNodes(resolvedRoot)
@@ -176,7 +263,7 @@ public final class MilanoViewBuilder: @unchecked Sendable {
         }
 
         // Only a successful build reports its occurrences.
-        for occurrence in pending {
+        for occurrence in pending.items {
             engine.observer?.occurrence(occurrence)
         }
 
@@ -189,10 +276,13 @@ public final class MilanoViewBuilder: @unchecked Sendable {
 
         let core = MilanoViewCore(
             identity: identity, engine: engine, document: document,
-            root: root, resolvedRoot: resolvedRoot,
-            context: context, state: state,
-            dispatcher: dispatcher, handler: handler,
-            occurrencesAtBuild: pending)
+            root: root, lifecycle: prepared.validated.lifecycle, watch: prepared.validated.watch,
+            resolvedRoot: resolvedRoot, context: context, state: state,
+            dispatcher: dispatcher, handler: handler, env: env,
+            replacer: { [self] data, priorDeclarations in
+                try await self.plan(data, identity: identity, policy: policy, priorDeclarations: priorDeclarations)
+            },
+            occurrencesAtBuild: pending.items)
 
         // Context updates flow through the view's dispatcher and are
         // validated atomically there.

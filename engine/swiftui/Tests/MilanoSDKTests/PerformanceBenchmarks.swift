@@ -46,7 +46,7 @@ struct PerformanceBenchmarks {
         for index in 0..<nodes {
             children += ","
             children += index.isMultiple(of: 2)
-                ? #"{"type": "Text", "properties": {"text": {"$expr": "concat('v', state.value)"}}}"#
+                ? #"{"type": "Text", "properties": {"text": {"$expr": "$concat('v', state.value)"}}}"#
                 : #"{"type": "Text", "properties": {"text": "static \#(index)"}}"#
         }
         let text = """

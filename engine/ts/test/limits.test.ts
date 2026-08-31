@@ -93,7 +93,7 @@ describe("the value size limit at runtime", () => {
                 then: [
                   {
                     action: "$sequence",
-                    actions: [{ action: "$set", key: "s", value: { $expr: "concat(state.s, state.s)" } }],
+                    actions: [{ action: "$set", key: "s", value: { $expr: "$concat(state.s, state.s)" } }],
                   },
                   { action: "$set", key: "n", value: { $expr: "state.n + 10" } },
                 ],
@@ -124,7 +124,7 @@ describe("the value size limit at runtime", () => {
           type: "Text",
           id: "t",
           properties: { text: { $expr: "state.s" } },
-          on: { tap: [{ action: "$set", key: "s", value: { $expr: "concat(state.s, 'x')" } }] },
+          on: { tap: [{ action: "$set", key: "s", value: { $expr: "$concat(state.s, 'x')" } }] },
         },
       }),
       { s: MilanoValue.string("abcdefg") },
@@ -143,7 +143,7 @@ describe("the value size limit at runtime", () => {
       JSON.stringify({
         version: "1.0.0",
         context: { who: "string", n: "int" },
-        root: { type: "Text", id: "t", properties: { text: { $expr: "concat(context.who, str(context.n))" } } },
+        root: { type: "Text", id: "t", properties: { text: { $expr: "$concat(context.who, $str(context.n))" } } },
       }),
       {},
       handle,

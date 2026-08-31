@@ -1,7 +1,7 @@
 import Foundation
 
-/// What a scoped scalar root (`event`, `result`) means where an expression
-/// appears: unavailable, or available with a declared type.
+/// What a scoped scalar root (`event`, `result`, `failure`) means where an
+/// expression appears: unavailable, or available with a declared type.
 enum EventScope: Equatable, Sendable {
     case unavailable
     case payload(MilanoType)
@@ -12,8 +12,24 @@ struct ExprChecker {
     let context: [String: MilanoType]
     let eventScope: EventScope
     var resultScope: EventScope = .unavailable
+    var failureScope: EventScope = .unavailable
     /// `$repeat` bindings in scope: the element and its index, by name.
     var bindings: [String: MilanoType] = [:]
+    /// The document's declared major.minor: gates the features it may use.
+    var contract: (major: Int, minor: Int) = (2, 1)
+    /// The surface's declared host functions, by name (contract 2.1).
+    var functions: [String: MilanoVocabulary.Function] = [:]
+    /// Told of every host function a checked expression calls, for the gate.
+    var onFunctionUse: ((String) -> Void)?
+
+    /// A function or root from a later minor than the document declares.
+    /// Internal rather than private: the lookup's rules live in their own
+    /// file, which the checker's body-length limit is what forced.
+    func gateFeature(_ name: String) throws {
+        if !MilanoContractFeatures.has(name, major: contract.major, minor: contract.minor) {
+            throw ExprFeatureError(feature: name, version: MilanoContractFeatures.version(of: name))
+        }
+    }
 
     /// Infers the static type. `nil` means the null literal: typeless until
     /// an expected type or an operator gives it one. The expected type
@@ -36,6 +52,9 @@ struct ExprChecker {
 
         case .root(let name):
             return try rootType(name)
+
+        case .lookup(let base, let key):
+            return try lookupType(base, key)
 
         case .member(let base, let field):
             // state.x and context.x resolve against declarations.
@@ -95,6 +114,12 @@ struct ExprChecker {
                 throw ExprError(detail: "result is not available here")
             }
             return type
+        case "failure":
+            try gateFeature(name)
+            guard case .payload(let type) = failureScope else {
+                throw ExprError(detail: "failure is not available here")
+            }
+            return type
         default:
             throw ExprError(detail: "unknown reference '\(name)'")
         }
@@ -111,6 +136,81 @@ struct ExprChecker {
         if case .int = actual.kind, case .double = expected.kind { return true }
         if case .enumeration = actual.kind, case .string = expected.kind { return true }
         return false
+    }
+
+    /// The contract 2.1 string functions, in their own member: the
+    /// built-in switch is long enough without them, and they share
+    /// nothing with the rest but the argument accessors.
+    private func inferStringCall(
+        _ builtin: String, _ name: String, _ arguments: [Expr]
+    ) throws -> MilanoType? {
+        func argument(_ index: Int) throws -> MilanoType? {
+            try infer(arguments[index])
+        }
+        func requireCount(_ expected: Int) throws {
+            guard arguments.count == expected else {
+                throw ExprError(detail: "\(name) takes \(expected) arguments")
+            }
+        }
+        func requireNonOptional(_ type: MilanoType?, _ what: String) throws -> MilanoType {
+            guard let type, !type.optional else {
+                throw ExprError(detail: "\(name) needs a non-optional \(what)")
+            }
+            return type
+        }
+        switch builtin {
+        case "substring":
+            try requireCount(3)
+            guard isStringLike(try requireNonOptional(try argument(0), "string").kind) else {
+                throw ExprError(detail: "substring needs a string")
+            }
+            for index in 1...2 {
+                guard case .int = try requireNonOptional(try argument(index), "int").kind else {
+                    throw ExprError(detail: "substring needs int indices")
+                }
+            }
+            return MilanoType(.string)
+        case "indexOf":
+            try requireCount(2)
+            guard isStringLike(try requireNonOptional(try argument(0), "string").kind),
+                isStringLike(try requireNonOptional(try argument(1), "string").kind)
+            else {
+                throw ExprError(detail: "indexOf needs strings")
+            }
+            return MilanoType(.int)
+        case "replace":
+            try requireCount(3)
+            for index in 0...2 {
+                guard isStringLike(try requireNonOptional(try argument(index), "string").kind) else {
+                    throw ExprError(detail: "replace needs strings")
+                }
+            }
+            return MilanoType(.string)
+        case "split":
+            try requireCount(2)
+            guard isStringLike(try requireNonOptional(try argument(0), "string").kind),
+                isStringLike(try requireNonOptional(try argument(1), "string").kind)
+            else {
+                throw ExprError(detail: "split needs strings")
+            }
+            return MilanoType(.array(MilanoType(.string)))
+        case "join":
+            try requireCount(2)
+            // The element type is what matters: an array of enum joins by
+            // member string, since an enum widens to string everywhere.
+            let subject = try requireNonOptional(try argument(0), "array of string")
+            guard case .array(let element) = subject.kind,
+                !element.optional, isStringLike(element.kind)
+            else {
+                throw ExprError(detail: "join needs an array of string")
+            }
+            guard isStringLike(try requireNonOptional(try argument(1), "string").kind) else {
+                throw ExprError(detail: "join needs a string separator")
+            }
+            return MilanoType(.string)
+        default:
+            throw ExprError(detail: "unknown built-in function '\(name)'")
+        }
     }
 
     private func inferCall(
@@ -131,7 +231,18 @@ struct ExprChecker {
             return type
         }
 
-        switch name {
+        // A bare name is a host function the surface declares; the
+        // contract's own functions are called through `$` and cannot be
+        // shadowed (expression spec, Host functions).
+        guard name.hasPrefix("$") else { return try inferHostCall(name, arguments) }
+        // Every built-in a later minor introduced is gated here, once.
+        try gateFeature(name)
+
+        // A const, so the cases below can test it directly.
+        let builtin = String(name.dropFirst())
+        if let numeric = try inferNumericCall(builtin, name, arguments) { return numeric }
+
+        switch builtin {
         case "str":
             try requireCount(1)
             let type = try requireNonOptional(try argument(0), "scalar")
@@ -164,7 +275,7 @@ struct ExprChecker {
             let type = try requireNonOptional(try argument(0), "string or array")
             switch type.kind {
             case .string, .enumeration, .array:
-                return MilanoType(name == "length" ? .int : .bool)
+                return MilanoType(builtin == "length" ? .int : .bool)
             default:
                 throw ExprError(detail: "\(name) needs a string or array")
             }
@@ -182,24 +293,90 @@ struct ExprChecker {
                 throw ExprError(detail: "trim needs a string")
             }
             return MilanoType(.string)
+        case "substring", "indexOf", "replace", "split", "join":
+            return try inferStringCall(builtin, name, arguments)
         case "if":
             try requireCount(3)
-            guard try requireNonOptional(try argument(0), "bool").kind == .bool else {
-                throw ExprError(detail: "if needs a bool condition")
-            }
-            let thenType = try infer(arguments[1], expecting: expecting)
-            let elseType = try infer(arguments[2], expecting: expecting)
-            switch (thenType, elseType) {
-            case (nil, nil):
-                throw ExprError(detail: "if branches cannot both be null")
-            case (nil, .some(let type)), (.some(let type), nil):
-                return MilanoType(type.kind, optional: true)
-            case (.some(let a), .some(let b)):
-                guard a == b else { throw ExprError(detail: "if branches must have the same type") }
-                return a
-            }
+            return try inferConditional(arguments, expecting: expecting)
         default:
+            throw ExprError(detail: "unknown built-in function '\(name)'")
+        }
+    }
+
+    /// A host function (expression spec, Host functions): exactly the
+    /// declared arity, each argument a declared position, the call typed
+    /// as the declared return. A bare name nothing declares is unknown,
+    /// whatever the `$` namespace holds; under an earlier contract the
+    /// call is the contract-feature violation named after it.
+    private func inferHostCall(_ name: String, _ arguments: [Expr]) throws -> MilanoType {
+        guard let declared = functions[name] else {
             throw ExprError(detail: "unknown function '\(name)'")
+        }
+        if !MilanoContractFeatures.has("functions", major: contract.major, minor: contract.minor) {
+            throw ExprFeatureError(feature: name, version: MilanoContractFeatures.version(of: "functions"))
+        }
+        guard arguments.count == declared.arguments.count else {
+            throw ExprError(detail: "\(name) takes \(declared.arguments.count) argument(s)")
+        }
+        for (index, argumentType) in declared.arguments.enumerated() {
+            let inferred = try infer(arguments[index], expecting: argumentType)
+            guard accepts(argumentType, actual: inferred) else {
+                throw ExprError(detail: "\(name) argument \(index) must be \(MilanoGate.name(of: argumentType))")
+            }
+        }
+        onFunctionUse?(name)
+        return declared.returns
+    }
+
+    /// `if(c, a, b)`: both branches type-check to the same T, and T may
+    /// itself be optional: a single null branch makes the result optional.
+    private func inferConditional(_ arguments: [Expr], expecting: MilanoType?) throws -> MilanoType? {
+        guard let condition = try infer(arguments[0]), !condition.optional, condition.kind == .bool else {
+            throw ExprError(detail: "if needs a bool condition")
+        }
+        let thenType = try infer(arguments[1], expecting: expecting)
+        let elseType = try infer(arguments[2], expecting: expecting)
+        switch (thenType, elseType) {
+        case (nil, nil):
+            throw ExprError(detail: "if branches cannot both be null")
+        case (nil, .some(let type)), (.some(let type), nil):
+            return MilanoType(type.kind, optional: true)
+        case (.some(let a), .some(let b)):
+            guard a == b else { throw ExprError(detail: "if branches must have the same type") }
+            return a
+        }
+    }
+
+    /// The numeric functions contract 2.1 added, by their stripped name;
+    /// nil when `builtin` is none of them. `$abs` keeps its numeric type;
+    /// `$min` and `$max` take two or more numbers and promote like the
+    /// arithmetic operators; the rounding functions take exactly a double,
+    /// like `$int()` and `$double()`.
+    private func inferNumericCall(
+        _ builtin: String, _ name: String, _ arguments: [Expr]
+    ) throws -> MilanoType? {
+        func number(_ index: Int) throws -> MilanoType {
+            guard let type = try infer(arguments[index]), !type.optional, isNumeric(type.kind) else {
+                throw ExprError(detail: "\(name) needs a number")
+            }
+            return type
+        }
+        switch builtin {
+        case "abs":
+            guard arguments.count == 1 else { throw ExprError(detail: "\(name) takes 1 argument(s)") }
+            return try number(0)
+        case "min", "max":
+            guard arguments.count >= 2 else { throw ExprError(detail: "\(name) takes 2 or more arguments") }
+            var anyDouble = false
+            for index in arguments.indices where try number(index).kind == .double { anyDouble = true }
+            return MilanoType(anyDouble ? .double : .int)
+        case "floor", "ceil", "round":
+            guard arguments.count == 1, try number(0).kind == .double else {
+                throw ExprError(detail: "\(name) needs a double")
+            }
+            return MilanoType(.double)
+        default:
+            return nil
         }
     }
 

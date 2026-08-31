@@ -6,5 +6,5 @@
 export const MilanoInfo = {
   version: "0.0.0-dev",
   /** The highest contract version this engine implements. */
-  contract: "2.0",
+  contract: "2.1",
 } as const;

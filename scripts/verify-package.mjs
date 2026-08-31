@@ -95,7 +95,7 @@ const view = await engine
   .viewBuilder(JSON.stringify({
     version: "1.0.0",
     context: { who: "string" },
-    root: { type: "Text", id: "t", properties: { text: { $expr: "concat('hi ', context.who)" } } },
+    root: { type: "Text", id: "t", properties: { text: { $expr: "$concat('hi ', context.who)" } } },
   }))
   .context({ who: MilanoValue.string("Ada") })
   .build();

@@ -116,8 +116,35 @@ export function specialize(schema: JsonObject, vocabulary: JsonObject): JsonObje
     },
   });
 
+  // The $if construct (contract 2.1), the same way: its own keys are
+  // required, and it carries none of a component's.
+  perComponent.push({
+    if: { properties: { type: { const: "$if" } } },
+    then: {
+      required: ["condition", "then"],
+      properties: {
+        properties: { type: "object", maxProperties: 0 },
+        on: { type: "object", maxProperties: 0 },
+      },
+    },
+  });
+
+  // The $switch construct (contract 2.1), the same way.
+  perComponent.push({
+    if: { properties: { type: { const: "$switch" } } },
+    then: {
+      required: ["subject", "cases"],
+      properties: {
+        properties: { type: "object", maxProperties: 0 },
+        on: { type: "object", maxProperties: 0 },
+      },
+    },
+  });
+
   const node = (derived["$defs"] as JsonObject)["node"] as JsonObject;
-  (node["properties"] as JsonObject)["type"] = { enum: [...names, "$repeat"] };
+  (node["properties"] as JsonObject)["type"] = {
+    enum: [...names, "$if", "$repeat", "$switch"],
+  };
   node["allOf"] = perComponent;
   return derived;
 }

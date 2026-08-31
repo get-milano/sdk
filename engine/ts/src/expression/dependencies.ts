@@ -19,6 +19,10 @@ export function dependencies(expr: Expr, into: Set<string> = new Set()): Set<str
         dependencies(expr.base, into);
       }
       break;
+    case "lookup":
+      dependencies(expr.base, into);
+      dependencies(expr.key, into);
+      break;
     case "call":
       for (const argument of expr.args) dependencies(argument, into);
       break;
