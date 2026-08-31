@@ -29,7 +29,7 @@
     "@types/react": "^19.2.0",
     "@types/react-test-renderer": "^19.1.0",
     "esbuild": "^0.28.2",
-    "react-test-renderer": "19.2.3",
+    "react-test-renderer": "19.2.8",
     "typescript": "^5.7.2"
   }
 }
