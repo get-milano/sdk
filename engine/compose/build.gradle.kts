@@ -75,7 +75,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
-            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
             // The engine renders nothing itself: only the Compose runtime,
             // no UI artifacts.
             api("org.jetbrains.compose.runtime:runtime:1.9.0")
