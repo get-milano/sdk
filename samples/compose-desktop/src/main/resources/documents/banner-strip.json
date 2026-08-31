@@ -20,7 +20,7 @@
         "id": "message",
         "properties": {
           "text": {
-            "$expr": "if(state.saved, 'Saved! Find it in your account.', concat('Flash sale for you, ', context.userName, '.'))"
+            "$expr": "$if(state.saved, 'Saved! Find it in your account.', $concat('Flash sale for you, ', context.userName, '.'))"
           },
           "role": "body"
         }
@@ -30,7 +30,7 @@
         "id": "action",
         "properties": {
           "label": {
-            "$expr": "if(state.saved, 'Undo', 'Save offer')"
+            "$expr": "$if(state.saved, 'Undo', 'Save offer')"
           },
           "enabled": true
         },

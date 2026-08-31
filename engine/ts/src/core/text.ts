@@ -16,7 +16,7 @@ export function isWhitespaceScalar(scalar: number): boolean {
 }
 
 /**
- * Unicode scalar count: `length()` and the expression-length limit are
+ * Unicode scalar count: `$length()` and the expression-length limit are
  * defined in scalars, never UTF-16 code units. Iteration yields code
  * points, so a surrogate pair counts once and a lone surrogate counts as
  * the one scalar it is.
@@ -25,6 +25,28 @@ export function unicodeScalarCount(text: string): number {
   let count = 0;
   for (const _ of text) count += 1;
   return count;
+}
+
+/**
+ * The scalars from `from` up to, not including, `to`, both clamped into
+ * range. Indices count Unicode scalars, as `unicodeScalarCount` does, so
+ * a surrogate pair is one position and a slice never splits one.
+ */
+export function scalarSlice(text: string, from: number, to: number): string {
+  const scalars = Array.from(text);
+  const start = Math.min(Math.max(from, 0), scalars.length);
+  const end = Math.min(Math.max(to, 0), scalars.length);
+  return start < end ? scalars.slice(start, end).join("") : "";
+}
+
+/**
+ * The scalar index where `needle` first occurs, or -1. JavaScript's own
+ * indexOf answers in UTF-16 code units, which disagrees with the contract
+ * the moment either string leaves the Basic Multilingual Plane.
+ */
+export function scalarIndexOf(text: string, needle: string): number {
+  const units = text.indexOf(needle);
+  return units < 0 ? -1 : unicodeScalarCount(text.slice(0, units));
 }
 
 /** Removes exactly the White_Space scalars above, from both ends. */

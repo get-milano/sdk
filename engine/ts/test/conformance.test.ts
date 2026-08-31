@@ -11,6 +11,7 @@ import { defaultLimits } from "../src/engine/configuration.ts";
 import type { MilanoLimits, MilanoUnknownTypePolicy } from "../src/engine/configuration.ts";
 import { MilanoEngine, MilanoRegistry } from "../src/engine/engine.ts";
 import type { MilanoUserInteraction } from "../src/engine/interaction.ts";
+import type { MilanoFunctionCall, MilanoFunctionHandler } from "../src/runtime/handlers.ts";
 import type { MilanoOccurrence } from "../src/engine/observer.ts";
 import type { ResolvedNode } from "../src/gate/resolver.ts";
 import { MilanoContextHandle } from "../src/runtime/context-source.ts";
@@ -108,6 +109,24 @@ async function runVector(
     limits[limit] = Number(value.intValue);
   }
 
+  // The harness's function handler: a table of cases per function, each
+  // answering (or throwing for) one argument tuple; a call the table has
+  // no case for is a vector defect.
+  const functionsConfig = asRecord(config["functions"]);
+  const results = asRecord(functionsConfig?.["results"]) ?? {};
+  const tableHandler: MilanoFunctionHandler = (call: MilanoFunctionCall) => {
+    const cases = results[call.name]?.arrayValue ?? [];
+    for (const entry of cases) {
+      const fields = entry.recordValue as Record_;
+      const expectedArguments = fields["arguments"]?.arrayValue ?? [];
+      if (MilanoValue.array(expectedArguments).equals(MilanoValue.array(call.arguments))) {
+        if (fields["throws"] !== undefined) throw new Error(`${call.name} throws`);
+        return fields["returns"] ?? MilanoValue.null;
+      }
+    }
+    assert.fail(`${name}: host function ${call.name} called with ${MilanoValue.array(call.arguments)}, no case in config.functions.results`);
+  };
+
   const occurrences: MilanoOccurrence[] = [];
   const interactions: MilanoUserInteraction[] = [];
   const engine = new MilanoEngine<string>({
@@ -119,6 +138,7 @@ async function runVector(
     userInteractionObserver: {
       interaction: (interaction) => interactions.push(interaction),
     },
+    functionHandler: config["functionHandler"]?.boolValue === false ? null : tableHandler,
   });
 
   const documentText =
@@ -147,14 +167,32 @@ async function runVector(
           if (type !== null) parameters[parameter] = type;
         }
         const resultDescriptor = fields["result"];
+        const failureDescriptor = fields["failure"];
         builder.action(actionName, {
           parameters,
           result:
             resultDescriptor === undefined
               ? null
               : MilanoType.fromDescriptor(resultDescriptor),
+          failure:
+            failureDescriptor === undefined
+              ? null
+              : MilanoType.fromDescriptor(failureDescriptor),
         });
       }
+    }
+  }
+
+  // The surface's host function declarations, per the vector's config.
+  const declaredFunctions = asRecord(functionsConfig?.["declare"]);
+  if (declaredFunctions !== null) {
+    for (const [functionName, declaration] of Object.entries(declaredFunctions)) {
+      const fields = declaration.recordValue ?? {};
+      const argumentTypes = (fields["arguments"]?.arrayValue ?? []).map(
+        (descriptor) => MilanoType.fromDescriptor(descriptor) as MilanoType,
+      );
+      const returns = MilanoType.fromDescriptor(fields["returns"] as MilanoValue) as MilanoType;
+      builder.function(functionName, { arguments: argumentTypes, returns });
     }
   }
 
@@ -164,7 +202,9 @@ async function runVector(
   const contextHandle = new MilanoContextHandle(asRecord(vector["context"]) ?? {});
   builder.contextSource(contextHandle);
 
-  const suppliedState = asRecord(vector["state"]) ?? {};
+  // The provider answers the vector's values at build and, for a
+  // replacement, the replace step's values for the keys it is asked for.
+  let suppliedState = asRecord(vector["state"]) ?? {};
   if (config["stateDataProvider"]?.boolValue !== false) builder.stateData(() => suppliedState);
 
   const expect = asRecord(vector["expect"]) as Record_;
@@ -217,6 +257,16 @@ async function runVector(
       pump.pump();
       continue;
     }
+    if (fields["appear"] !== undefined) {
+      view.appear();
+      pump.pump();
+      continue;
+    }
+    if (fields["disappear"] !== undefined) {
+      view.disappear();
+      pump.pump();
+      continue;
+    }
     const completion = asRecord(fields["complete"]);
     if (completion !== null) {
       const index = Number(completion["dispatch"]?.intValue ?? 0n);
@@ -224,6 +274,45 @@ async function runVector(
       const payload = completion["payload"] ?? null;
       pump.dispatch(() => view.complete(index, success, payload));
       pump.pump();
+      continue;
+    }
+    const replacement = asRecord(fields["replace"]);
+    if (replacement !== null) {
+      const text =
+        replacement["documentText"]?.stringValue ??
+        stringifyMilanoValue(replacement["document"] as MilanoValue);
+      suppliedState = asRecord(replacement["state"]) ?? {};
+      const expectedReplaceError = asRecord(replacement["error"]);
+      // The gate and the provider run before the swap is queued; a
+      // macrotask later the queue holds it, and the pump lands it. The
+      // outcome is captured at once, so an early rejection is never
+      // unhandled while the pump runs.
+      const pending = view.replace(text).then(
+        () => null,
+        (error: unknown) => (error === null ? new Error("null rejection") : error),
+      );
+      await new Promise((settle) => setImmediate(settle));
+      pump.pump();
+      const failure = await pending;
+      if (failure === null) {
+        assert.equal(expectedReplaceError, null, `${name}: expected the replacement to fail, it succeeded`);
+      } else {
+        const error = failure;
+        if (expectedReplaceError === null) {
+          if (error instanceof MilanoBuildError || error instanceof MilanoEngineError) {
+            assert.fail(`${name}: unexpected replacement error ${error.message}`);
+          }
+          throw error;
+        }
+        assert.ok(
+          matches(errorFields(error), expectedReplaceError),
+          `${name}: replacement error mismatch, got ${JSON.stringify(
+            Object.fromEntries(
+              Object.entries(errorFields(error)).map(([key, value]) => [key, String(value)]),
+            ),
+          )}`,
+        );
+      }
     }
   }
 
@@ -256,6 +345,7 @@ async function runVector(
       const produced: Record<string, MilanoValue> = {
         action: MilanoValue.string(record.name),
         parameters: MilanoValue.record(record.parameters),
+        dispatch: MilanoValue.int(BigInt(record.dispatch)),
       };
       assert.ok(
         matches(produced, expectedItem.recordValue as Record_),
@@ -306,6 +396,9 @@ async function runVector(
       };
       if (interaction.node !== null) produced["node"] = MilanoValue.string(interaction.node);
       if (interaction.name !== null) produced["name"] = MilanoValue.string(interaction.name);
+      if (interaction.dispatch !== null) {
+        produced["dispatch"] = MilanoValue.int(BigInt(interaction.dispatch));
+      }
       // An absent value is null, so a vector may pin it as such.
       produced["value"] = interaction.value ?? MilanoValue.null;
       assert.ok(

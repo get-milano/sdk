@@ -21,7 +21,7 @@ struct ExpressionTests {
         let expr = try ExprParser.parse(source)
         let evaluator = ExprEvaluator(
             state: state, context: context, event: event, node: nil,
-            report: { kind in reports?.kinds.append(kind) })
+            report: { kind, _ in reports?.kinds.append(kind) })
         return evaluator.evaluate(expr)
     }
 
@@ -67,8 +67,8 @@ struct ExpressionTests {
 
     @Test func saturationReports() throws {
         let reports = Reports()
-        #expect(try evaluate("int(1000000000000000000000.0)", reports: reports) == .int(Int64.max))
-        #expect(try evaluate("int(3.9)", reports: reports) == .int(3))  // truncation, no report
+        #expect(try evaluate("$int(1000000000000000000000.0)", reports: reports) == .int(Int64.max))
+        #expect(try evaluate("$int(3.9)", reports: reports) == .int(3))  // truncation, no report
         #expect(reports.kinds == [.saturation])
     }
 
@@ -83,27 +83,27 @@ struct ExpressionTests {
     }
 
     @Test func stringFunctions() throws {
-        #expect(try evaluate("concat('a', 'b', 'c')") == .string("abc"))
+        #expect(try evaluate("$concat('a', 'b', 'c')") == .string("abc"))
         #expect(try evaluate("'a' + 'b'") == .string("ab"))
-        #expect(try evaluate("length('héllo')") == .int(5))  // unicode scalars
-        #expect(try evaluate("isEmpty('')") == .bool(true))
-        #expect(try evaluate("contains('milano', 'lan')") == .bool(true))
-        #expect(try evaluate("startsWith('milano', 'mi')") == .bool(true))
-        #expect(try evaluate("endsWith('milano', 'no')") == .bool(true))
+        #expect(try evaluate("$length('héllo')") == .int(5))  // unicode scalars
+        #expect(try evaluate("$isEmpty('')") == .bool(true))
+        #expect(try evaluate("$contains('milano', 'lan')") == .bool(true))
+        #expect(try evaluate("$startsWith('milano', 'mi')") == .bool(true))
+        #expect(try evaluate("$endsWith('milano', 'no')") == .bool(true))
         // trim removes the Unicode White_Space set, including NBSP.
-        #expect(try evaluate("trim('\u{00A0} x \u{2003}')") == .string("x"))
-        #expect(try evaluate("if(true, 'a', 'b')") == .string("a"))
+        #expect(try evaluate("$trim('\u{00A0} x \u{2003}')") == .string("x"))
+        #expect(try evaluate("$if(true, 'a', 'b')") == .string("a"))
     }
 
     @Test func strFormatting() throws {
-        #expect(try evaluate("str(42)") == .string("42"))
-        #expect(try evaluate("str(true)") == .string("true"))
-        #expect(try evaluate("str(5.0)") == .string("5.0"))
-        #expect(try evaluate("str(0.25)") == .string("0.25"))
-        #expect(try evaluate("str(1.0 / 0.0)") == .string("inf"))
-        #expect(try evaluate("str(0.0 / 0.0)") == .string("nan"))
-        #expect(try evaluate("str(10000000000000000000.0)") == .string("1e19"))
-        #expect(try evaluate("str(0.0000015)") == .string("1.5e-6"))
+        #expect(try evaluate("$str(42)") == .string("42"))
+        #expect(try evaluate("$str(true)") == .string("true"))
+        #expect(try evaluate("$str(5.0)") == .string("5.0"))
+        #expect(try evaluate("$str(0.25)") == .string("0.25"))
+        #expect(try evaluate("$str(1.0 / 0.0)") == .string("inf"))
+        #expect(try evaluate("$str(0.0 / 0.0)") == .string("nan"))
+        #expect(try evaluate("$str(10000000000000000000.0)") == .string("1e19"))
+        #expect(try evaluate("$str(0.0000015)") == .string("1.5e-6"))
     }
 
     @Test func staticTypingRejects() throws {
@@ -124,7 +124,7 @@ struct ExpressionTests {
             _ = try inferredType("context.user.name", context: ["user": user])
         }
         // if branches of different types.
-        #expect(throws: ExprError.self) { _ = try inferredType("if(true, 1, 'x')") }
+        #expect(throws: ExprError.self) { _ = try inferredType("$if(true, 1, 'x')") }
     }
 
     @Test func grammarAndWhitespace() throws {
@@ -137,6 +137,28 @@ struct ExpressionTests {
     @Test func parseErrors() throws {
         let invalid = [".5", "1e5", "'abc", "", "1 +", "(1", "1 2", "state.", "?? 1", "1..2"]
         for source in invalid {
+            #expect(throws: ExprError.self, "\(source)") { _ = try ExprParser.parse(source) }
+        }
+    }
+
+    /// The two function namespaces (expression spec, Host functions →
+    /// Resolution): a `$name` call is one of the contract's built-ins and
+    /// a bare `name` call a declared host function. Neither falls back to
+    /// the other, so a vocabulary may declare `round` beside `$round`.
+    @Test func functionNamespacesAreSeparate() throws {
+        let declared = MilanoVocabulary.Function(
+            arguments: [MilanoType(.double), MilanoType(.int)], returns: MilanoType(.string))
+        let checker = ExprChecker(
+            state: [:], context: [:], eventScope: .unavailable, functions: ["round": declared])
+        // A host function and the built-in it is named after, side by side.
+        #expect(try checker.infer(try ExprParser.parse("round(1.5, 2)")) == MilanoType(.string))
+        #expect(try checker.infer(try ExprParser.parse("$round(1.5)")) == MilanoType(.double))
+        // A built-in called bare, with nothing declared under that name.
+        #expect(throws: ExprError.self) { _ = try inferredType("trim('  x  ')") }
+        // A `$` name the contract does not define.
+        #expect(throws: ExprError.self) { _ = try inferredType("$nosuch('x')") }
+        // A built-in's name is admitted only in call position.
+        for source in ["$trim", "$trim + 'x'", "$", "$1(2)", "$ trim('x')"] {
             #expect(throws: ExprError.self, "\(source)") { _ = try ExprParser.parse(source) }
         }
     }
@@ -165,13 +187,13 @@ struct ExpressionTests {
 
     @Test func ifEvaluatesOnlyTheTakenBranch() throws {
         let reports = Reports()
-        #expect(try evaluate("if(true, 1, 1 / 0)", reports: reports) == .int(1))
+        #expect(try evaluate("$if(true, 1, 1 / 0)", reports: reports) == .int(1))
         #expect(reports.kinds.isEmpty)
         // The guard idiom: the untaken division never runs.
-        #expect(try evaluate("if(false, 1 / 0, 2)", reports: reports) == .int(2))
+        #expect(try evaluate("$if(false, 1 / 0, 2)", reports: reports) == .int(2))
         #expect(reports.kinds.isEmpty)
         // The taken branch does evaluate, reports included.
-        #expect(try evaluate("if(true, 1 / 0, 2)", reports: reports) == .int(0))
+        #expect(try evaluate("$if(true, 1 / 0, 2)", reports: reports) == .int(0))
         #expect(reports.kinds == [.divisionByZero])
     }
 
@@ -201,10 +223,10 @@ struct ExpressionTests {
 
     @Test func conversionEdges() throws {
         let reports = Reports()
-        #expect(try evaluate("int(-3.9)") == .int(-3))  // truncation toward zero
-        #expect(try evaluate("double(3)") == .double(3.0))
-        #expect(try evaluate("int(-1000000000000000000000.0)", reports: reports) == .int(Int64.min))
-        #expect(try evaluate("int(0.0 / 0.0)", reports: reports) == .int(0))
+        #expect(try evaluate("$int(-3.9)") == .int(-3))  // truncation toward zero
+        #expect(try evaluate("$double(3)") == .double(3.0))
+        #expect(try evaluate("$int(-1000000000000000000000.0)", reports: reports) == .int(Int64.min))
+        #expect(try evaluate("$int(0.0 / 0.0)", reports: reports) == .int(0))
         #expect(reports.kinds == [.saturation, .saturation])
     }
 
@@ -220,15 +242,15 @@ struct ExpressionTests {
     }
 
     @Test func strBoundaries() throws {
-        #expect(try evaluate("str(-42)") == .string("-42"))
-        #expect(try evaluate("str(0 - 9223372036854775807 - 1)") == .string("-9223372036854775808"))
-        #expect(try evaluate("str(9223372036854775807)") == .string("9223372036854775807"))
+        #expect(try evaluate("$str(-42)") == .string("-42"))
+        #expect(try evaluate("$str(0 - 9223372036854775807 - 1)") == .string("-9223372036854775808"))
+        #expect(try evaluate("$str(9223372036854775807)") == .string("9223372036854775807"))
         // Normalized exponent 15 stays plain; 16 flips to scientific.
-        #expect(try evaluate("str(1000000000000000.0)") == .string("1000000000000000.0"))
-        #expect(try evaluate("str(0.0001)") == .string("0.0001"))
-        #expect(try evaluate("str(0.00001)") == .string("1e-5"))
-        #expect(try evaluate("str((0.0 - 1.0) / 0.0)") == .string("-inf"))
-        #expect(try evaluate("str(-2.5)") == .string("-2.5"))
+        #expect(try evaluate("$str(1000000000000000.0)") == .string("1000000000000000.0"))
+        #expect(try evaluate("$str(0.0001)") == .string("0.0001"))
+        #expect(try evaluate("$str(0.00001)") == .string("1e-5"))
+        #expect(try evaluate("$str((0.0 - 1.0) / 0.0)") == .string("-inf"))
+        #expect(try evaluate("$str(-2.5)") == .string("-2.5"))
     }
 
     @Test func eventRoot() throws {
@@ -253,12 +275,12 @@ struct ExpressionTests {
         #expect(throws: ExprError.self) { _ = try inferredType("1 && true") }
         #expect(throws: ExprError.self) { _ = try inferredType("true < false") }
         #expect(throws: ExprError.self) { _ = try inferredType("'a' * 2") }
-        #expect(throws: ExprError.self) { _ = try inferredType("if(1, 2, 3)") }
-        #expect(throws: ExprError.self) { _ = try inferredType("length(1)") }
-        #expect(throws: ExprError.self) { _ = try inferredType("concat('a')") }
-        #expect(throws: ExprError.self) { _ = try inferredType("contains('a', 1)") }
+        #expect(throws: ExprError.self) { _ = try inferredType("$if(1, 2, 3)") }
+        #expect(throws: ExprError.self) { _ = try inferredType("$length(1)") }
+        #expect(throws: ExprError.self) { _ = try inferredType("$concat('a')") }
+        #expect(throws: ExprError.self) { _ = try inferredType("$contains('a', 1)") }
         #expect(throws: ExprError.self) { _ = try inferredType("nope(1)") }
-        #expect(throws: ExprError.self) { _ = try inferredType("str(1, 2)") }
+        #expect(throws: ExprError.self) { _ = try inferredType("$str(1, 2)") }
         // Records are not comparable in v1.
         let rec = MilanoType(.record(["x": MilanoType(.int)]))
         #expect(throws: ExprError.self) {
@@ -269,9 +291,9 @@ struct ExpressionTests {
     @Test func typingAcceptsMore() throws {
         #expect(try inferredType("-2.5") == MilanoType(.double))
         #expect(try inferredType("7 % 2") == MilanoType(.int))
-        #expect(try inferredType("trim(str(1.5))") == MilanoType(.string))
-        #expect(try inferredType("concat('a', str(1), str(true))") == MilanoType(.string))
-        #expect(try inferredType("if(1 < 2, 1.0, double(3))") == MilanoType(.double))
+        #expect(try inferredType("$trim($str(1.5))") == MilanoType(.string))
+        #expect(try inferredType("$concat('a', $str(1), $str(true))") == MilanoType(.string))
+        #expect(try inferredType("$if(1 < 2, 1.0, $double(3))") == MilanoType(.double))
         #expect(try inferredType("1 == 1.0") == MilanoType(.bool))
     }
 
@@ -282,13 +304,13 @@ struct ExpressionTests {
                 "state.phone ?? ''", state: ["phone": MilanoType(.string, optional: true)])
                 == MilanoType(.string))
         // if with a null branch produces an optional.
-        #expect(try inferredType("if(true, 'a', null)") == MilanoType(.string, optional: true))
+        #expect(try inferredType("$if(true, 'a', null)") == MilanoType(.string, optional: true))
         // Branches agree on optionality: a T? branch beside a T branch is
         // rejected; the optional is resolved with ?? first. This is the
         // rule every engine follows; pinned by the conformance suite.
         #expect(throws: ExprError.self) {
             _ = try inferredType(
-                "if(true, state.maybe, 'x')", state: ["maybe": MilanoType(.string, optional: true)])
+                "$if(true, state.maybe, 'x')", state: ["maybe": MilanoType(.string, optional: true)])
         }
         let checker = ExprChecker(state: [:], context: [:], eventScope: .unavailable)
         // int accepted where double declared; reverse rejected.

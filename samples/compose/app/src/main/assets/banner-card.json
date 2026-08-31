@@ -28,7 +28,7 @@
         "id": "body",
         "properties": {
           "text": {
-            "$expr": "concat(context.userName, ', your member rate ends Sunday. Two nights on Lake Como, breakfast included.')"
+            "$expr": "$concat(context.userName, ', your member rate ends Sunday. Two nights on Lake Como, breakfast included.')"
           },
           "role": "body"
         }

@@ -198,24 +198,24 @@ struct SpecAlignmentTests {
     /// limit. Pre-fix Swift counted grapheme clusters and accepted this.
     @Test func expressionLimitCountsUnicodeScalars() async throws {
         // 30 e-plus-combining-acute pairs: 30 graphemes, 60 scalars, in an
-        // expression of 75 scalars against a limit of 74.
+        // expression of 76 scalars against a limit of 75.
         let padding = String(repeating: "e\u{0301}", count: 30)
-        let expr = "concat('\(padding)', 'y')"
-        #expect(expr.unicodeScalars.count == 75)
+        let expr = "$concat('\(padding)', 'y')"
+        #expect(expr.unicodeScalars.count == 76)
         let document = Data("""
             {"version": "1.0.0",
              "root": {"type": "Text", "id": "t",
                       "properties": {"text": {"$expr": "\(expr)"}}}}
             """.utf8)
         do {
-            _ = try await engine(limits: MilanoLimits(maxExpressionLength: 74))
+            _ = try await engine(limits: MilanoLimits(maxExpressionLength: 75))
                 .viewBuilder(document: document)
                 .dispatcher(InlineDispatcher())
                 .build()
             Issue.record("expected LimitExceeded")
         } catch let error as MilanoBuildError {
             #expect(error == .limitExceeded(
-                limit: "maxExpressionLength", value: 74, actual: 75))
+                limit: "maxExpressionLength", value: 75, actual: 76))
         }
     }
 
@@ -230,7 +230,7 @@ struct SpecAlignmentTests {
             {"version": "1.0.0",
              "state": {"a": "int"},
              "root": {"type": "Text", "id": "t",
-                      "properties": {"text": {"$expr": "str(state.a)"}},
+                      "properties": {"text": {"$expr": "$str(state.a)"}},
                       "on": {"tap": [{"action": "$set", "key": "a",
                                       "value": {"$expr": "state.a + 1"}}]}}}
             """.utf8)
@@ -275,7 +275,7 @@ struct SpecAlignmentTests {
             {"version": "1.0.0",
              "state": {"a": "int"},
              "root": {"type": "Text", "id": "t",
-                      "properties": {"text": {"$expr": "str(state.a)"}},
+                      "properties": {"text": {"$expr": "$str(state.a)"}},
                       "on": {"tap": [
                           {"action": "$set", "key": "a", "value": 1},
                           {"action": "work"},

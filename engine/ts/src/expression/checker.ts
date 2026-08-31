@@ -1,11 +1,13 @@
 import { own } from "../core/lookup.ts";
 import { MilanoType } from "../core/type.ts";
+import type { MilanoFunction } from "../engine/vocabulary.ts";
+import { featureVersion, hasFeature } from "../engine/vocabulary.ts";
 import type { Expr } from "./ast.ts";
-import { ExprError } from "./ast.ts";
+import { ExprError, ExprFeatureError } from "./ast.ts";
 
 /**
- * What a scoped scalar root (`event`, `result`) means where an expression
- * appears: unavailable, or available with a declared type.
+ * What a scoped scalar root (`event`, `result`, `failure`) means where an
+ * expression appears: unavailable, or available with a declared type.
  */
 export type RootScope =
   | { readonly kind: "unavailable" }
@@ -36,8 +38,15 @@ export class ExprChecker {
   private readonly context: Readonly<Record<string, MilanoType>>;
   private readonly eventScope: RootScope;
   private readonly resultScope: RootScope;
+  private readonly failureScope: RootScope;
   /** `$repeat` bindings in scope: the element and its index, by name. */
   private readonly bindings: Readonly<Record<string, MilanoType>>;
+  /** The document's declared major.minor: gates the features it may use. */
+  private readonly contract: readonly [number, number];
+  /** The surface's declared host functions, by name. */
+  private readonly functions: Readonly<Record<string, MilanoFunction>>;
+  /** Every host function a checked expression called, for the gate. */
+  private readonly used: Set<string> | null;
 
   constructor(
     state: Readonly<Record<string, MilanoType>>,
@@ -45,12 +54,27 @@ export class ExprChecker {
     eventScope: RootScope = UNAVAILABLE,
     resultScope: RootScope = UNAVAILABLE,
     bindings: Readonly<Record<string, MilanoType>> = {},
+    failureScope: RootScope = UNAVAILABLE,
+    contract: readonly [number, number] = [2, 1],
+    functions: Readonly<Record<string, MilanoFunction>> = {},
+    used: Set<string> | null = null,
   ) {
     this.state = state;
     this.context = context;
     this.eventScope = eventScope;
     this.resultScope = resultScope;
     this.bindings = bindings;
+    this.failureScope = failureScope;
+    this.contract = contract;
+    this.functions = functions;
+    this.used = used;
+  }
+
+  /** A function or root from a later minor than the document declares. */
+  private gateFeature(name: string): void {
+    if (!hasFeature(name, this.contract[0], this.contract[1])) {
+      throw new ExprFeatureError(name, featureVersion(name));
+    }
   }
 
   /**
@@ -82,6 +106,8 @@ export class ExprChecker {
         return this.rootType(expr.name);
       case "member":
         return this.memberType(expr);
+      case "lookup":
+        return this.lookupType(expr);
       case "call":
         return this.inferCall(expr.name, expr.args, expecting);
       case "unary": {
@@ -132,9 +158,50 @@ export class ExprChecker {
       }
       return this.resultScope.type;
     }
+    if (name === "failure") {
+      this.gateFeature(name);
+      if (this.failureScope.kind !== "payload") {
+        throw new ExprError("failure is not available here");
+      }
+      return this.failureScope.type;
+    }
     // `state` and `context` are namespaces, valid only as the base of a
     // field access.
     throw new ExprError(`unknown reference '${name}'`);
+  }
+
+  /**
+   * `record[key]` (contract 2.1): the field an enum key names. The
+   * enum's members and the record's fields must be the same set, which
+   * is what makes the lookup total and its coverage exhaustive, and
+   * every field must share one type, which is the lookup's.
+   */
+  private lookupType(expr: Extract<Expr, { kind: "lookup" }>): MilanoType {
+    this.gateFeature("[]");
+    const subject = this.infer(expr.base);
+    if (subject === null || subject.kind.kind !== "record" || subject.optional) {
+      throw new ExprError("a lookup reads a non-optional record");
+    }
+    const key = this.infer(expr.key);
+    if (key === null || key.kind.kind !== "enum" || key.optional) {
+      throw new ExprError("a lookup's key is a non-optional enum");
+    }
+    const fields = subject.kind.fields;
+    const names = Object.keys(fields);
+    if (
+      names.length !== key.kind.members.size ||
+      !names.every((name) => key.kind.kind === "enum" && key.kind.members.has(name))
+    ) {
+      throw new ExprError("a lookup's enum members and the record's fields must match");
+    }
+    const first = fields[names[0] as string] as MilanoType;
+    for (const name of names) {
+      const other = fields[name] as MilanoType;
+      if (!MilanoType.sameKind(first.kind, other.kind) || first.optional !== other.optional) {
+        throw new ExprError("a lookup's record fields must share one type");
+      }
+    }
+    return first;
   }
 
   private memberType(expr: Extract<Expr, { kind: "member" }>): MilanoType {
@@ -177,7 +244,64 @@ export class ExprChecker {
     };
     const argument = (index: number): Expr => args[index] as Expr;
 
-    switch (name) {
+    // A bare name is a host function the surface declares; the contract's
+    // own functions are called through `$` and cannot be shadowed
+    // (expression spec, Host functions).
+    if (!name.startsWith("$")) {
+      const declared = own(this.functions, name);
+      if (declared === undefined) throw new ExprError(`unknown function '${name}'`);
+      if (!hasFeature("functions", this.contract[0], this.contract[1])) {
+        throw new ExprFeatureError(name, featureVersion("functions"));
+      }
+      requireCount(declared.arguments.length);
+      declared.arguments.forEach((argumentType, index) => {
+        const inferred = this.infer(argument(index), argumentType);
+        if (!this.accepts(argumentType, inferred)) {
+          throw new ExprError(`${name} argument ${index} must be ${argumentType.name}`);
+        }
+      });
+      this.used?.add(name);
+      return declared.returns;
+    }
+    // Every built-in a later minor introduced is gated here, once.
+    this.gateFeature(name);
+
+    // A const, so the cases below can test it directly.
+    const builtin = name.slice(1);
+    switch (builtin) {
+      case "abs": {
+        // The magnitude keeps its numeric type: int to int, double to
+        // double (expression spec, Functions).
+        requireCount(1);
+        const type = this.nonOptional(argument(0), name, "number");
+        if (!isNumeric(type)) throw new ExprError("abs needs a number");
+        return type;
+      }
+      case "min":
+      case "max": {
+        // Two or more numeric arguments, promoting like the arithmetic
+        // operators: all int stays int, any double makes it double.
+        if (args.length < 2) throw new ExprError(`${name} takes 2 or more arguments`);
+        let anyDouble = false;
+        for (const arg of args) {
+          const type = this.nonOptional(arg, name, "number");
+          if (!isNumeric(type)) throw new ExprError(`${name} needs numbers`);
+          if (type.kind.kind === "double") anyDouble = true;
+        }
+        return anyDouble ? MilanoType.double() : MilanoType.int();
+      }
+      case "floor":
+      case "ceil":
+      case "round": {
+        // Exactly a double, like int() and double(): the promotion of an
+        // int expression applies to declared positions, never to a
+        // function's argument.
+        requireCount(1);
+        if (this.nonOptional(argument(0), name, "double").kind.kind !== "double") {
+          throw new ExprError(`${name} needs a double`);
+        }
+        return MilanoType.double();
+      }
       case "str": {
         requireCount(1);
         const type = this.nonOptional(argument(0), name, "scalar");
@@ -214,7 +338,7 @@ export class ExprChecker {
         if (!isStringLike(type) && type.kind.kind !== "array") {
           throw new ExprError(`${name} needs a string or array`);
         }
-        return name === "length" ? MilanoType.int() : MilanoType.bool();
+        return builtin === "length" ? MilanoType.int() : MilanoType.bool();
       }
       case "contains":
       case "startsWith":
@@ -232,6 +356,61 @@ export class ExprChecker {
         requireCount(1);
         if (!isStringLike(this.nonOptional(argument(0), name, "string"))) {
           throw new ExprError("trim needs a string");
+        }
+        return MilanoType.string();
+      }
+      case "substring": {
+        requireCount(3);
+        if (!isStringLike(this.nonOptional(argument(0), name, "string"))) {
+          throw new ExprError("substring needs a string");
+        }
+        for (const index of [1, 2]) {
+          if (this.nonOptional(argument(index), name, "int").kind.kind !== "int") {
+            throw new ExprError("substring needs int indices");
+          }
+        }
+        return MilanoType.string();
+      }
+      case "indexOf": {
+        requireCount(2);
+        if (
+          !isStringLike(this.nonOptional(argument(0), name, "string")) ||
+          !isStringLike(this.nonOptional(argument(1), name, "string"))
+        ) {
+          throw new ExprError("indexOf needs strings");
+        }
+        return MilanoType.int();
+      }
+      case "replace": {
+        requireCount(3);
+        for (const index of [0, 1, 2]) {
+          if (!isStringLike(this.nonOptional(argument(index), name, "string"))) {
+            throw new ExprError("replace needs strings");
+          }
+        }
+        return MilanoType.string();
+      }
+      case "split": {
+        requireCount(2);
+        if (
+          !isStringLike(this.nonOptional(argument(0), name, "string")) ||
+          !isStringLike(this.nonOptional(argument(1), name, "string"))
+        ) {
+          throw new ExprError("split needs strings");
+        }
+        return MilanoType.array(MilanoType.string());
+      }
+      case "join": {
+        requireCount(2);
+        // The element type is what matters: an array of enum joins by
+        // member string, since an enum widens to string everywhere.
+        const subject = this.nonOptional(argument(0), name, "array of string");
+        const element = subject.kind.kind === "array" ? subject.kind.element : undefined;
+        if (element === undefined || element.optional || !isStringLike(element)) {
+          throw new ExprError("join needs an array of string");
+        }
+        if (!isStringLike(this.nonOptional(argument(1), name, "string"))) {
+          throw new ExprError("join needs a string separator");
         }
         return MilanoType.string();
       }
@@ -259,7 +438,7 @@ export class ExprChecker {
         return thenType;
       }
       default:
-        throw new ExprError(`unknown function '${name}'`);
+        throw new ExprError(`unknown built-in function '${name}'`);
     }
   }
 

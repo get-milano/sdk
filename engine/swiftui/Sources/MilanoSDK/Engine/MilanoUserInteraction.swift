@@ -11,6 +11,9 @@ public struct MilanoUserInteraction: Equatable, Sendable {
     public enum Kind: String, Equatable, Sendable {
         // Runtime-captured: nothing required from renderers or documents.
         case viewBuilt
+        case viewReplaced
+        case viewAppeared
+        case viewDisappeared
         case viewTornDown
         case event
         case actionDispatched
@@ -40,20 +43,27 @@ public struct MilanoUserInteraction: Equatable, Sendable {
     public let node: String?
     /// The event or action name, when one applies.
     public let name: String?
+    /// The dispatch number, when the record is about a custom action
+    /// dispatch (`actionDispatched`, `completionSucceeded`,
+    /// `completionFailed`): the same number the action carried.
+    public let dispatch: Int?
     /// The interaction's data: the emission payload for `event`, the
-    /// captured parameters for `actionDispatched`, the document metadata
-    /// for `viewBuilt`, and whatever the renderer supplies for widget
-    /// kinds.
+    /// captured parameters for `actionDispatched`, the validated result
+    /// or failure payload for a completion, the document metadata for
+    /// `viewBuilt` and `viewReplaced`, and whatever the renderer supplies
+    /// for widget kinds.
     public let value: MilanoValue?
 
     public init(
         kind: Kind, viewIdentity: String,
-        node: String? = nil, name: String? = nil, value: MilanoValue? = nil
+        node: String? = nil, name: String? = nil, value: MilanoValue? = nil,
+        dispatch: Int? = nil
     ) {
         self.kind = kind
         self.viewIdentity = viewIdentity
         self.node = node
         self.name = name
+        self.dispatch = dispatch
         self.value = value
     }
 }

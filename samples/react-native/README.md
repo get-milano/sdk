@@ -1,6 +1,6 @@
 # Milano sample app (React Native)
 
-The same documents the SwiftUI and Compose samples render, through the same contract: three banner layouts, an interstitial, a Milano fragment embedded between native components, a form with document-driven validation and a typed completion result, the tip calculator, the checkbox gate, a screen-context demo backed by PokeAPI, a whole profile screen, and a catalog of tappable cards.
+The same documents the SwiftUI and Compose samples render, through the same contract: three banner layouts, an interstitial, a Milano fragment embedded between native components, a form with document-driven validation and a typed completion result, the tip calculator, the checkbox gate, a screen-context demo backed by PokeAPI, a whole profile screen, a catalog of tappable cards, and a quick actions strip that reports which tile was tapped.
 
 ## Run
 
@@ -14,7 +14,7 @@ npm start --workspace milano-sample-react-native
 
 Then press `i` or `a`, or run `npm run ios` / `npm run android` in this directory for a native build. Metro resolves `@get-milano/*` through the workspace, so engine changes show up without publishing.
 
-`EXPO_PUBLIC_MILANO_SCREEN=banner npm start` opens one demo directly, mirroring `MILANO_SCREEN` in the other two samples. Accepted values: any demo id (`banner`, `banner-card`, `banner-strip`, `form`, `tip-calculator`, `checkbox-gate`) plus `quickstart`, `pokemon`, `profile`, `catalog`, `embedded`, `interstitial`.
+`EXPO_PUBLIC_MILANO_SCREEN=banner npm start` opens one demo directly, mirroring `MILANO_SCREEN` in the other two samples. Accepted values: any demo id (`banner`, `banner-card`, `banner-strip`, `form`, `tip-calculator`, `checkbox-gate`) plus `quickstart`, `pokemon`, `profile`, `catalog`, `quick-actions`, `embedded`, `interstitial`.
 
 ## Identity
 

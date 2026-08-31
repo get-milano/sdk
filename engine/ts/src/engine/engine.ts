@@ -1,6 +1,7 @@
 import { utf8ByteLength } from "../core/text.ts";
 import { MilanoEngineError } from "../document/errors.ts";
 import { MilanoViewBuilder } from "../runtime/builder.ts";
+import type { MilanoFunctionHandler } from "../runtime/handlers.ts";
 import type { MilanoLimits, MilanoUnknownTypePolicy } from "./configuration.ts";
 import { defaultLimits } from "./configuration.ts";
 import type { MilanoUserInteractionObserver } from "./interaction.ts";
@@ -62,6 +63,11 @@ export interface MilanoEngineOptions<R, P = R> {
   readonly observer?: MilanoObserver | null;
   /** Product analytics: user interactions. */
   readonly userInteractionObserver?: MilanoUserInteractionObserver | null;
+  /**
+   * The resolver of host functions (contract 2.1), required when a
+   * document calls one the vocabulary or a builder declares.
+   */
+  readonly functionHandler?: MilanoFunctionHandler | null;
 }
 
 /**
@@ -77,6 +83,7 @@ export class MilanoEngine<R = unknown, P = R> {
   /** Retained for the engine's lifetime, like the other runtimes. */
   readonly observer: MilanoObserver | null;
   readonly userInteractionObserver: MilanoUserInteractionObserver | null;
+  readonly functionHandler: MilanoFunctionHandler | null;
 
   /**
    * Creation validates the vocabulary and the registry, failing fast with
@@ -104,6 +111,7 @@ export class MilanoEngine<R = unknown, P = R> {
     this.limits = Object.freeze({ ...(options.limits ?? defaultLimits) });
     this.observer = options.observer ?? null;
     this.userInteractionObserver = options.userInteractionObserver ?? null;
+    this.functionHandler = options.functionHandler ?? null;
     Object.freeze(this);
   }
 

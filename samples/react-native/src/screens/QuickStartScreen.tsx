@@ -15,36 +15,21 @@ import { Failure, Loading, Screen, usePalette } from "../design-system.tsx";
  * Everything the host passes lives at module scope: `MilanoQuickHost`
  * rebuilds when any of it changes identity.
  */
-const VOCABULARY = JSON.stringify({
-  milano: "1.0.0",
-  name: "quickstart",
-  version: "1.0.0",
-  components: {
-    Greeting: { properties: { text: "string" }, events: { tap: null } },
-  },
-  actions: { celebrate: {} },
-});
+const VOCABULARY = `
+{"milano": "2.1.0", "name": "quickstart", "version": "1.0.0",
+ "components": {"Greeting": {"properties": {"text": "string"}, "events": {"tap": null}}},
+ "actions": {"celebrate": {}}}
+`;
 
-const DOCUMENT = JSON.stringify({
-  version: "1.0.0",
-  context: { userName: "string" },
-  state: { taps: "int" },
-  root: {
-    type: "Greeting",
-    id: "hello",
-    properties: {
-      text: {
-        $expr: "concat('Hello, ', context.userName, '! Taps: ', str(state.taps))",
-      },
-    },
-    on: {
-      tap: [
-        { action: "$set", key: "taps", value: { $expr: "state.taps + 1" } },
-        { action: "celebrate" },
-      ],
-    },
-  },
-});
+const DOCUMENT = `
+{"version": "2.1.0",
+ "context": {"userName": "string"},
+ "state": {"taps": "int"},
+ "root": {"type": "Greeting", "id": "hello",
+          "properties": {"text": {"$expr": "$concat('Hello, ', context.userName, '! Taps: ', $str(state.taps))"}},
+          "on": {"tap": [{"action": "$set", "key": "taps", "value": {"$expr": "state.taps + 1"}},
+                         {"action": "celebrate"}]}}}
+`;
 
 function Greeting({ node }: MilanoNodeProps): ReactNode {
   const palette = usePalette();

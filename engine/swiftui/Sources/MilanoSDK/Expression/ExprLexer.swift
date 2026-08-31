@@ -2,6 +2,8 @@ import Foundation
 
 enum Token: Equatable {
     case identifier(String)
+    /// A built-in function, `$` included: the contract's namespace.
+    case builtin(String)
     case intLiteral(Int64)
     case doubleLiteral(Double)
     case stringLiteral(String)
@@ -42,6 +44,22 @@ struct Lexer {
                 position += 1
             }
             return .identifier(name)
+        }
+
+        if c == "$" {
+            // A built-in function (expression spec, Grammar): `$` and a
+            // name, valid only in call position, which the parser enforces.
+            position += 1
+            guard position < scalars.count, isLetter(scalars[position]) else {
+                throw ExprError(detail: "'$' must be followed by a function name")
+            }
+            var name = "$"
+            while position < scalars.count, isLetter(scalars[position]) || isDigit(scalars[position])
+                || scalars[position] == "_" {
+                name.unicodeScalars.append(scalars[position])
+                position += 1
+            }
+            return .builtin(name)
         }
 
         if isDigit(c) {
@@ -97,7 +115,8 @@ struct Lexer {
             position += 2
             return .punct(op)
         }
-        for op in ["!", "-", "+", "*", "/", "%", "<", ">", ".", ",", "(", ")"] where String(c) == op {
+        for op in ["!", "-", "+", "*", "/", "%", "<", ">", ".", ",", "(", ")", "[", "]"]
+        where String(c) == op {
             position += 1
             return .punct(op)
         }

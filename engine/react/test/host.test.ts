@@ -6,7 +6,7 @@ import type { MilanoAction } from "@get-milano/core";
 import { createElement, act } from "react";
 import TestRenderer from "react-test-renderer";
 
-import { MilanoHost, MilanoQuickHost } from "../src/host.ts";
+import { MilanoHost, MilanoQuickHost, MilanoRenderedView } from "../src/host.ts";
 import type { MilanoReactBuilder } from "../src/host.ts";
 import { createMilanoRegistry } from "../src/node.ts";
 import type { MilanoNodeProps, MilanoPlaceholderRenderer, MilanoRenderer } from "../src/node.ts";
@@ -146,9 +146,85 @@ describe("MilanoHost", () => {
     await act(async () => {
       renderer = TestRenderer.create(createElement(MilanoHost, { builder }));
     });
-    assert.deepEqual(kinds, ["viewBuilt"]);
+    // The host delivers the lifecycle signals from React's own account of
+    // presentation: the view appears once mounted, disappears before it is
+    // torn down (runtime API spec, MilanoHost).
+    assert.deepEqual(kinds, ["viewBuilt", "viewAppeared"]);
     await act(async () => renderer.unmount());
-    assert.deepEqual(kinds, ["viewBuilt", "viewTornDown"]);
+    assert.deepEqual(kinds, ["viewBuilt", "viewAppeared", "viewDisappeared", "viewTornDown"]);
+  });
+
+  it("runs the document's lifecycle bindings when it appears", async () => {
+    const Renderer = ({ node }: MilanoNodeProps) =>
+      createElement("span", null, node.property("text").stringValue ?? "");
+    const registry = createMilanoRegistry();
+    registry.register("Label", Renderer);
+    const engine = new MilanoEngine<MilanoRenderer, MilanoPlaceholderRenderer>({
+      vocabularyJson: VOCABULARY,
+      registry,
+    });
+    const builder: MilanoReactBuilder = engine
+      .viewBuilder(
+        JSON.stringify({
+          version: "2.1.0",
+          state: { text: "string" },
+          root: { type: "Label", id: "only", properties: { text: { $expr: "state.text" } } },
+          on: { appear: [{ action: "$set", key: "text", value: "shown" }] },
+        }),
+      )
+      .stateData(() => ({ text: MilanoValue.string("hidden") }));
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(MilanoHost, { builder }));
+    });
+    assert.equal(textOf(renderer), "shown");
+    await act(async () => renderer.unmount());
+  });
+});
+
+describe("a view the host places itself", () => {
+  it("re-renders when the document is replaced under it", async () => {
+    // `replace` swaps a live view's document through the gate, keeping the
+    // state whose declaration is unchanged. The binding learns of it the
+    // way it learns of a `$set`: through the view's own subscription, with
+    // no rebuild and no new builder.
+    const engine = engineRendering("a");
+    const view = await engine
+      .viewBuilder(
+        JSON.stringify({
+          version: "2.1.0",
+          state: { greeting: "string" },
+          root: { type: "Label", id: "only", properties: { text: { $expr: "state.greeting" } } },
+        }),
+      )
+      .stateData(() => ({ greeting: MilanoValue.string("kept") }))
+      .build();
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        createElement(MilanoRenderedView, { view, registry: engine.registry }),
+      );
+    });
+    assert.equal(textOf(renderer), "a:kept");
+
+    await act(async () => {
+      await view.replace(
+        JSON.stringify({
+          version: "2.1.0",
+          state: { greeting: "string" },
+          root: {
+            type: "Label",
+            id: "only",
+            properties: { text: { $expr: "$concat(state.greeting, ' twice')" } },
+          },
+        }),
+      );
+    });
+    // The state carried over, and the rendered output followed the swap.
+    assert.equal(textOf(renderer), "a:kept twice");
+    await act(async () => renderer.unmount());
   });
 });
 
@@ -223,7 +299,7 @@ describe("MilanoQuickHost", () => {
       root: {
         type: "Label",
         id: "only",
-        properties: { text: { $expr: "concat('count=', str(state.count))" } },
+        properties: { text: { $expr: "$concat('count=', $str(state.count))" } },
       },
     });
     let renderer!: TestRenderer.ReactTestRenderer;
@@ -243,7 +319,7 @@ describe("MilanoQuickHost", () => {
       root: {
         type: "Label",
         id: "only",
-        properties: { text: { $expr: "concat('count=', str(state.count))" } },
+        properties: { text: { $expr: "$concat('count=', $str(state.count))" } },
         on: { tap: [{ action: "$set", key: "count", value: { $expr: "state.count + 1" } }] },
       },
     });

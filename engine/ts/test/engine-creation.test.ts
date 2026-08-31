@@ -92,6 +92,8 @@ describe("engine creation", () => {
   });
 });
 
+// engine-pinned: invalid-vocabulary-at-creation
+// engine-pinned: vocabulary-contract-version-rejected
 describe("invalid vocabularies are rejected with the rule they broke", () => {
   const cases: readonly [string, string, string][] = [
     ["{ nope", "json", "malformed JSON"],
@@ -149,6 +151,49 @@ describe("invalid vocabularies are rejected with the rule they broke", () => {
   });
 });
 
+describe("host function declarations", () => {
+  const withFunctions = (functions: unknown, milano = "2.1.0"): string =>
+    JSON.stringify({ ...JSON.parse(VALID), milano, functions });
+
+  it("reads declared functions into typed shapes", () => {
+    const vocabulary = MilanoVocabulary.parse(
+      withFunctions({ formatMoney: { arguments: ["int", "string"], returns: "string?" } }),
+    );
+    const declared = vocabulary.functions["formatMoney"];
+    assert.ok(declared !== undefined);
+    assert.deepEqual(declared.arguments.map((type) => type.name), ["int", "string"]);
+    assert.equal(declared.returns.name, "string?");
+  });
+
+  it("refuses a functions section in an artifact declaring less than 2.1", () => {
+    const error = creation(withFunctions({ f: { arguments: ["int"], returns: "int" } }, "2.0.0"));
+    assert.equal(error?.rule, "contract-feature");
+  });
+
+  it("accepts a function named like a built-in: the namespaces are separate", () => {
+    const vocabulary = MilanoVocabulary.parse(
+      withFunctions({ round: { arguments: ["double", "int"], returns: "string" } }),
+    );
+    assert.deepEqual(vocabulary.functions["round"]?.arguments.map((type) => type.name), [
+      "double",
+      "int",
+    ]);
+  });
+
+  it("refuses a function of no arguments", () => {
+    assert.equal(creation(withFunctions({ now: { arguments: [], returns: "int" } }))?.rule, "function-arguments");
+    assert.equal(creation(withFunctions({ now: { returns: "int" } }))?.rule, "function-arguments");
+  });
+
+  it("refuses undecodable argument and return descriptors", () => {
+    assert.equal(creation(withFunctions({ f: { arguments: ["nope"], returns: "int" } }))?.rule, "function-argument");
+    assert.equal(creation(withFunctions({ f: { arguments: ["int"] } }))?.rule, "function-returns");
+    assert.equal(creation(withFunctions({ f: "int" }))?.rule, "function");
+    assert.equal(creation(withFunctions({ "1f": { arguments: ["int"], returns: "int" } }))?.rule, "function-name");
+    assert.equal(creation(withFunctions([]))?.rule, "functions");
+  });
+});
+
 describe("MilanoVocabulary.parse", () => {
   it("reads declarations into typed shapes", () => {
     const vocabulary = MilanoVocabulary.parse(VALID);
@@ -173,6 +218,60 @@ describe("MilanoVocabulary.parse", () => {
       }),
     );
     assert.equal(vocabulary.actions["submit"]?.result?.name, "string");
+  });
+
+  it("reads a declared failure payload under contract 2.1", () => {
+    const vocabulary = MilanoVocabulary.parse(
+      JSON.stringify({
+        milano: "2.1.0",
+        name: "failures",
+        version: "1.0.0",
+        components: {},
+        actions: { submit: { failure: { enum: ["limit", "offline"] } }, plain: {} },
+      }),
+    );
+    assert.equal(vocabulary.actions["submit"]?.failure?.kind.kind, "enum");
+    assert.equal(vocabulary.actions["plain"]?.failure, null);
+  });
+
+  it("refuses a failure payload in an artifact declaring less than 2.1", () => {
+    // The artifact's declared version is a floor it holds itself to
+    // (vocabulary schema spec, Engine consumption).
+    for (const milano of ["1.0.0", "2.0.0"]) {
+      assert.throws(
+        () =>
+          MilanoVocabulary.parse(
+            JSON.stringify({
+              milano,
+              name: "failures",
+              version: "1.0.0",
+              components: {},
+              actions: { submit: { failure: "string" } },
+            }),
+          ),
+        (error: unknown) =>
+          error instanceof MilanoEngineError &&
+          error.type === "InvalidVocabulary" &&
+          error.rule === "contract-feature",
+        milano,
+      );
+    }
+  });
+
+  it("rejects an undecodable failure descriptor", () => {
+    assert.throws(
+      () =>
+        MilanoVocabulary.parse(
+          JSON.stringify({
+            milano: "2.1.0",
+            name: "failures",
+            version: "1.0.0",
+            components: {},
+            actions: { submit: { failure: "nope" } },
+          }),
+        ),
+      (error: unknown) => error instanceof MilanoEngineError && error.rule === "action-failure",
+    );
   });
 
   it("rejects an undecodable property descriptor", () => {

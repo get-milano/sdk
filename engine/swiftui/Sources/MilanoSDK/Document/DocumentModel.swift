@@ -9,15 +9,37 @@ enum DocValue: Equatable, Sendable {
     case typedExpression(source: String, expr: Expr, expected: MilanoType)
 }
 
+/// An array action as parsed, before the gate (contract 2.1): every
+/// parameter as the document carried it (nil when absent), plus the keys
+/// the action does not take. The gate replaces it by one of the three
+/// validated `ActionSpec` cases.
+struct ArrayActionSpec: Equatable, Sendable {
+    /// `$append`, `$remove`, or `$update`.
+    let name: String
+    let key: String?
+    let at: DocValue?
+    let field: String?
+    /// The kind of a `field` that is present but not a string.
+    let fieldFound: String?
+    let value: DocValue?
+    /// The keys the action does not take, sorted.
+    let extra: [String]
+}
+
 /// A parsed action, per the document model spec's action encoding.
 indirect enum ActionSpec: Equatable, Sendable {
     case set(key: String, value: DocValue)
+    /// An array action before the gate validated it.
+    case arrayAction(ArrayActionSpec)
+    case append(key: String, value: DocValue)
+    case remove(key: String, at: DocValue)
+    case update(key: String, at: DocValue, field: String, value: DocValue)
     case sequence([ActionSpec])
     case when(condition: DocValue, then: [ActionSpec], otherwise: [ActionSpec])
     case custom(
         name: String, parameters: [String: DocValue],
         onSuccess: [ActionSpec], onFailure: [ActionSpec],
-        result: MilanoType?)
+        result: MilanoType?, failure: MilanoType?)
 }
 
 /// A parsed node envelope, before vocabulary validation.
@@ -31,14 +53,43 @@ struct RawNode: Sendable {
     let raw: MilanoValue
     /// Present exactly when `type` is `$repeat`.
     var repeatSpec: RepeatSpec?
+    /// Present exactly when `type` is `$if`.
+    var conditionalSpec: ConditionalSpec?
+    /// Present exactly when `type` is `$switch`.
+    var switchSpec: SwitchSpec?
+}
+
+/// The `$switch` construct's own keys, as parsed: the enum subject and one
+/// node list per member, plus the list every uncovered member takes.
+struct SwitchSpec: Sendable {
+    let subject: DocValue?
+    let cases: [String: [RawNode]]?
+    let fallback: [RawNode]?
+    let hasFallback: Bool
+    /// Keys the construct does not declare, so the gate can name one.
+    let undeclared: [String]
+}
+
+/// The `$if` construct's own keys, as parsed: the condition (a value the
+/// gate requires to be a bool expression) and the two branches. A branch
+/// absent is nil and one written empty is an empty array: the first is how
+/// a document says nothing happens, the second is an encoding violation.
+struct ConditionalSpec: Sendable {
+    let condition: DocValue?
+    let then: [RawNode]?
+    let otherwise: [RawNode]?
+    /// Keys the construct does not declare, so the gate can name one.
+    let undeclared: [String]
 }
 
 /// The `$repeat` construct's own keys, as parsed: `items` (a value, which
-/// the gate requires to be an array expression) and `as` (the binding
-/// name). Nil where the document omitted them; the gate reports.
+/// the gate requires to be an array expression), `as` (the binding name),
+/// and `key` (contract 2.1: a value the gate requires to be a string or
+/// int expression). Nil where the document omitted them; the gate reports.
 struct RepeatSpec: Sendable {
     let items: DocValue?
     let `as`: String?
+    var key: DocValue?
 }
 
 /// A parsed document: structure and declarations only, never data values.
@@ -66,5 +117,15 @@ struct ParsedDocument: Sendable {
     let contextDeclarations: [String: MilanoType]
     let stateDeclarations: [String: MilanoType]
     let root: RawNode
+    /// The document's lifecycle bindings (contract 2.1), as parsed: signal
+    /// name to action list. The gate rules on the names.
+    var lifecycle: [String: [ActionSpec]] = [:]
+    /// Whether the document carried an `on` section at all, for gating.
+    var hasLifecycle = false
+    /// The document's watch bindings (contract 2.1), as parsed: state key
+    /// to action list. The gate rules on the keys.
+    var watch: [String: [ActionSpec]] = [:]
+    /// Whether the document carried a `watch` section at all, for gating.
+    var hasWatch = false
     let metadata: MilanoValue?
 }

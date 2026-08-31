@@ -1,6 +1,7 @@
 import {
   MilanoBuildError,
   MilanoEngine,
+  zeroValueOf,
   MilanoRegistry,
   MilanoType,
   MilanoVocabulary,
@@ -55,10 +56,14 @@ export interface ValidationReport {
   readonly warnings: readonly string[];
 }
 
-const TOP_LEVEL_KEYS = new Set(["version", "vocabulary", "context", "state", "root", "metadata"]);
+const TOP_LEVEL_KEYS = new Set(["version", "vocabulary", "context", "state", "root", "on", "watch", "metadata"]);
 const VOCABULARY_KEYS = new Set(["name", "min"]);
 const ENVELOPE_KEYS = new Set(["type", "id", "properties", "children", "on"]);
-const REPEAT_KEYS = new Set([...ENVELOPE_KEYS, "items", "as"]);
+const REPEAT_KEYS = new Set([...ENVELOPE_KEYS, "items", "as", "key"]);
+// The $if construct carries none of a component's envelope keys: it has no
+// id, no properties, no bindings, and its branches are not `children`.
+const CONDITIONAL_KEYS = new Set(["type", "condition", "then", "else"]);
+const SWITCH_KEYS = new Set(["type", "subject", "cases", "default"]);
 const DESCRIPTOR_KEYS = new Set(["enum", "array", "record", "optional"]);
 
 export function unknownKeyWarnings(documentText: string): string[] {
@@ -84,13 +89,33 @@ export function unknownKeyWarnings(documentText: string): string[] {
     const object = entry?.recordValue ?? null;
     if (object === null) return;
     // A $repeat carries its own keys; the gate rules on the rest.
-    const known = object["type"]?.stringValue === "$repeat" ? REPEAT_KEYS : ENVELOPE_KEYS;
+    const nodeType = object["type"]?.stringValue;
+    const known =
+      nodeType === "$repeat"
+        ? REPEAT_KEYS
+        : nodeType === "$if"
+          ? CONDITIONAL_KEYS
+          : nodeType === "$switch"
+            ? SWITCH_KEYS
+            : ENVELOPE_KEYS;
     for (const key of Object.keys(object)) {
       if (!known.has(key)) warnings.push(`${path}: unknown envelope key "${key}"`);
     }
     (object["children"]?.arrayValue ?? []).forEach((child, index) => {
       node(child, `${path}/children[${index}]`);
     });
+    // A branch's nodes are linted like any others; they are just not
+    // reached through `children`.
+    for (const branch of ["then", "else", "default"] as const) {
+      (object[branch]?.arrayValue ?? []).forEach((child, index) => {
+        node(child, `${path}/${branch}[${index}]`);
+      });
+    }
+    for (const [member, branch] of Object.entries(object["cases"]?.recordValue ?? {})) {
+      (branch.arrayValue ?? []).forEach((child, index) => {
+        node(child, `${path}/cases[${member}][${index}]`);
+      });
+    }
   };
   const top = document.recordValue;
   if (top === null) return warnings;
@@ -172,10 +197,19 @@ export async function validate(options: ValidateOptions): Promise<ValidationRepo
 
   const warnings = unknownKeyWarnings(options.document);
   const occurrences: ReportedOccurrence[] = [];
+  // Host functions are the app's; validation has no app. Every declared
+  // function answers the zero value of its return type, silently, exactly
+  // as the specs' reference checker does in its --document mode, so a
+  // document calling one still goes through the whole gate and resolves.
+  const declaredFunctions = MilanoVocabulary.parse(options.vocabulary).functions;
   const engine = new MilanoEngine<true, true>({
     vocabularyJson: options.vocabulary,
     registry,
     defaultUnknownTypePolicy: options.unknownTypes ?? "fail",
+    functionHandler: (call) => {
+      const declared = declaredFunctions[call.name];
+      return declared === undefined ? null : zeroValueOf(declared.returns);
+    },
     observer: {
       occurrence: ({ kind, node, name, expected, found }) => {
         occurrences.push({

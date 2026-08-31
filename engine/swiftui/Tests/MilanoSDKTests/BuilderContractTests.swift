@@ -122,7 +122,7 @@ struct BuilderContractTests {
             {"version": "1.0.0",
              "state": {"count": "int"},
              "root": {"type": "Text",
-                      "properties": {"text": {"$expr": "str(state.count)"}}}}
+                      "properties": {"text": {"$expr": "$str(state.count)"}}}}
             """.utf8)
         let builder = try engine().viewBuilder(document: withState)
             .stateData { _ in throw ProviderFailure() }

@@ -1,4 +1,4 @@
-// Generated from vocabulary "examples" 1.1.0 by generate_bindings.py.
+// Generated from vocabulary "examples" 1.5.0 by generate_bindings.py.
 // Do not edit; regenerate when the vocabulary changes.
 package dev.getmilano.sample.milanobridge
 
@@ -37,6 +37,89 @@ enum class BannerLayout(
     }
 }
 
+/** Members of the `style` enum on `Card`. Gate-guaranteed: decoding never fails. */
+enum class CardStyle(
+    val value: String,
+) {
+    Plain("plain"),
+    Surface("surface"),
+    ;
+
+    companion object {
+        fun from(value: String): CardStyle = entries.first { it.value == value }
+    }
+}
+
+/** Members of the `width` enum on `Column`. Gate-guaranteed: decoding never fails. */
+enum class ColumnWidth(
+    val value: String,
+) {
+    Content("content"),
+    Fill("fill"),
+    ;
+
+    companion object {
+        fun from(value: String): ColumnWidth = entries.first { it.value == value }
+    }
+}
+
+/** Members of the `container` enum on `Icon`. Gate-guaranteed: decoding never fails. */
+enum class IconContainer(
+    val value: String,
+) {
+    Circle("circle"),
+    Plain("plain"),
+    ;
+
+    companion object {
+        fun from(value: String): IconContainer = entries.first { it.value == value }
+    }
+}
+
+/** Members of the `name` enum on `Icon`. Gate-guaranteed: decoding never fails. */
+enum class IconName(
+    val value: String,
+) {
+    Edit("edit"),
+    Help("help"),
+    List("list"),
+    Person("person"),
+    Search("search"),
+    Settings("settings"),
+    ;
+
+    companion object {
+        fun from(value: String): IconName = entries.first { it.value == value }
+    }
+}
+
+/** Members of the `icon` enum on `IconButton`. Gate-guaranteed: decoding never fails. */
+enum class IconButtonIcon(
+    val value: String,
+) {
+    Eye("eye"),
+    EyeOff("eyeOff"),
+    ;
+
+    companion object {
+        fun from(value: String): IconButtonIcon = entries.first { it.value == value }
+    }
+}
+
+/** Members of the `alignment` enum on `Row`. Gate-guaranteed: decoding never fails. */
+enum class RowAlignment(
+    val value: String,
+) {
+    Bottom("bottom"),
+    Center("center"),
+    Top("top"),
+    ;
+
+    companion object {
+        fun from(value: String): RowAlignment = entries.first { it.value == value }
+    }
+}
+
 /** Members of the `liveRegion` enum on `Text`. Gate-guaranteed: decoding never fails. */
 enum class TextLiveRegion(
     val value: String,
@@ -55,12 +138,55 @@ enum class TextRole(
     val value: String,
 ) {
     Body("body"),
+    Caption("caption"),
     Subtitle("subtitle"),
     Title("title"),
     ;
 
     companion object {
         fun from(value: String): TextRole = entries.first { it.value == value }
+    }
+}
+
+/** Members of the `screen` enum on action `navigate`. Gate-guaranteed: decoding never fails. */
+enum class NavigateScreen(
+    val value: String,
+) {
+    Catalog("catalog"),
+    Form("form"),
+    Pokemon("pokemon"),
+    Profile("profile"),
+    ;
+
+    companion object {
+        fun from(value: String): NavigateScreen = entries.first { it.value == value }
+    }
+}
+
+/** Members of the failure enum of action `submitContact`. Gate-guaranteed: decoding never fails. */
+enum class SubmitContactFailure(
+    val value: String,
+) {
+    InvalidEmail("invalidEmail"),
+    Unavailable("unavailable"),
+    ;
+
+    companion object {
+        fun from(value: String): SubmitContactFailure = entries.first { it.value == value }
+    }
+}
+
+/** Members of the `event` enum on action `track`. Gate-guaranteed: decoding never fails. */
+enum class TrackEvent(
+    val value: String,
+) {
+    Appeared("appeared"),
+    Disappeared("disappeared"),
+    Tapped("tapped"),
+    ;
+
+    companion object {
+        fun from(value: String): TrackEvent = entries.first { it.value == value }
     }
 }
 
@@ -114,6 +240,11 @@ class CardNode(
 
     val padding: Long? get() = node.property("padding").intOrNull
 
+    val style: CardStyle? get() =
+        node.property("style").stringOrNull?.let {
+            CardStyle.from(it)
+        }
+
     fun emitTap() = node.emit("tap")
 }
 
@@ -133,7 +264,45 @@ class CheckboxNode(
 /** Typed view of a resolved [Column] node; non-null accessors are gate-guaranteed. */
 class ColumnNode(
     val node: MilanoNode,
-)
+) {
+    val padding: Long? get() = node.property("padding").intOrNull
+
+    val width: ColumnWidth? get() =
+        node.property("width").stringOrNull?.let {
+            ColumnWidth.from(it)
+        }
+}
+
+/** Typed view of a resolved [Icon] node; non-null accessors are gate-guaranteed. */
+class IconNode(
+    val node: MilanoNode,
+) {
+    val container: IconContainer? get() =
+        node.property("container").stringOrNull?.let {
+            IconContainer.from(it)
+        }
+
+    val name: IconName get() =
+        IconName.from(node.property("name").stringOrNull!!)
+
+    val visible: Boolean? get() = node.property("visible").boolOrNull
+}
+
+/** Typed view of a resolved [IconButton] node; non-null accessors are gate-guaranteed. */
+class IconButtonNode(
+    val node: MilanoNode,
+) {
+    val accessibilityHint: String? get() = node.property("accessibilityHint").stringOrNull
+
+    val accessibilityLabel: String get() = node.property("accessibilityLabel").stringOrNull!!
+
+    val icon: IconButtonIcon get() =
+        IconButtonIcon.from(node.property("icon").stringOrNull!!)
+
+    fun emitPressEnd() = node.emit("pressEnd")
+
+    fun emitPressStart() = node.emit("pressStart")
+}
 
 /** Typed view of a resolved [Image] node; non-null accessors are gate-guaranteed. */
 class ImageNode(
@@ -169,6 +338,15 @@ class NumberFieldNode(
 class RowNode(
     val node: MilanoNode,
 ) {
+    val alignment: RowAlignment? get() =
+        node.property("alignment").stringOrNull?.let {
+            RowAlignment.from(it)
+        }
+
+    val horizontalPadding: Long? get() = node.property("horizontalPadding").intOrNull
+
+    val scrolls: Boolean? get() = node.property("scrolls").boolOrNull
+
     val spacing: Long? get() = node.property("spacing").intOrNull
 }
 
@@ -212,16 +390,30 @@ class TextFieldNode(
 sealed interface ExamplesAction {
     data object Dismiss : ExamplesAction
 
+    data class Navigate(
+        val screen: NavigateScreen,
+    ) : ExamplesAction
+
     data class OpenUrl(
         val url: String,
     ) : ExamplesAction
 
-    /** The handler completes it with a `string` result, bound to `result` in onSuccess. */
+    /**
+     * The handler completes it with a `string` result, bound to `result` in onSuccess.
+     * The handler fails it with a `{"enum": ["invalidEmail", "unavailable"]}` payload (a
+     * MilanoActionFailure), bound to `failure` in onFailure.
+     */
     data class SubmitContact(
         val email: String,
         val name: String,
         val phone: String?,
         val surname: String,
+    ) : ExamplesAction
+
+    data class Track(
+        val event: TrackEvent,
+        val position: Long?,
+        val surface: String,
     ) : ExamplesAction
 
     /** An action outside this vocabulary's declarations. */
@@ -234,6 +426,12 @@ sealed interface ExamplesAction {
             when (action.name) {
                 "dismiss" -> {
                     Dismiss
+                }
+
+                "navigate" -> {
+                    Navigate(
+                        screen = NavigateScreen.from(action.parameters["screen"]!!.stringOrNull!!),
+                    )
                 }
 
                 "openUrl" -> {
@@ -251,6 +449,14 @@ sealed interface ExamplesAction {
                     )
                 }
 
+                "track" -> {
+                    Track(
+                        event = TrackEvent.from(action.parameters["event"]!!.stringOrNull!!),
+                        position = action.parameters["position"]?.intOrNull,
+                        surface = action.parameters["surface"]!!.stringOrNull!!,
+                    )
+                }
+
                 else -> {
                     Unrecognized(action)
                 }
@@ -261,7 +467,7 @@ sealed interface ExamplesAction {
 /** The vocabulary these bindings were generated from. */
 object ExamplesVocabulary {
     const val NAME: String = "examples"
-    const val VERSION: String = "1.1.0"
+    const val VERSION: String = "1.5.0"
 
     /** Refuses to run against an engine holding a different vocabulary. */
     fun assertMatches(engine: MilanoEngine) {

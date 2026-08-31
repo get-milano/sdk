@@ -66,6 +66,9 @@ export function useMilanoView(builder: MilanoReactBuilder): MilanoViewState {
           return;
         }
         built = view;
+        // A view that finishes building while the host is on screen
+        // appears at once (runtime API spec, MilanoHost).
+        view.appear();
         setEntry({
           builder,
           state: { status: "ready", view, registry: builder.engine.registry },
@@ -78,6 +81,10 @@ export function useMilanoView(builder: MilanoReactBuilder): MilanoViewState {
 
     return () => {
       cancelled = true;
+      // Leaving the screen is delivered before the teardown that follows,
+      // so a document's disappear bindings run; the rendered view's own
+      // effect may signal it too, and the second signal is ignored.
+      built?.disappear();
       built?.teardown();
     };
   }, [builder]);
@@ -108,6 +115,15 @@ export function MilanoRenderedView({
   );
   const snapshot = useCallback(() => view.resolvedRoot, [view]);
   const resolved = useSyncExternalStore(subscribe, snapshot, snapshot);
+  // The lifecycle signals, from React's own account of presentation: the
+  // view appears when this element mounts and disappears when it unmounts,
+  // and again on every remount (runtime API spec, MilanoHost).
+  useEffect(() => {
+    view.appear();
+    return () => {
+      view.disappear();
+    };
+  }, [view]);
   return renderNode(view, registry, resolved);
 }
 

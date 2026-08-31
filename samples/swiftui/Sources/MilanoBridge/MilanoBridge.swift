@@ -15,6 +15,8 @@ enum MilanoBridge {
         registry.register(RowRenderer(), for: "Row")
         registry.register(CardRenderer(), for: "Card")
         registry.register(ImageRenderer(), for: "Image")
+        registry.register(IconRenderer(), for: "Icon")
+        registry.register(IconButtonRenderer(), for: "IconButton")
         return registry
     }
 }

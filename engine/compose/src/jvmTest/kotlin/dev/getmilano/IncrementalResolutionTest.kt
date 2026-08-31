@@ -40,8 +40,8 @@ class IncrementalResolutionTest {
          "context": {"who": "string"},
          "state": {"divisor": "int", "other": "int"},
          "root": {"type": "Column", "id": "root", "children": [
-            {"type": "Text", "id": "ratio", "properties": {"text": {"${'$'}expr": "str(100 / state.divisor)"}}},
-            {"type": "Text", "id": "greeting", "properties": {"text": {"${'$'}expr": "concat('hi ', context.who)"}}},
+            {"type": "Text", "id": "ratio", "properties": {"text": {"${'$'}expr": "${'$'}str(100 / state.divisor)"}}},
+            {"type": "Text", "id": "greeting", "properties": {"text": {"${'$'}expr": "${'$'}concat('hi ', context.who)"}}},
             {"type": "Column", "id": "static", "children": [
                 {"type": "Text", "id": "fixed", "properties": {"text": "fixed"}}]},
             {"type": "Text", "id": "buttons", "properties": {"text": "x"},
@@ -77,7 +77,7 @@ class IncrementalResolutionTest {
     fun dependenciesAreCollectedThroughEveryConstruct() {
         assertEquals(
             setOf("state.flag", "context.a", "state.n", "state.m"),
-            ExprParser.parse("if(state.flag, context.a ?? 'x', str(state.n + -state.m))").dependencies(),
+            ExprParser.parse("${'$'}if(state.flag, context.a ?? 'x', ${'$'}str(state.n + -state.m))").dependencies(),
         )
         assertEquals(setOf("state.person"), ExprParser.parse("state.person.name").dependencies())
         assertTrue(ExprParser.parse("1 + 2").dependencies().isEmpty())

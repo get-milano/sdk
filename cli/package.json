@@ -1,10 +1,11 @@
 {
   "name": "@get-milano/cli",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Milano Document-Driven UI: the producer's command line. Validates documents with the gate the engines run, and generates the document schema and typed bindings from a vocabulary.",
   "license": "Apache-2.0",
   "author": "Ezequiel (kimi) Aceto <ezequiel.aceto@gmail.com> (https://kimi.blog)",
   "homepage": "https://get-milano.dev",
+  "bugs": { "url": "https://github.com/get-milano/sdk/issues" },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/get-milano/sdk.git",
@@ -41,7 +42,7 @@
     "test": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-exclude=\"src/bin.ts\" --test-coverage-lines=95 --test-coverage-branches=85 \"test/**/*.test.ts\""
   },
   "dependencies": {
-    "@get-milano/core": "^2.0.0"
+    "@get-milano/core": "^2.1.0"
   },
   "keywords": [
     "milano",

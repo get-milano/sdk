@@ -12,7 +12,7 @@ env:
   # this repository is tested against. Adopting a new suite is a deliberate
   # edit here, reviewed with the engine changes it needs; check-consistency
   # keeps the three workflows and the README on the same release.
-  SPECS_RELEASE: "2.0.0"
+  SPECS_RELEASE: "2.1.0"
 
 jobs:
   swift:
@@ -159,7 +159,4 @@ jobs:
         run: |
           curl -sSLO https://github.com/pinterest/ktlint/releases/download/1.8.0/ktlint
           chmod +x ktlint
-          ./ktlint "engine/compose/src/**/*.kt" "engine/compose/*.kts" \
-                   "samples/compose/app/src/**/*.kt" "samples/compose/*.kts" \
-                   "samples/compose/app/*.kts" \
-                   "samples/compose-desktop/src/**/*.kt" "samples/compose-desktop/*.kts"
+          PATH="$PWD:$PATH" scripts/lint-kotlin.sh

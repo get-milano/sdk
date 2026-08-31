@@ -38,7 +38,7 @@ concurrency:
 
 env:
   # The conformance suite release the engines are held to; see ci.yml.
-  SPECS_RELEASE: "2.0.0"
+  SPECS_RELEASE: "2.1.0"
 
 jobs:
   reference:

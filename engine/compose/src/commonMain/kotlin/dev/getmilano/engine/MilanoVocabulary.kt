@@ -4,7 +4,8 @@ import kotlinx.serialization.json.Json
 
 /**
  * A parsed, validated vocabulary artifact: the consumer's component types,
- * events, and global custom actions, per the vocabulary schema spec.
+ * events, global custom actions, and host functions, per the vocabulary
+ * schema spec.
  */
 internal data class MilanoVocabulary(
     /** The contract version the artifact targets. */
@@ -15,6 +16,8 @@ internal data class MilanoVocabulary(
     val version: String,
     val components: Map<String, Component>,
     val actions: Map<String, Action>,
+    /** The declared host functions (contract 2.1), by name. */
+    val functions: Map<String, Function> = emptyMap(),
 ) {
     data class Component(
         /** Property name to type. */
@@ -41,6 +44,22 @@ internal data class MilanoVocabulary(
          * no data (vocabulary schema spec, completion results).
          */
         val result: MilanoType? = null,
+        /**
+         * The failure completion's payload type (contract 2.1); null means
+         * a failure carries no data (vocabulary schema spec, failure
+         * payloads).
+         */
+        val failure: MilanoType? = null,
+    )
+
+    /**
+     * A host function declaration (contract 2.1; vocabulary schema spec,
+     * Function declarations): its argument types in order, and its return
+     * type.
+     */
+    data class Function(
+        val arguments: List<MilanoType>,
+        val returns: MilanoType,
     )
 
     companion object {
@@ -114,7 +133,7 @@ internal data class MilanoVocabulary(
                         if (!MilanoIdentifier.isValid(actionName)) {
                             throw MilanoEngineException.InvalidVocabulary("action-name", actionName)
                         }
-                        actions[actionName] = action(declaration, actionName)
+                        actions[actionName] = action(declaration, actionName, major to minor)
                     }
                 }
 
@@ -123,16 +142,73 @@ internal data class MilanoVocabulary(
                 }
             }
 
-            return MilanoVocabulary(major, minor, name, vocabularyVersion, components, actions)
+            val functions = LinkedHashMap<String, Function>()
+            val functionsEntry = rootRecord["functions"]
+            if (functionsEntry != null) {
+                // The artifact's declared version is a floor it holds itself
+                // to: host functions need contract 2.1.
+                if (!MilanoContractFeatures.has("functions", major, minor)) {
+                    throw MilanoEngineException.InvalidVocabulary(
+                        "contract-feature",
+                        "functions need contract ${MilanoContractFeatures.versionOf("functions")}",
+                    )
+                }
+                val declarations =
+                    (functionsEntry as? MilanoValue.RecordValue)?.values
+                        ?: throw MilanoEngineException.InvalidVocabulary("functions", "functions is not an object")
+                for ((functionName, declaration) in declarations.entries.sortedBy { it.key }) {
+                    if (!MilanoIdentifier.isValid(functionName)) {
+                        throw MilanoEngineException.InvalidVocabulary("function-name", functionName)
+                    }
+                    functions[functionName] = function(declaration, functionName)
+                }
+            }
+
+            return MilanoVocabulary(major, minor, name, vocabularyVersion, components, actions, functions)
         }
 
         /**
-         * Parses one custom action declaration; shared with document-local
-         * declarations, which use the same format (document model spec).
+         * Parses one host function declaration; shared with builder
+         * declarations. Any identifier will do: the contract's own
+         * functions are called through the `$` namespace, so a vocabulary
+         * declaring `round` gets its own `round(...)` beside `$round(...)`
+         * and can never be shadowed. An empty argument list is refused
+         * (`function-arguments`: a function of no arguments would be a
+         * constant, or would read what its arguments do not carry).
+         */
+        internal fun function(
+            declaration: MilanoValue,
+            path: String,
+        ): Function {
+            val record =
+                (declaration as? MilanoValue.RecordValue)?.values
+                    ?: throw MilanoEngineException.InvalidVocabulary("function", "$path is not an object")
+            val argumentsEntry = (record["arguments"] as? MilanoValue.ArrayValue)?.values
+            if (argumentsEntry.isNullOrEmpty()) {
+                throw MilanoEngineException.InvalidVocabulary("function-arguments", path)
+            }
+            val arguments =
+                argumentsEntry.map { descriptor ->
+                    MilanoType.fromDescriptor(descriptor)
+                        ?: throw MilanoEngineException.InvalidVocabulary("function-argument", path)
+                }
+            val returns =
+                record["returns"]?.let { MilanoType.fromDescriptor(it) }
+                    ?: throw MilanoEngineException.InvalidVocabulary("function-returns", path)
+            return Function(arguments, returns)
+        }
+
+        /**
+         * Parses one custom action declaration; shared with builder
+         * declarations, which use the same format. [contract] is the
+         * artifact's declared version, which gates the declarations a later
+         * minor introduced; builder declarations are code and always speak
+         * the engine's contract.
          */
         internal fun action(
             declaration: MilanoValue,
             path: String,
+            contract: Pair<Int, Int>? = null,
         ): Action {
             val record =
                 (declaration as? MilanoValue.RecordValue)?.values
@@ -161,7 +237,21 @@ internal data class MilanoVocabulary(
                 result = MilanoType.fromDescriptor(resultEntry)
                     ?: throw MilanoEngineException.InvalidVocabulary("action-result", path)
             }
-            return Action(parameters, result)
+            var failure: MilanoType? = null
+            val failureEntry = record["failure"]
+            if (failureEntry != null) {
+                // The artifact's declared version is a floor it holds itself
+                // to: a failure payload needs contract 2.1.
+                if (contract != null && !MilanoContractFeatures.has("failure", contract.first, contract.second)) {
+                    throw MilanoEngineException.InvalidVocabulary(
+                        "contract-feature",
+                        "$path declares a failure payload, which needs contract ${MilanoContractFeatures.versionOf("failure")}",
+                    )
+                }
+                failure = MilanoType.fromDescriptor(failureEntry)
+                    ?: throw MilanoEngineException.InvalidVocabulary("action-failure", path)
+            }
+            return Action(parameters, result, failure)
         }
 
         private fun component(

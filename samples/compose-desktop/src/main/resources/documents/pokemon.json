@@ -16,7 +16,7 @@
         "id": "title",
         "properties": {
           "text": {
-            "$expr": "concat('Trainer ', context.userName)"
+            "$expr": "$concat('Trainer ', context.userName)"
           },
           "role": "title"
         }
@@ -58,7 +58,7 @@
             "id": "stats",
             "properties": {
               "text": {
-                "$expr": "concat('Height: ', str(context.pokemonHeight / 10.0), ' m · Weight: ', str(context.pokemonWeight / 10.0), ' kg')"
+                "$expr": "$concat('Height: ', $str(context.pokemonHeight / 10.0), ' m · Weight: ', $str(context.pokemonWeight / 10.0), ' kg')"
               },
               "role": "subtitle"
             }

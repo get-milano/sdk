@@ -20,6 +20,8 @@ private object StubPlaceholder : MilanoPlaceholderRenderer {
     override fun Render(unknown: MilanoUnknownNode) {}
 }
 
+// engine-pinned: invalid-vocabulary-at-creation
+// engine-pinned: vocabulary-contract-version-rejected
 class EngineCreationTest {
     private fun examplesVocabularyJson(): String {
         val specs =
@@ -45,9 +47,9 @@ class EngineCreationTest {
     fun examplesVocabularyParses() {
         val vocabulary = MilanoVocabulary.parse(examplesVocabularyJson())
         assertEquals(2, vocabulary.contractMajor)
-        assertEquals(0, vocabulary.contractMinor)
+        assertEquals(1, vocabulary.contractMinor)
         assertEquals("examples", vocabulary.name)
-        assertEquals(9, vocabulary.components.size)
+        assertEquals(12, vocabulary.components.size)
 
         val badge = assertNotNull(vocabulary.components["Badge"])
         val tone = MilanoType(MilanoType.Kind.Enum(setOf("info", "warning", "danger")))
@@ -72,6 +74,103 @@ class EngineCreationTest {
 
         val openUrl = assertNotNull(vocabulary.actions["openUrl"])
         assertEquals(MilanoType(MilanoType.Kind.Text), openUrl.parameters["url"])
+
+        // Host functions (contract 2.1), in declaration order. `round` is
+        // named after a built-in, which the two namespaces allow.
+        assertEquals(
+            listOf("formatMoney", "parseInt", "round", "scale", "shout", "tone"),
+            vocabulary.functions.keys.toList(),
+        )
+        val formatMoney = assertNotNull(vocabulary.functions["formatMoney"])
+        assertEquals(listOf(MilanoType(MilanoType.Kind.Int), MilanoType(MilanoType.Kind.Text)), formatMoney.arguments)
+        assertEquals(MilanoType(MilanoType.Kind.Text), formatMoney.returns)
+        assertEquals(MilanoType(MilanoType.Kind.Int, optional = true), assertNotNull(vocabulary.functions["parseInt"]).returns)
+        val toneFunction = assertNotNull(vocabulary.functions["tone"])
+        assertEquals(listOf(tone), toneFunction.arguments)
+        assertEquals(tone, toneFunction.returns)
+    }
+
+    /**
+     * Function declarations (vocabulary schema spec, Function
+     * declarations): an empty argument list is a mistake, the descriptors
+     * must parse, and the section itself needs an artifact declaring
+     * contract 2.1. A built-in's name is not a mistake: the two namespaces
+     * are separate.
+     */
+    @Test
+    fun functionDeclarationsAreValidated() {
+        fun creationError(
+            functions: String,
+            milano: String = "2.1.0",
+        ): MilanoEngineException.InvalidVocabulary =
+            assertFailsWith {
+                MilanoVocabulary.parse(
+                    """{"milano": "$milano", "name": "x", "version": "1.0.0", "components": {}, "functions": $functions}""",
+                )
+            }
+
+        creationError("""{"${'$'}now": {"arguments": ["int"], "returns": "string"}}""").let {
+            assertEquals("function-name", it.rule)
+            assertEquals("\$now", it.detail)
+        }
+        creationError("""{"now": {"arguments": [], "returns": "string"}}""").let {
+            assertEquals("function-arguments", it.rule)
+            assertEquals("now", it.detail)
+        }
+        creationError("""{"now": {"returns": "string"}}""").let {
+            assertEquals("function-arguments", it.rule)
+        }
+        creationError("""{"now": {"arguments": ["varchar"], "returns": "string"}}""").let {
+            assertEquals("function-argument", it.rule)
+            assertEquals("now", it.detail)
+        }
+        creationError("""{"now": {"arguments": ["int"]}}""").let {
+            assertEquals("function-returns", it.rule)
+        }
+        creationError("""{"now": 5}""").let {
+            assertEquals("function", it.rule)
+        }
+        creationError("""[]""").let {
+            assertEquals("functions", it.rule)
+        }
+        // The artifact's declared version is a floor: a 2.0 artifact may
+        // not declare functions, whatever it declares.
+        creationError("""{"shout": {"arguments": ["string"], "returns": "string"}}""", milano = "2.0.0").let {
+            assertEquals("contract-feature", it.rule)
+            assertEquals("functions need contract 2.1", it.detail)
+        }
+        creationError("""{}""", milano = "1.0.0").let {
+            assertEquals("contract-feature", it.rule)
+        }
+
+        // A valid declaration parses in declaration order.
+        val vocabulary =
+            MilanoVocabulary.parse(
+                """{"milano": "2.1.0", "name": "x", "version": "1.0.0", "components": {},
+                    "functions": {"b": {"arguments": ["int"], "returns": "int?"},
+                                  "a": {"arguments": [{"enum": ["x", "y"]}, "double"], "returns": {"array": "string"}}}}""",
+            )
+        assertEquals(listOf("a", "b"), vocabulary.functions.keys.toList())
+        assertEquals(
+            MilanoVocabulary.Function(
+                listOf(MilanoType(MilanoType.Kind.Enum(setOf("x", "y"))), MilanoType(MilanoType.Kind.Double)),
+                MilanoType(MilanoType.Kind.Array(MilanoType(MilanoType.Kind.Text))),
+            ),
+            vocabulary.functions["a"],
+        )
+
+        // A function named like a built-in is accepted: the contract's own
+        // functions are called through `$`, so `round` and `$round` are two
+        // names and neither shadows the other.
+        val named =
+            MilanoVocabulary.parse(
+                """{"milano": "2.1.0", "name": "x", "version": "1.0.0", "components": {},
+                    "functions": {"round": {"arguments": ["double", "int"], "returns": "string"}}}""",
+            )
+        assertEquals(
+            listOf(MilanoType(MilanoType.Kind.Double), MilanoType(MilanoType.Kind.Int)),
+            assertNotNull(named.functions["round"]).arguments,
+        )
     }
 
     @Test

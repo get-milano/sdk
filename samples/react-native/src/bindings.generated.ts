@@ -1,4 +1,4 @@
-// Generated from vocabulary "examples" 1.1.0 by generate_bindings.py.
+// Generated from vocabulary "examples" 1.5.0 by generate_bindings.py.
 // Do not edit; regenerate when the vocabulary changes.
 
 import { MilanoValue } from "@get-milano/core";
@@ -20,11 +20,38 @@ export type SampleBannerContentAlignment = "bottomLeading" | "bottomTrailing" | 
 /** Members of the `layout` enum on `Banner`. Gate-guaranteed: the value is always a member. */
 export type SampleBannerLayout = "card" | "overlay" | "strip";
 
+/** Members of the `style` enum on `Card`. Gate-guaranteed: the value is always a member. */
+export type SampleCardStyle = "plain" | "surface";
+
+/** Members of the `width` enum on `Column`. Gate-guaranteed: the value is always a member. */
+export type SampleColumnWidth = "content" | "fill";
+
+/** Members of the `container` enum on `Icon`. Gate-guaranteed: the value is always a member. */
+export type SampleIconContainer = "circle" | "plain";
+
+/** Members of the `name` enum on `Icon`. Gate-guaranteed: the value is always a member. */
+export type SampleIconName = "edit" | "help" | "list" | "person" | "search" | "settings";
+
+/** Members of the `icon` enum on `IconButton`. Gate-guaranteed: the value is always a member. */
+export type SampleIconButtonIcon = "eye" | "eyeOff";
+
+/** Members of the `alignment` enum on `Row`. Gate-guaranteed: the value is always a member. */
+export type SampleRowAlignment = "bottom" | "center" | "top";
+
 /** Members of the `liveRegion` enum on `Text`. Gate-guaranteed: the value is always a member. */
 export type SampleTextLiveRegion = "assertive" | "polite";
 
 /** Members of the `role` enum on `Text`. Gate-guaranteed: the value is always a member. */
-export type SampleTextRole = "body" | "subtitle" | "title";
+export type SampleTextRole = "body" | "caption" | "subtitle" | "title";
+
+/** Members of the `screen` enum on action `navigate`. Gate-guaranteed: the value is always a member. */
+export type SampleNavigateScreen = "catalog" | "form" | "pokemon" | "profile";
+
+/** Members of the failure enum of action `submitContact`. Gate-guaranteed: the value is always a member. */
+export type SampleSubmitContactFailure = "invalidEmail" | "unavailable";
+
+/** Members of the `event` enum on action `track`. Gate-guaranteed: the value is always a member. */
+export type SampleTrackEvent = "appeared" | "disappeared" | "tapped";
 
 /** Typed view of a resolved `Banner` node. Non-optional accessors are gate-guaranteed. */
 export class SampleBannerNode {
@@ -86,6 +113,10 @@ export class SampleCardNode {
 
   get padding(): bigint | null { return this.node.property("padding").intValue; }
 
+  get style(): SampleCardStyle | null {
+    return this.node.property("style").stringValue as SampleCardStyle | null;
+  }
+
   emitTap(): void { this.node.emit("tap"); }
 }
 
@@ -113,6 +144,52 @@ export class SampleColumnNode {
   constructor(node: MilanoNodeLike) {
     this.node = node;
   }
+
+  get padding(): bigint | null { return this.node.property("padding").intValue; }
+
+  get width(): SampleColumnWidth | null {
+    return this.node.property("width").stringValue as SampleColumnWidth | null;
+  }
+}
+
+/** Typed view of a resolved `Icon` node. Non-optional accessors are gate-guaranteed. */
+export class SampleIconNode {
+  readonly node: MilanoNodeLike;
+
+  constructor(node: MilanoNodeLike) {
+    this.node = node;
+  }
+
+  get container(): SampleIconContainer | null {
+    return this.node.property("container").stringValue as SampleIconContainer | null;
+  }
+
+  get name(): SampleIconName {
+    return this.node.property("name").stringValue as SampleIconName;
+  }
+
+  get visible(): boolean | null { return this.node.property("visible").boolValue; }
+}
+
+/** Typed view of a resolved `IconButton` node. Non-optional accessors are gate-guaranteed. */
+export class SampleIconButtonNode {
+  readonly node: MilanoNodeLike;
+
+  constructor(node: MilanoNodeLike) {
+    this.node = node;
+  }
+
+  get accessibilityHint(): string | null { return this.node.property("accessibilityHint").stringValue; }
+
+  get accessibilityLabel(): string { return this.node.property("accessibilityLabel").stringValue as string; }
+
+  get icon(): SampleIconButtonIcon {
+    return this.node.property("icon").stringValue as SampleIconButtonIcon;
+  }
+
+  emitPressEnd(): void { this.node.emit("pressEnd"); }
+
+  emitPressStart(): void { this.node.emit("pressStart"); }
 }
 
 /** Typed view of a resolved `Image` node. Non-optional accessors are gate-guaranteed. */
@@ -160,6 +237,14 @@ export class SampleRowNode {
   constructor(node: MilanoNodeLike) {
     this.node = node;
   }
+
+  get alignment(): SampleRowAlignment | null {
+    return this.node.property("alignment").stringValue as SampleRowAlignment | null;
+  }
+
+  get horizontalPadding(): bigint | null { return this.node.property("horizontalPadding").intValue; }
+
+  get scrolls(): boolean | null { return this.node.property("scrolls").boolValue; }
 
   get spacing(): bigint | null { return this.node.property("spacing").intValue; }
 }
@@ -209,9 +294,26 @@ export class SampleTextFieldNode {
 /** Every custom action this vocabulary declares, decoded from dispatch. */
 export type SampleAction =
   | { readonly kind: "dismiss" }
+  | { readonly kind: "navigate"; readonly screen: SampleNavigateScreen }
   | { readonly kind: "openUrl"; readonly url: string }
-  /** The handler completes it with a `string` result, bound to `result` in onSuccess. */
-  | { readonly kind: "submitContact"; readonly email: string; readonly name: string; readonly phone: string | null; readonly surname: string }
+  /**
+   * The handler completes it with a `string` result, bound to `result` in onSuccess.
+   * The handler fails it with a `{"enum": ["invalidEmail", "unavailable"]}` payload (a
+   * MilanoActionFailure), bound to `failure` in onFailure.
+   */
+  | {
+      readonly kind: "submitContact";
+      readonly email: string;
+      readonly name: string;
+      readonly phone: string | null;
+      readonly surname: string;
+    }
+  | {
+      readonly kind: "track";
+      readonly event: SampleTrackEvent;
+      readonly position: bigint | null;
+      readonly surface: string;
+    }
   /** An action outside this vocabulary's declarations (builder-declared, or a newer vocabulary). */
   | { readonly kind: "unrecognized"; readonly action: MilanoAction };
 
@@ -220,10 +322,25 @@ export function sampleAction(action: MilanoAction): SampleAction {
   switch (action.name) {
     case "dismiss":
       return { kind: "dismiss" };
+    case "navigate":
+      return { kind: "navigate", screen: action.parameters["screen"]?.stringValue as SampleNavigateScreen };
     case "openUrl":
       return { kind: "openUrl", url: action.parameters["url"]?.stringValue as string };
     case "submitContact":
-      return { kind: "submitContact", email: action.parameters["email"]?.stringValue as string, name: action.parameters["name"]?.stringValue as string, phone: action.parameters["phone"]?.stringValue as string | null, surname: action.parameters["surname"]?.stringValue as string };
+      return {
+        kind: "submitContact",
+        email: action.parameters["email"]?.stringValue as string,
+        name: action.parameters["name"]?.stringValue as string,
+        phone: action.parameters["phone"]?.stringValue as string | null,
+        surname: action.parameters["surname"]?.stringValue as string,
+      };
+    case "track":
+      return {
+        kind: "track",
+        event: action.parameters["event"]?.stringValue as SampleTrackEvent,
+        position: action.parameters["position"]?.intValue as bigint | null,
+        surface: action.parameters["surface"]?.stringValue as string,
+      };
     default:
       return { kind: "unrecognized", action };
   }
@@ -232,14 +349,14 @@ export function sampleAction(action: MilanoAction): SampleAction {
 /** The vocabulary these bindings were generated from. */
 export const SampleVocabulary = {
   name: "examples",
-  version: "1.1.0",
+  version: "1.5.0",
 
   /** Throws if the engine holds a different vocabulary. */
   assertMatches(engine: { readonly vocabulary: { readonly name: string; readonly version: string } }): void {
     const held = engine.vocabulary;
-    if (held.name !== "examples" || held.version !== "1.1.0") {
+    if (held.name !== "examples" || held.version !== "1.5.0") {
       throw new Error(
-        `bindings generated from examples@1.1.0, engine holds ${held.name}@${held.version}`,
+        `bindings generated from examples@1.5.0, engine holds ${held.name}@${held.version}`,
       );
     }
   },

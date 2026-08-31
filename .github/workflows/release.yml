@@ -59,7 +59,7 @@ permissions:
 
 env:
   # The conformance suite release the engines are held to; see ci.yml.
-  SPECS_RELEASE: "2.0.0"
+  SPECS_RELEASE: "2.1.0"
 
 jobs:
   preflight:
@@ -117,6 +117,22 @@ jobs:
           for name in APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_KEYCHAIN_PASSWORD; do
             if [ -z "${!name}" ]; then
               echo "missing repository secret: $name (see RELEASE-SETUP notes)" >&2
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Check the Maven Central secrets exist
+        if: steps.tagcheck.outputs.proceed == 'true'
+        env:
+          MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+          MAVEN_TOKEN: ${{ secrets.MAVEN_TOKEN }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        run: |
+          missing=0
+          for name in MAVEN_USERNAME MAVEN_TOKEN SIGNING_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "missing repository secret: $name (Central Portal token, and the PGP key releases are signed with)" >&2
               missing=1
             fi
           done
@@ -434,12 +450,63 @@ jobs:
           sed -i -E "s/(const val VERSION: String = )\"[^\"]*\"/\1\"$VERSION\"/" "$FILE"
           grep -q "\"$VERSION\"" "$FILE" || { echo "version stamp failed; MilanoInfo.kt changed shape" >&2; exit 1; }
 
+      # Central is where Android and JVM consumers resolve the engine. The
+      # upload is one bundle holding all three modules (the multiplatform
+      # root, android, and jvm), each with its pom, sources, javadoc, and a
+      # PGP signature, which is exactly what publishing to a directory
+      # produces.
+      - name: Assemble the Central bundle
+        working-directory: engine/compose
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        run: ./gradlew -PmilanoVersion="$VERSION" publishAllPublicationsToCentralBundleRepository
+
+      - name: Upload the bundle to Maven Central
+        working-directory: engine/compose/build/central-bundle
+        env:
+          MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+          MAVEN_TOKEN: ${{ secrets.MAVEN_TOKEN }}
+        run: |
+          set -euo pipefail
+          # maven-metadata.xml belongs to a repository, not to a deployment:
+          # the Portal rejects a bundle that carries one.
+          find . -name 'maven-metadata.xml*' -delete
+          zip -qr ../central-bundle.zip .
+          AUTH=$(printf '%s:%s' "$MAVEN_USERNAME" "$MAVEN_TOKEN" | base64 | tr -d '\n')
+          # USER_MANAGED: the deployment is validated and then waits for a
+          # human to release it from the Portal, the same shape as the npm
+          # lane below. Switch to AUTOMATIC to publish without that step.
+          ID=$(curl -sS --fail-with-body -X POST \
+            -H "Authorization: Bearer $AUTH" \
+            -F "bundle=@../central-bundle.zip" \
+            "https://central.sonatype.com/api/v1/publisher/upload?name=engine-compose-$VERSION&publishingType=USER_MANAGED")
+          echo "deployment: $ID"
+          # Validation is asynchronous, and a bundle that fails it is worth
+          # failing the job for: the release would otherwise look complete.
+          for _ in $(seq 1 60); do
+            STATE=$(curl -sS --fail-with-body -X POST \
+              -H "Authorization: Bearer $AUTH" \
+              "https://central.sonatype.com/api/v1/publisher/status?id=$ID" \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["deploymentState"])')
+            echo "state: $STATE"
+            case "$STATE" in
+              VALIDATED|PUBLISHED) exit 0 ;;
+              FAILED) echo "Central rejected the bundle; open the Portal for the reason" >&2; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "Central did not finish validating in ten minutes; check the Portal" >&2
+          exit 1
+
       - name: Publish to GitHub Packages
         working-directory: engine/compose
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: ./gradlew -PmilanoVersion="$VERSION" publish
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        run: ./gradlew -PmilanoVersion="$VERSION" publishAllPublicationsToGitHubPackagesRepository
 
   npm:
     # Same position as the maven job: the tag and the GitHub release already

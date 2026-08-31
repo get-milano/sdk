@@ -62,6 +62,21 @@ class Parser {
     }
   }
 
+  /** The parenthesized argument list of a call, the `(` still unconsumed. */
+  private arguments(): Expr[] {
+    this.take();
+    const args: Expr[] = [];
+    if (this.atPunct(")") === null) {
+      for (;;) {
+        args.push(this.expression());
+        if (this.atPunct(",") === null) break;
+        this.take();
+      }
+    }
+    this.expectPunct(")");
+    return args;
+  }
+
   private expression(): Expr {
     return this.coalesce();
   }
@@ -169,13 +184,26 @@ class Parser {
 
   private postfix(): Expr {
     let base = this.primary();
-    while (this.atPunct(".") !== null) {
-      this.take();
-      const token = this.take();
-      if (token.kind !== "identifier") throw new ExprError("expected a field name");
-      base = { kind: "member", base, field: token.value };
+    for (;;) {
+      if (this.atPunct(".") !== null) {
+        this.take();
+        const token = this.take();
+        if (token.kind !== "identifier") throw new ExprError("expected a field name");
+        base = { kind: "member", base, field: token.value };
+        continue;
+      }
+      if (this.atPunct("[") !== null) {
+        // A lookup: the key is an expression, so the member is chosen at
+        // evaluation rather than written in the document.
+        this.take();
+        const key = this.expression();
+        if (this.atPunct("]") === null) throw new ExprError("expected ]");
+        this.take();
+        base = { kind: "lookup", base, key };
+        continue;
+      }
+      return base;
     }
-    return base;
   }
 
   private primary(): Expr {
@@ -191,21 +219,19 @@ class Parser {
         if (token.value === "true") return { kind: "boolLiteral", value: true };
         if (token.value === "false") return { kind: "boolLiteral", value: false };
         if (token.value === "null") return { kind: "nullLiteral" };
-        // Function names appear only in call position.
+        // A bare name in call position is a host function the surface
+        // declares; anywhere else it is a root.
         if (this.atPunct("(") !== null) {
-          this.take();
-          const args: Expr[] = [];
-          if (this.atPunct(")") === null) {
-            for (;;) {
-              args.push(this.expression());
-              if (this.atPunct(",") === null) break;
-              this.take();
-            }
-          }
-          this.expectPunct(")");
-          return { kind: "call", name: token.value, args };
+          return { kind: "call", name: token.value, args: this.arguments() };
         }
         return { kind: "root", name: token.value };
+      }
+      case "builtin": {
+        // A built-in is a function: its name is never a value.
+        if (this.atPunct("(") === null) {
+          throw new ExprError(`'${token.value}' is a function and needs arguments`);
+        }
+        return { kind: "call", name: token.value, args: this.arguments() };
       }
       case "punct": {
         if (token.value === "(") {

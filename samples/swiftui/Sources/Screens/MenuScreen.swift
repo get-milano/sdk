@@ -5,7 +5,8 @@ import SwiftUI
 /// so the loading view is visible every time.
 struct MenuScreen: View {
     /// Dev affordance: MILANO_SCREEN=banner|banner-card|banner-strip|form|
-    /// embedded|interstitial opens a demo directly (screenshot automation).
+    /// quick-actions|embedded|interstitial opens a demo directly
+    /// (screenshot automation).
     private let autoScreen = ProcessInfo.processInfo.environment["MILANO_SCREEN"]
     @State private var showInterstitial = false
 
@@ -45,6 +46,10 @@ struct MenuScreen: View {
             ProfileScreen()
         case "catalog":
             CatalogScreen()
+        case "quick-actions":
+            QuickActionsScreen()
+        case "card-detail":
+            CardDetailScreen()
         default:
             if let demo = Demo(screenKey: autoScreen) {
                 DemoScreen(demo: demo)
@@ -77,6 +82,8 @@ struct MenuScreen: View {
             Section("Whole screens") {
                 NavigationLink("Profile") { ProfileScreen() }
                 NavigationLink("Catalog · Tap to open") { CatalogScreen() }
+                NavigationLink("Quick actions · Tap to open") { QuickActionsScreen() }
+                NavigationLink("Card detail · Press to reveal") { CardDetailScreen() }
             }
             Section("Integration") {
                 NavigationLink("Embedded in native UI") { EmbeddedScreen() }

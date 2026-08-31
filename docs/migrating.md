@@ -7,6 +7,29 @@ nav_order: 15
 
 What changes for consumers between major versions of the SDK, by audience. Within a major, releases are additive and nothing here applies; the [changelog](https://github.com/get-milano/sdk/blob/main/CHANGELOG.md) has the full list of changes per release.
 
+## 2.0 to 2.1
+
+SDK 2.1.0 implements contract 2.1 of the specs, a superset of 2.0: every 2.0 document and vocabulary stays valid with the same meaning, and nothing in the engine API is removed or retyped. This is a minor release.
+
+### Producers
+
+- **Nothing to change** for existing documents. A document declaring `"version": "2.0.0"` builds under 2.1 engines exactly as before.
+- **Built-in functions are called with a `$`.** `$str(x)` is now `$str(x)`, and so are the other sixteen: `$int`, `$double`, `$concat`, `$length`, `$isEmpty`, `$contains`, `$startsWith`, `$endsWith`, `$trim`, `$if`, `$abs`, `$min`, `$max`, `$floor`, `$ceil`, `$round`. A document written for 1.x or 2.0 that calls one bare now fails the gate with rule `expression` instead of rendering, and the fix is mechanical. A bare name in call position now means a host function the vocabulary declares; in exchange, a vocabulary may declare a function under any name at all, `round` and `concat` included, and a later contract minor can add built-ins without invalidating one.
+- **To use the additions**, declare `"version": "2.1.0"`: `key` on a `$repeat`, the top-level `on` with `appear` and `disappear`, the top-level `watch`, the `failure` root, `abs`, `min`, `max`, `floor`, `ceil`, `round`, the array actions `$append`, `$remove`, `$update`, and every host function the vocabulary declares. A 2.0 document carrying any of them is a `SchemaViolation` with rule `contract-feature`, naming the feature and `2.1`, on every engine. See [Writing documents](documents) and [Expressions](expressions#host-functions).
+- A vocabulary that declares a `failure` type or a `functions` section needs `"milano": "2.1.0"`; adding either is an additive change (`milano diff` says so, and classifies function changes: removing one or changing its arguments or return is breaking).
+
+### App teams
+
+- **`MilanoAction` gains `dispatch` and `dispatchId`**, and `MilanoUserInteraction` gains `dispatch`; the interaction kinds gain `viewAppeared`, `viewDisappeared`, and `viewReplaced`, the occurrence kinds `completionAfterReplace` and `invalidFunctionResult`. A Swift host switching exhaustively over either `Kind` has cases to add.
+- **`MilanoEngine` takes a function handler** when the vocabulary or a builder declares host functions: one synchronous `MilanoFunctionHandler` answering every declared function by name. A document calling one on an engine without a handler fails at build (`function-handler`). Engines whose vocabularies declare no functions need nothing.
+- **`MilanoView.replace(document)`** swaps a live view's document through the gate, keeping state whose declaration is unchanged; a failed replacement leaves the view untouched. Hosts that rebuilt on every document change can keep the user's state instead.
+- **`rejectedMutation` may expect `index in range`** (an array action's index outside the array), with the index as `found`.
+- **`MilanoActionFailure`** is how a handler fails with a payload; a plain throw still fails, now as a failure with no payload, which is invalid against a non-optional `failure` declaration. Handlers for actions that never declare `failure` need no change.
+- **Lifecycle delivery** is automatic through `MilanoHost`. Hosts that await `build()` and place the view themselves call `view.appear()` and `view.disappear()`; without them, a document's lifecycle bindings never run, and `viewAppeared` is never recorded.
+- **`$repeat` instance references** may now carry a key rendering instead of an index (`card[abc]`); code that parsed references as integers (rare, and never encouraged) sees strings. A rejected mutation or context update can now name `distinct key` as `expected`.
+- **The `children` violation's `found` detail is `children`**; it was the node type on every engine. Tests matching the old detail need the new one.
+- The bindings generator emits a nominal type per failure site and documents both outcomes on the action; regenerate as part of the build, as before.
+
 ## 1.x to 2.0
 
 SDK 2.0.0 implements contract 2.0 of the specs, a superset of 1.0: every 1.x document and vocabulary stays valid with the same meaning. The breaking changes are on the engine API and in the detail strings, not in what documents say.

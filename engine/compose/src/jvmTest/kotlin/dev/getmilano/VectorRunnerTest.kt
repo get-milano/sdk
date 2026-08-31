@@ -1,5 +1,7 @@
 package dev.getmilano
 
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -10,7 +12,8 @@ import kotlin.test.fail
 
 /**
  * Executes every conformance vector: build scenarios and stepped
- * interaction scenarios (events, context updates, completions, teardown).
+ * interaction scenarios (events, context updates, completions, lifecycle
+ * signals, replacements, teardown).
  */
 class VectorRunnerTest {
     private object StubRenderer : MilanoRenderer {
@@ -93,10 +96,12 @@ class VectorRunnerTest {
             MilanoOccurrence.Kind.INVALID_COMPLETION -> "invalidCompletion"
             MilanoOccurrence.Kind.DUPLICATE_COMPLETION -> "duplicateCompletion"
             MilanoOccurrence.Kind.COMPLETION_AFTER_TEARDOWN -> "completionAfterTeardown"
+            MilanoOccurrence.Kind.COMPLETION_AFTER_REPLACE -> "completionAfterReplace"
             MilanoOccurrence.Kind.REJECTED_CONTEXT_UPDATE -> "rejectedContextUpdate"
             MilanoOccurrence.Kind.REJECTED_MUTATION -> "rejectedMutation"
             MilanoOccurrence.Kind.DIVISION_BY_ZERO -> "divisionByZero"
             MilanoOccurrence.Kind.SATURATION -> "saturation"
+            MilanoOccurrence.Kind.INVALID_FUNCTION_RESULT -> "invalidFunctionResult"
         }
 
     /**
@@ -227,6 +232,27 @@ class VectorRunnerTest {
                 }
         }
 
+        val surface = (vector["config"] as? MilanoValue.RecordValue)?.values.orEmpty()
+
+        // The harness's function handler: a table of cases per function,
+        // each answering (or throwing for) one argument tuple; a call the
+        // table has no case for is a vector defect.
+        val functionsConfig = (surface["functions"] as? MilanoValue.RecordValue)?.values
+        val results = (functionsConfig?.get("results") as? MilanoValue.RecordValue)?.values.orEmpty()
+        val tableHandler =
+            MilanoFunctionHandler { call ->
+                val cases = (results[call.name] as? MilanoValue.ArrayValue)?.values.orEmpty()
+                for (entry in cases) {
+                    val fields = (entry as? MilanoValue.RecordValue)?.values ?: continue
+                    val expectedArguments = (fields["arguments"] as? MilanoValue.ArrayValue)?.values.orEmpty()
+                    if (expectedArguments == call.arguments) {
+                        if (fields["throws"] != null) throw IllegalStateException("${call.name} throws")
+                        return@MilanoFunctionHandler fields["returns"] ?: MilanoValue.Null
+                    }
+                }
+                fail("$name: host function ${call.name} called with ${call.arguments}, no case in config.functions.results")
+            }
+
         val collector = OccurrenceCollector()
         val interactions = InteractionCollector()
         val engine =
@@ -237,6 +263,7 @@ class VectorRunnerTest {
                 limits = limits,
                 observer = collector,
                 userInteractionObserver = interactions,
+                functionHandler = if (surface["functionHandler"] == MilanoValue.BoolValue(false)) null else tableHandler,
             )
 
         val documentText =
@@ -266,11 +293,27 @@ class VectorRunnerTest {
                     ?.values
                     ?.get("result")
                     ?.let { MilanoType.fromDescriptor(it) }
-            builder.action(actionName, parameters, result)
+            val failure =
+                (declaration as? MilanoValue.RecordValue)
+                    ?.values
+                    ?.get("failure")
+                    ?.let { MilanoType.fromDescriptor(it) }
+            builder.action(actionName, parameters, result, failure)
+        }
+        // The surface's host function declarations, per the vector's config.
+        (functionsConfig?.get("declare") as? MilanoValue.RecordValue)?.values?.forEach { (functionName, declaration) ->
+            val fields = (declaration as? MilanoValue.RecordValue)?.values.orEmpty()
+            val arguments =
+                (fields["arguments"] as? MilanoValue.ArrayValue)?.values.orEmpty().map { descriptor ->
+                    MilanoType.fromDescriptor(descriptor) ?: fail("$name: invalid argument descriptor for $functionName")
+                }
+            val returns =
+                fields["returns"]?.let { MilanoType.fromDescriptor(it) }
+                    ?: fail("$name: invalid returns descriptor for $functionName")
+            builder.function(functionName, arguments, returns)
         }
         builder.dispatcher(pump)
         // The surface's inputs: present unless the vector's config says not.
-        val surface = (vector["config"] as? MilanoValue.RecordValue)?.values.orEmpty()
         if (surface["actionHandler"] != MilanoValue.BoolValue(false)) {
             builder.actionHandler(NeverCompletingHandler)
         }
@@ -279,9 +322,11 @@ class VectorRunnerTest {
             MilanoContextHandle((vector["context"] as? MilanoValue.RecordValue)?.values ?: emptyMap())
         builder.contextSource(contextHandle)
 
+        // The provider answers the vector's values at build and, for a
+        // replacement, the replace step's values for the keys it is asked for.
+        var suppliedState = (vector["state"] as? MilanoValue.RecordValue)?.values.orEmpty()
         if (surface["stateDataProvider"] != MilanoValue.BoolValue(false)) {
-            val state = (vector["state"] as? MilanoValue.RecordValue)?.values.orEmpty()
-            builder.stateDataProvider { state }
+            builder.stateDataProvider { suppliedState }
         }
 
         val expect = (vector["expect"] as MilanoValue.RecordValue).values
@@ -294,7 +339,8 @@ class VectorRunnerTest {
                 fail("$name: expected error $expectedError, build succeeded")
             }
 
-            // Steps: events, context updates, completions, teardown.
+            // Steps: events, context updates, completions, lifecycle
+            // signals, replacements, teardown.
             (vector["steps"] as? MilanoValue.ArrayValue)?.let { steps ->
                 for (step in steps.values) {
                     val fields = (step as? MilanoValue.RecordValue)?.values ?: continue
@@ -312,6 +358,14 @@ class VectorRunnerTest {
                         view.teardown()
                         pump.pump()
                     }
+                    if ("appear" in fields) {
+                        view.appear()
+                        pump.pump()
+                    }
+                    if ("disappear" in fields) {
+                        view.disappear()
+                        pump.pump()
+                    }
                     (fields["complete"] as? MilanoValue.RecordValue)?.values?.let { completion ->
                         val index = (completion["dispatch"] as MilanoValue.IntValue).value.toInt()
                         val success =
@@ -319,6 +373,41 @@ class VectorRunnerTest {
                         val payload = completion["payload"]
                         pump.dispatch { view.complete(index, success, payload) }
                         pump.pump()
+                    }
+                    (fields["replace"] as? MilanoValue.RecordValue)?.values?.let { replacement ->
+                        val text =
+                            (replacement["documentText"] as? MilanoValue.StringValue)?.value
+                                ?: jsonText(replacement["document"] ?: MilanoValue.Null)
+                        suppliedState = (replacement["state"] as? MilanoValue.RecordValue)?.values.orEmpty()
+                        val expectedReplaceError = (replacement["error"] as? MilanoValue.RecordValue)?.values
+                        // The gate and the provider run up to the queued swap
+                        // before the first suspension; the pump lands it.
+                        val outcome =
+                            runBlocking {
+                                val pending = async(start = CoroutineStart.UNDISPATCHED) { runCatching { view.replace(text) } }
+                                pump.pump()
+                                pending.await()
+                            }
+                        val error = outcome.exceptionOrNull()
+                        when {
+                            error == null -> {
+                                assertTrue(expectedReplaceError == null, "$name: expected the replacement to fail, it succeeded")
+                            }
+
+                            error is MilanoBuildException -> {
+                                if (expectedReplaceError == null) {
+                                    fail("$name: unexpected replacement error ${error.fields()}")
+                                }
+                                assertTrue(
+                                    matches(error.fields(), expectedReplaceError),
+                                    "$name: replacement error mismatch, produced ${error.fields()}, expected $expectedReplaceError",
+                                )
+                            }
+
+                            else -> {
+                                throw error
+                            }
+                        }
                     }
                 }
             }
@@ -338,6 +427,7 @@ class VectorRunnerTest {
                         mapOf(
                             "action" to MilanoValue.StringValue(record.name),
                             "parameters" to MilanoValue.RecordValue(record.parameters),
+                            "dispatch" to MilanoValue.IntValue(record.dispatch.toLong()),
                         )
                     assertTrue(
                         matches(produced, fields),
@@ -359,6 +449,7 @@ class VectorRunnerTest {
                             put("kind", MilanoValue.StringValue(interactionWireName(produced.kind)))
                             produced.node?.let { put("node", MilanoValue.StringValue(it)) }
                             produced.name?.let { put("name", MilanoValue.StringValue(it)) }
+                            produced.dispatch?.let { put("dispatch", MilanoValue.IntValue(it.toLong())) }
                             // An absent value is null, so a vector may pin it as such.
                             put("value", produced.value ?: MilanoValue.Null)
                         }

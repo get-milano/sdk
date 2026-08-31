@@ -18,5 +18,7 @@ fun milanoRegistry(): MilanoRegistry {
     registry.register("Row", RowRenderer)
     registry.register("Card", CardRenderer)
     registry.register("Image", ImageRenderer)
+    registry.register("Icon", IconRenderer)
+    registry.register("IconButton", IconButtonRenderer)
     return registry
 }

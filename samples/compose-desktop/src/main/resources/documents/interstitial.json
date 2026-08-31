@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "context": {
     "userName": "string"
   },
@@ -32,7 +32,7 @@
             "id": "subtitle",
             "properties": {
               "text": {
-                "$expr": "concat('Reserved for you, ', context.userName, ', until midnight.')"
+                "$expr": "$concat('Reserved for you, ', context.userName, ', until midnight.')"
               },
               "role": "subtitle"
             }
@@ -77,6 +77,26 @@
             }
           ]
         }
+      }
+    ]
+  },
+  "vocabulary": {
+    "name": "examples",
+    "min": "1.2.0"
+  },
+  "on": {
+    "appear": [
+      {
+        "action": "track",
+        "event": "appeared",
+        "surface": "interstitial"
+      }
+    ],
+    "disappear": [
+      {
+        "action": "track",
+        "event": "disappeared",
+        "surface": "interstitial"
       }
     ]
   }

@@ -37,8 +37,8 @@ struct IncrementalResolutionTests {
          "context": {"who": "string"},
          "state": {"divisor": "int", "other": "int"},
          "root": {"type": "Column", "id": "root", "children": [
-            {"type": "Text", "id": "ratio", "properties": {"text": {"$expr": "str(100 / state.divisor)"}}},
-            {"type": "Text", "id": "greeting", "properties": {"text": {"$expr": "concat('hi ', context.who)"}}},
+            {"type": "Text", "id": "ratio", "properties": {"text": {"$expr": "$str(100 / state.divisor)"}}},
+            {"type": "Text", "id": "greeting", "properties": {"text": {"$expr": "$concat('hi ', context.who)"}}},
             {"type": "Text", "id": "buttons", "properties": {"text": "x"},
              "on": {"tap": [{"action": "$set", "key": "other", "value": {"$expr": "state.other + 1"}}]}}]}}
         """.utf8)
@@ -59,7 +59,7 @@ struct IncrementalResolutionTests {
     }
 
     @Test func dependenciesAreCollectedThroughEveryConstruct() throws {
-        let expr = try ExprParser.parse("if(state.flag, context.a ?? 'x', str(state.n + -state.m))")
+        let expr = try ExprParser.parse("$if(state.flag, context.a ?? 'x', $str(state.n + -state.m))")
         #expect(expr.dependencies == ["state.flag", "context.a", "state.n", "state.m"])
         #expect(try ExprParser.parse("state.person.name").dependencies == ["state.person"])
         #expect(try ExprParser.parse("1 + 2").dependencies.isEmpty)

@@ -3,8 +3,8 @@ package dev.getmilano
 // Type checking
 
 /**
- * What a scoped scalar root (event, result) means where an expression
- * appears: unavailable, or available with a declared type.
+ * What a scoped scalar root (event, result, failure) means where an
+ * expression appears: unavailable, or available with a declared type.
  */
 internal sealed class EventScope {
     data object Unavailable : EventScope()
@@ -21,7 +21,21 @@ internal class ExprChecker(
     private val resultScope: EventScope = EventScope.Unavailable,
     /** `$repeat` bindings in scope: the element and its index, by name. */
     private val bindings: Map<String, MilanoType> = emptyMap(),
+    private val failureScope: EventScope = EventScope.Unavailable,
+    /** The document's declared major.minor: gates the features it may use. */
+    private val contract: Pair<Int, Int> = 2 to 1,
+    /** The surface's declared host functions, by name. */
+    private val functions: Map<String, MilanoVocabulary.Function> = emptyMap(),
+    /** Every host function a checked expression called, for the gate. */
+    private val used: MutableSet<String>? = null,
 ) {
+    /** A function or root from a later minor than the document declares. */
+    private fun gateFeature(name: String) {
+        if (!MilanoContractFeatures.has(name, contract.first, contract.second)) {
+            throw ExprFeatureException(name)
+        }
+    }
+
     /**
      * Infers the static type. Null means the null literal: typeless until
      * an expected type or an operator gives it one.
@@ -71,10 +85,45 @@ internal class ExprChecker(
                             ?: throw ExprException("result is not available here")
                     }
 
+                    "failure" -> {
+                        gateFeature("failure")
+                        (failureScope as? EventScope.Payload)?.type
+                            ?: throw ExprException("failure is not available here")
+                    }
+
                     else -> {
                         throw ExprException("unknown reference '${expr.name}'")
                     }
                 }
+            }
+
+            is Expr.Lookup -> {
+                // `record[key]` (contract 2.1): the field an enum key
+                // names. The enum's members and the record's fields must
+                // be the same set, which is what makes the lookup total
+                // and its coverage exhaustive, and every field must share
+                // one type, which is the lookup's.
+                gateFeature("[]")
+                val subject = infer(expr.base)
+                val fields = (subject?.kind as? MilanoType.Kind.Record)?.fields
+                if (subject == null || fields == null || subject.optional) {
+                    throw ExprException("a lookup reads a non-optional record")
+                }
+                val key = infer(expr.key)
+                val members = (key?.kind as? MilanoType.Kind.Enum)?.members
+                if (key == null || members == null || key.optional) {
+                    throw ExprException("a lookup's key is a non-optional enum")
+                }
+                if (members != fields.keys) {
+                    throw ExprException(
+                        "a lookup's enum members and the record's fields must match",
+                    )
+                }
+                val first = fields.values.first()
+                if (fields.values.any { it != first }) {
+                    throw ExprException("a lookup's record fields must share one type")
+                }
+                first
             }
 
             is Expr.Member -> {
@@ -162,7 +211,69 @@ internal class ExprChecker(
             return type
         }
 
-        return when (name) {
+        fun isNumeric(kind: MilanoType.Kind) = kind is MilanoType.Kind.Int || kind is MilanoType.Kind.Double
+
+        // A bare name is a host function the surface declares; the
+        // contract's own functions are called through `$` and cannot be
+        // shadowed (expression spec, Host functions).
+        if (!name.startsWith('$')) {
+            val declared = functions[name] ?: throw ExprException("unknown function '$name'")
+            // A host function (expression spec, Host functions): exactly
+            // the declared arity, each argument a declared position, the
+            // call typed as the declared return. Under an earlier contract
+            // the call is the contract-feature violation named after it.
+            if (!MilanoContractFeatures.has("functions", contract.first, contract.second)) {
+                throw ExprFeatureException(name, MilanoContractFeatures.versionOf("functions"))
+            }
+            requireCount(declared.arguments.size)
+            for ((index, argumentType) in declared.arguments.withIndex()) {
+                val inferred = infer(arguments[index], argumentType)
+                if (!accepts(argumentType, inferred)) {
+                    throw ExprException("$name argument $index must be ${MilanoGate.name(argumentType)}")
+                }
+            }
+            used?.add(name)
+            return declared.returns
+        }
+        // Every built-in a later minor introduced is gated here, once.
+        gateFeature(name)
+
+        // A val, so the branches below can test it directly.
+        val builtin = name.substring(1)
+        return when (builtin) {
+            "abs" -> {
+                // The magnitude keeps its numeric type: int to int, double to
+                // double (expression spec, Functions).
+                requireCount(1)
+                val type = nonOptional(0, "number")
+                if (!isNumeric(type.kind)) throw ExprException("abs needs a number")
+                type
+            }
+
+            "min", "max" -> {
+                // Two or more numeric arguments, promoting like the arithmetic
+                // operators: all int stays int, any double makes it double.
+                if (arguments.size < 2) throw ExprException("$name takes 2 or more arguments")
+                var anyDouble = false
+                for (index in arguments.indices) {
+                    val type = nonOptional(index, "number")
+                    if (!isNumeric(type.kind)) throw ExprException("$name needs numbers")
+                    if (type.kind is MilanoType.Kind.Double) anyDouble = true
+                }
+                MilanoType(if (anyDouble) MilanoType.Kind.Double else MilanoType.Kind.Int)
+            }
+
+            "floor", "ceil", "round" -> {
+                // Exactly a double, like int() and double(): the promotion of
+                // an int expression applies to declared positions, never to a
+                // function's argument.
+                requireCount(1)
+                if (nonOptional(0, "double").kind !is MilanoType.Kind.Double) {
+                    throw ExprException("$name needs a double")
+                }
+                MilanoType(MilanoType.Kind.Double)
+            }
+
             "str" -> {
                 requireCount(1)
                 when (nonOptional(0, "scalar").kind) {
@@ -205,7 +316,7 @@ internal class ExprChecker(
                 requireCount(1)
                 when (nonOptional(0, "string or array").kind) {
                     is MilanoType.Kind.Text, is MilanoType.Kind.Enum, is MilanoType.Kind.Array -> {
-                        MilanoType(if (name == "length") MilanoType.Kind.Int else MilanoType.Kind.Bool)
+                        MilanoType(if (builtin == "length") MilanoType.Kind.Int else MilanoType.Kind.Bool)
                     }
 
                     else -> {
@@ -228,6 +339,64 @@ internal class ExprChecker(
                 requireCount(1)
                 if (!isStringLike(nonOptional(0, "string").kind)) {
                     throw ExprException("trim needs a string")
+                }
+                MilanoType(MilanoType.Kind.Text)
+            }
+
+            "substring" -> {
+                requireCount(3)
+                if (!isStringLike(nonOptional(0, "string").kind)) {
+                    throw ExprException("substring needs a string")
+                }
+                for (index in 1..2) {
+                    if (nonOptional(index, "int").kind !is MilanoType.Kind.Int) {
+                        throw ExprException("substring needs int indices")
+                    }
+                }
+                MilanoType(MilanoType.Kind.Text)
+            }
+
+            "indexOf" -> {
+                requireCount(2)
+                if (!isStringLike(nonOptional(0, "string").kind) ||
+                    !isStringLike(nonOptional(1, "string").kind)
+                ) {
+                    throw ExprException("indexOf needs strings")
+                }
+                MilanoType(MilanoType.Kind.Int)
+            }
+
+            "replace" -> {
+                requireCount(3)
+                for (index in 0..2) {
+                    if (!isStringLike(nonOptional(index, "string").kind)) {
+                        throw ExprException("replace needs strings")
+                    }
+                }
+                MilanoType(MilanoType.Kind.Text)
+            }
+
+            "split" -> {
+                requireCount(2)
+                if (!isStringLike(nonOptional(0, "string").kind) ||
+                    !isStringLike(nonOptional(1, "string").kind)
+                ) {
+                    throw ExprException("split needs strings")
+                }
+                MilanoType(MilanoType.Kind.Array(MilanoType(MilanoType.Kind.Text)))
+            }
+
+            "join" -> {
+                requireCount(2)
+                // The element type is what matters: an array of enum joins
+                // by member string, since an enum widens to string.
+                val subject = nonOptional(0, "array of string").kind
+                val element = (subject as? MilanoType.Kind.Array)?.element
+                if (element == null || element.optional || !isStringLike(element.kind)) {
+                    throw ExprException("join needs an array of string")
+                }
+                if (!isStringLike(nonOptional(1, "string").kind)) {
+                    throw ExprException("join needs a string separator")
                 }
                 MilanoType(MilanoType.Kind.Text)
             }
@@ -263,7 +432,7 @@ internal class ExprChecker(
             }
 
             else -> {
-                throw ExprException("unknown function '$name'")
+                throw ExprException("unknown built-in function '$name'")
             }
         }
     }

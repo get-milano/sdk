@@ -16,11 +16,18 @@ data class MilanoUserInteraction(
     val name: String? = null,
     /**
      * The interaction's data: the emission payload for [Kind.EVENT], the
-     * captured parameters for [Kind.ACTION_DISPATCHED], the document
-     * metadata for [Kind.VIEW_BUILT], and whatever the renderer supplies
-     * for widget kinds.
+     * captured parameters for [Kind.ACTION_DISPATCHED], the validated
+     * result or failure payload for a completion, the document metadata
+     * for [Kind.VIEW_BUILT] and [Kind.VIEW_REPLACED], and whatever the
+     * renderer supplies for widget kinds.
      */
     val value: MilanoValue? = null,
+    /**
+     * The dispatch number, when the record is about a custom action
+     * dispatch ([Kind.ACTION_DISPATCHED], [Kind.COMPLETION_SUCCEEDED],
+     * [Kind.COMPLETION_FAILED]): the same number the action carried.
+     */
+    val dispatch: Int? = null,
 ) {
     /**
      * The closed union of both sources: runtime-captured records
@@ -30,6 +37,9 @@ data class MilanoUserInteraction(
     enum class Kind {
         // Runtime-captured: nothing required from renderers or documents.
         VIEW_BUILT,
+        VIEW_REPLACED,
+        VIEW_APPEARED,
+        VIEW_DISAPPEARED,
         VIEW_TORN_DOWN,
         EVENT,
         ACTION_DISPATCHED,

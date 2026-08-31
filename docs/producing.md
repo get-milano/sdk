@@ -42,6 +42,18 @@ npx milano validate documents/checkout.json --vocabulary vocabulary.json --conte
 
 `--json` gives tooling the report, and `validate()` from the same package does the same from a build script.
 
+**Host functions validate, but do not compute.** If the vocabulary declares
+a `functions` section, documents call those functions by their bare name
+(`formatMoney(state.cents, 'EUR')`), and the contract's own functions carry
+a `$` (`$round`), so the two never collide. `milano validate` checks a call
+the way the gate does, by its declared arity and types, and then answers it
+with the zero value of its return type, because the app that computes it is
+not here: an empty string, `0`, the first member of an enum. So a text
+built from `formatMoney` validates while rendering as an empty amount. That
+is the tool working correctly; to see real values, put the document in the
+[playground](https://get-milano.dev/playground/), which answers a small
+library of functions, or in the app.
+
 ## Change the vocabulary
 
 The vocabulary is an API: every document and every registered renderer depends on it. Its `version` follows semantic versioning, and the rules are mechanical enough that a tool decides them:
@@ -58,7 +70,7 @@ BREAKING  Card property title type changed: "string" -> "string?"
 error: 1 breaking change(s) require a MAJOR bump; got 1.2.0 -> 1.3.0
 ```
 
-Adding a component, property, event, action, parameter, result, or enum member is additive and needs a minor bump. Removing or retyping anything (optionality included, in both directions), marking a component `strict`, or revoking `children` is breaking and needs a major bump. The exit status is `1` when the bump does not match, so the command belongs in CI (recipe below).
+Adding a component, property, event, action, parameter, result, failure, function, or enum member is additive and needs a minor bump. Removing or retyping anything (optionality included, in both directions), marking a component `strict`, or revoking `children` is breaking and needs a major bump. The exit status is `1` when the bump does not match, so the command belongs in CI (recipe below).
 
 Two habits keep vocabularies healthy. Prefer additions: a new optional property or a new enum member costs nothing to old documents, while a removal breaks every document that used it. And publish documents for the oldest vocabulary you still support, raising each document's `"vocabulary": {"min": ...}` only when it actually uses newer declarations, so an app that has not updated fails the build with a typed error instead of rendering with the wrong semantics.
 

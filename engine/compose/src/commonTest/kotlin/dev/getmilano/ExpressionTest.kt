@@ -20,7 +20,7 @@ class ExpressionTest {
     ): MilanoValue {
         val expr = ExprParser.parse(source)
         val evaluator =
-            ExprEvaluator(state, context, event = event) { kind ->
+            ExprEvaluator(state, context, event = event) { kind, _ ->
                 reports?.add(kind)
             }
         return evaluator.evaluate(expr)
@@ -81,9 +81,9 @@ class ExpressionTest {
         val reports = ArrayList<MilanoOccurrence.Kind>()
         assertEquals(
             MilanoValue.IntValue(Long.MAX_VALUE),
-            evaluate("int(1000000000000000000000.0)", reports = reports),
+            evaluate("${'$'}int(1000000000000000000000.0)", reports = reports),
         )
-        assertEquals(MilanoValue.IntValue(3), evaluate("int(3.9)", reports = reports))
+        assertEquals(MilanoValue.IntValue(3), evaluate("${'$'}int(3.9)", reports = reports))
         assertEquals(listOf(MilanoOccurrence.Kind.SATURATION), reports)
     }
 
@@ -105,28 +105,28 @@ class ExpressionTest {
 
     @Test
     fun stringFunctions() {
-        assertEquals(MilanoValue.StringValue("abc"), evaluate("concat('a', 'b', 'c')"))
+        assertEquals(MilanoValue.StringValue("abc"), evaluate("${'$'}concat('a', 'b', 'c')"))
         assertEquals(MilanoValue.StringValue("ab"), evaluate("'a' + 'b'"))
-        assertEquals(MilanoValue.IntValue(5), evaluate("length('héllo')")) // unicode scalars
-        assertEquals(MilanoValue.BoolValue(true), evaluate("isEmpty('')"))
-        assertEquals(MilanoValue.BoolValue(true), evaluate("contains('milano', 'lan')"))
-        assertEquals(MilanoValue.BoolValue(true), evaluate("startsWith('milano', 'mi')"))
-        assertEquals(MilanoValue.BoolValue(true), evaluate("endsWith('milano', 'no')"))
+        assertEquals(MilanoValue.IntValue(5), evaluate("${'$'}length('héllo')")) // unicode scalars
+        assertEquals(MilanoValue.BoolValue(true), evaluate("${'$'}isEmpty('')"))
+        assertEquals(MilanoValue.BoolValue(true), evaluate("${'$'}contains('milano', 'lan')"))
+        assertEquals(MilanoValue.BoolValue(true), evaluate("${'$'}startsWith('milano', 'mi')"))
+        assertEquals(MilanoValue.BoolValue(true), evaluate("${'$'}endsWith('milano', 'no')"))
         // trim removes the Unicode White_Space set, including NBSP.
-        assertEquals(MilanoValue.StringValue("x"), evaluate("trim('  x  ')"))
-        assertEquals(MilanoValue.StringValue("a"), evaluate("if(true, 'a', 'b')"))
+        assertEquals(MilanoValue.StringValue("x"), evaluate("${'$'}trim('  x  ')"))
+        assertEquals(MilanoValue.StringValue("a"), evaluate("${'$'}if(true, 'a', 'b')"))
     }
 
     @Test
     fun strFormatting() {
-        assertEquals(MilanoValue.StringValue("42"), evaluate("str(42)"))
-        assertEquals(MilanoValue.StringValue("true"), evaluate("str(true)"))
-        assertEquals(MilanoValue.StringValue("5.0"), evaluate("str(5.0)"))
-        assertEquals(MilanoValue.StringValue("0.25"), evaluate("str(0.25)"))
-        assertEquals(MilanoValue.StringValue("inf"), evaluate("str(1.0 / 0.0)"))
-        assertEquals(MilanoValue.StringValue("nan"), evaluate("str(0.0 / 0.0)"))
-        assertEquals(MilanoValue.StringValue("1e19"), evaluate("str(10000000000000000000.0)"))
-        assertEquals(MilanoValue.StringValue("1.5e-6"), evaluate("str(0.0000015)"))
+        assertEquals(MilanoValue.StringValue("42"), evaluate("${'$'}str(42)"))
+        assertEquals(MilanoValue.StringValue("true"), evaluate("${'$'}str(true)"))
+        assertEquals(MilanoValue.StringValue("5.0"), evaluate("${'$'}str(5.0)"))
+        assertEquals(MilanoValue.StringValue("0.25"), evaluate("${'$'}str(0.25)"))
+        assertEquals(MilanoValue.StringValue("inf"), evaluate("${'$'}str(1.0 / 0.0)"))
+        assertEquals(MilanoValue.StringValue("nan"), evaluate("${'$'}str(0.0 / 0.0)"))
+        assertEquals(MilanoValue.StringValue("1e19"), evaluate("${'$'}str(10000000000000000000.0)"))
+        assertEquals(MilanoValue.StringValue("1.5e-6"), evaluate("${'$'}str(0.0000015)"))
     }
 
     @Test
@@ -145,7 +145,7 @@ class ExpressionTest {
         assertFailsWith<ExprException> {
             inferredType("context.user.name", context = mapOf("user" to user))
         }
-        assertFailsWith<ExprException> { inferredType("if(true, 1, 'x')") }
+        assertFailsWith<ExprException> { inferredType("${'$'}if(true, 1, 'x')") }
     }
 
     @Test
@@ -197,13 +197,13 @@ class ExpressionTest {
     @Test
     fun ifEvaluatesOnlyTheTakenBranch() {
         val reports = ArrayList<MilanoOccurrence.Kind>()
-        assertEquals(MilanoValue.IntValue(1), evaluate("if(true, 1, 1 / 0)", reports = reports))
+        assertEquals(MilanoValue.IntValue(1), evaluate("${'$'}if(true, 1, 1 / 0)", reports = reports))
         assertEquals(emptyList(), reports)
         // The guard idiom: the untaken division never runs.
-        assertEquals(MilanoValue.IntValue(2), evaluate("if(false, 1 / 0, 2)", reports = reports))
+        assertEquals(MilanoValue.IntValue(2), evaluate("${'$'}if(false, 1 / 0, 2)", reports = reports))
         assertEquals(emptyList(), reports)
         // The taken branch does evaluate, reports included.
-        assertEquals(MilanoValue.IntValue(0), evaluate("if(true, 1 / 0, 2)", reports = reports))
+        assertEquals(MilanoValue.IntValue(0), evaluate("${'$'}if(true, 1 / 0, 2)", reports = reports))
         assertEquals(listOf(MilanoOccurrence.Kind.DIVISION_BY_ZERO), reports)
     }
 
@@ -237,13 +237,13 @@ class ExpressionTest {
     @Test
     fun conversionEdges() {
         val reports = ArrayList<MilanoOccurrence.Kind>()
-        assertEquals(MilanoValue.IntValue(-3), evaluate("int(-3.9)")) // truncation toward zero
-        assertEquals(MilanoValue.DoubleValue(3.0), evaluate("double(3)"))
+        assertEquals(MilanoValue.IntValue(-3), evaluate("${'$'}int(-3.9)")) // truncation toward zero
+        assertEquals(MilanoValue.DoubleValue(3.0), evaluate("${'$'}double(3)"))
         assertEquals(
             MilanoValue.IntValue(Long.MIN_VALUE),
-            evaluate("int(-1000000000000000000000.0)", reports = reports),
+            evaluate("${'$'}int(-1000000000000000000000.0)", reports = reports),
         )
-        assertEquals(MilanoValue.IntValue(0), evaluate("int(0.0 / 0.0)", reports = reports))
+        assertEquals(MilanoValue.IntValue(0), evaluate("${'$'}int(0.0 / 0.0)", reports = reports))
         assertEquals(
             listOf(MilanoOccurrence.Kind.SATURATION, MilanoOccurrence.Kind.SATURATION),
             reports,
@@ -271,21 +271,21 @@ class ExpressionTest {
 
     @Test
     fun strBoundaries() {
-        assertEquals(MilanoValue.StringValue("-42"), evaluate("str(-42)"))
+        assertEquals(MilanoValue.StringValue("-42"), evaluate("${'$'}str(-42)"))
         assertEquals(
             MilanoValue.StringValue("-9223372036854775808"),
-            evaluate("str(0 - 9223372036854775807 - 1)"),
+            evaluate("${'$'}str(0 - 9223372036854775807 - 1)"),
         )
         assertEquals(
             MilanoValue.StringValue("9223372036854775807"),
-            evaluate("str(9223372036854775807)"),
+            evaluate("${'$'}str(9223372036854775807)"),
         )
         // Normalized exponent 15 stays plain; 16 flips to scientific.
-        assertEquals(MilanoValue.StringValue("1000000000000000.0"), evaluate("str(1000000000000000.0)"))
-        assertEquals(MilanoValue.StringValue("0.0001"), evaluate("str(0.0001)"))
-        assertEquals(MilanoValue.StringValue("1e-5"), evaluate("str(0.00001)"))
-        assertEquals(MilanoValue.StringValue("-inf"), evaluate("str((0.0 - 1.0) / 0.0)"))
-        assertEquals(MilanoValue.StringValue("-2.5"), evaluate("str(-2.5)"))
+        assertEquals(MilanoValue.StringValue("1000000000000000.0"), evaluate("${'$'}str(1000000000000000.0)"))
+        assertEquals(MilanoValue.StringValue("0.0001"), evaluate("${'$'}str(0.0001)"))
+        assertEquals(MilanoValue.StringValue("1e-5"), evaluate("${'$'}str(0.00001)"))
+        assertEquals(MilanoValue.StringValue("-inf"), evaluate("${'$'}str((0.0 - 1.0) / 0.0)"))
+        assertEquals(MilanoValue.StringValue("-2.5"), evaluate("${'$'}str(-2.5)"))
     }
 
     @Test
@@ -328,12 +328,12 @@ class ExpressionTest {
         assertFailsWith<ExprException> { inferredType("1 && true") }
         assertFailsWith<ExprException> { inferredType("true < false") }
         assertFailsWith<ExprException> { inferredType("'a' * 2") }
-        assertFailsWith<ExprException> { inferredType("if(1, 2, 3)") }
-        assertFailsWith<ExprException> { inferredType("length(1)") }
-        assertFailsWith<ExprException> { inferredType("concat('a')") }
-        assertFailsWith<ExprException> { inferredType("contains('a', 1)") }
+        assertFailsWith<ExprException> { inferredType("${'$'}if(1, 2, 3)") }
+        assertFailsWith<ExprException> { inferredType("${'$'}length(1)") }
+        assertFailsWith<ExprException> { inferredType("${'$'}concat('a')") }
+        assertFailsWith<ExprException> { inferredType("${'$'}contains('a', 1)") }
         assertFailsWith<ExprException> { inferredType("nope(1)") }
-        assertFailsWith<ExprException> { inferredType("str(1, 2)") }
+        assertFailsWith<ExprException> { inferredType("${'$'}str(1, 2)") }
         // Records are not comparable in v1.
         val rec = MilanoType(MilanoType.Kind.Record(mapOf("x" to MilanoType(MilanoType.Kind.Int))))
         assertFailsWith<ExprException> {
@@ -345,10 +345,61 @@ class ExpressionTest {
     fun typingAcceptsMore() {
         assertEquals(MilanoType(MilanoType.Kind.Double), inferredType("-2.5"))
         assertEquals(MilanoType(MilanoType.Kind.Int), inferredType("7 % 2"))
-        assertEquals(MilanoType(MilanoType.Kind.Text), inferredType("trim(str(1.5))"))
-        assertEquals(MilanoType(MilanoType.Kind.Text), inferredType("concat('a', str(1), str(true))"))
-        assertEquals(MilanoType(MilanoType.Kind.Double), inferredType("if(1 < 2, 1.0, double(3))"))
+        assertEquals(MilanoType(MilanoType.Kind.Text), inferredType("${'$'}trim(${'$'}str(1.5))"))
+        assertEquals(MilanoType(MilanoType.Kind.Text), inferredType("${'$'}concat('a', ${'$'}str(1), ${'$'}str(true))"))
+        assertEquals(MilanoType(MilanoType.Kind.Double), inferredType("${'$'}if(1 < 2, 1.0, ${'$'}double(3))"))
         assertEquals(MilanoType(MilanoType.Kind.Bool), inferredType("1 == 1.0"))
+    }
+
+    /**
+     * The two function namespaces (expression spec, Host functions →
+     * Resolution): a `$` name is a built-in of the contract, a bare name a
+     * host function the surface declares, and neither falls back to the
+     * other.
+     */
+    @Test
+    fun functionNamespacesStayApart() {
+        val functions =
+            mapOf(
+                "round" to
+                    MilanoVocabulary.Function(
+                        listOf(MilanoType(MilanoType.Kind.Double), MilanoType(MilanoType.Kind.Int)),
+                        MilanoType(MilanoType.Kind.Text),
+                    ),
+            )
+
+        fun checker() =
+            ExprChecker(
+                emptyMap(),
+                emptyMap(),
+                EventScope.Unavailable,
+                functions = functions,
+                used = LinkedHashSet(),
+            )
+
+        // A host function and the built-in it is named after resolve
+        // independently, with their own arities and their own types.
+        assertEquals(
+            MilanoType(MilanoType.Kind.Text),
+            checker().infer(ExprParser.parse("round(1.5, 2)")),
+        )
+        assertEquals(
+            MilanoType(MilanoType.Kind.Double),
+            checker().infer(ExprParser.parse("${'$'}round(1.5)")),
+        )
+
+        // A built-in called bare, with nothing declared under that name.
+        assertFailsWith<ExprException> { inferredType("trim('  x  ')") }
+        // A `$` name the contract does not define.
+        assertFailsWith<ExprException> { inferredType("${'$'}nosuch('x')") }
+    }
+
+    @Test
+    fun builtinNamesAreOnlyValidInCallPosition() {
+        assertFailsWith<ExprException> { ExprParser.parse("${'$'}trim") }
+        assertFailsWith<ExprException> { ExprParser.parse("${'$'}trim + 'x'") }
+        assertFailsWith<ExprException> { ExprParser.parse("${'$'}") }
+        assertFailsWith<ExprException> { ExprParser.parse("${'$'}1(2)") }
     }
 
     @Test
@@ -363,13 +414,13 @@ class ExpressionTest {
         )
         assertEquals(
             MilanoType(MilanoType.Kind.Text, optional = true),
-            inferredType("if(true, 'a', null)"),
+            inferredType("${'$'}if(true, 'a', null)"),
         )
         // Branches agree on optionality: a T? branch beside a T branch is
         // rejected; the optional is resolved with ?? first.
         assertFailsWith<ExprException> {
             inferredType(
-                "if(true, state.maybe, 'x')",
+                "${'$'}if(true, state.maybe, 'x')",
                 state = mapOf("maybe" to MilanoType(MilanoType.Kind.Text, optional = true)),
             )
         }

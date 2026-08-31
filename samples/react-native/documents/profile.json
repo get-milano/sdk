@@ -53,7 +53,7 @@
                 "type": "Text",
                 "properties": {
                   "text": {
-                    "$expr": "concat('Member since ', context.memberSince)"
+                    "$expr": "$concat('Member since ', context.memberSince)"
                   },
                   "role": "subtitle"
                 }
@@ -117,7 +117,7 @@
         "id": "summary",
         "properties": {
           "text": {
-            "$expr": "if(state.emailNotifications || state.pushNotifications, 'You will hear from us.', 'All quiet: no notifications.')"
+            "$expr": "$if(state.emailNotifications || state.pushNotifications, 'You will hear from us.', 'All quiet: no notifications.')"
           },
           "liveRegion": "polite"
         }

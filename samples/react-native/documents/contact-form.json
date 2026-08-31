@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "context": {
     "marketingConsentRequired": "bool"
   },
@@ -11,7 +11,9 @@
     "consent": "bool",
     "submitted": "bool",
     "submitAttempted": "bool",
-    "confirmation": "string?"
+    "confirmation": "string?",
+    "submitting": "bool",
+    "error": "string?"
   },
   "root": {
     "type": "Column",
@@ -27,7 +29,7 @@
           },
           "required": true,
           "error": {
-            "$expr": "if(state.submitAttempted && isEmpty(trim(state.name)), 'This field is required.', null)"
+            "$expr": "$if(state.submitAttempted && $isEmpty($trim(state.name)), 'This field is required.', null)"
           }
         },
         "on": {
@@ -52,7 +54,7 @@
           },
           "required": true,
           "error": {
-            "$expr": "if(state.submitAttempted && isEmpty(trim(state.surname)), 'This field is required.', null)"
+            "$expr": "$if(state.submitAttempted && $isEmpty($trim(state.surname)), 'This field is required.', null)"
           }
         },
         "on": {
@@ -77,7 +79,7 @@
           },
           "required": true,
           "error": {
-            "$expr": "if(state.submitAttempted && !contains(state.email, '@'), 'Enter a valid email address.', null)"
+            "$expr": "$if(state.submitAttempted && !$contains(state.email, '@'), 'Enter a valid email address.', null)"
           }
         },
         "on": {
@@ -142,9 +144,11 @@
         "type": "Button",
         "id": "submit",
         "properties": {
-          "label": "Send",
+          "label": {
+            "$expr": "$if(state.submitting, 'Sending...', 'Send')"
+          },
           "enabled": {
-            "$expr": "!state.submitted"
+            "$expr": "!state.submitted && !state.submitting"
           }
         },
         "on": {
@@ -157,19 +161,29 @@
             {
               "action": "$when",
               "condition": {
-                "$expr": "!isEmpty(trim(state.name)) && !isEmpty(trim(state.surname)) && contains(state.email, '@') && (!context.marketingConsentRequired || state.consent) && !state.submitted"
+                "$expr": "!$isEmpty($trim(state.name)) && !$isEmpty($trim(state.surname)) && $contains(state.email, '@') && (!context.marketingConsentRequired || state.consent) && !state.submitted"
               },
               "then": [
                 {
+                  "action": "$set",
+                  "key": "submitting",
+                  "value": true
+                },
+                {
+                  "action": "$set",
+                  "key": "error",
+                  "value": null
+                },
+                {
                   "action": "submitContact",
                   "name": {
-                    "$expr": "trim(state.name)"
+                    "$expr": "$trim(state.name)"
                   },
                   "surname": {
-                    "$expr": "trim(state.surname)"
+                    "$expr": "$trim(state.surname)"
                   },
                   "email": {
-                    "$expr": "trim(state.email)"
+                    "$expr": "$trim(state.email)"
                   },
                   "phone": {
                     "$expr": "state.phone"
@@ -186,6 +200,25 @@
                       "action": "$set",
                       "key": "submitted",
                       "value": true
+                    },
+                    {
+                      "action": "$set",
+                      "key": "submitting",
+                      "value": false
+                    }
+                  ],
+                  "onFailure": [
+                    {
+                      "action": "$set",
+                      "key": "submitting",
+                      "value": false
+                    },
+                    {
+                      "action": "$set",
+                      "key": "error",
+                      "value": {
+                        "$expr": "$if(failure == 'invalidEmail', 'That email address was not accepted. Check it and try again.', 'We could not reach the server. Try again in a moment.')"
+                      }
                     }
                   ]
                 }
@@ -199,11 +232,28 @@
         "id": "thanks",
         "properties": {
           "text": {
-            "$expr": "if(state.submitted, concat('Thanks! We will be in touch. Your confirmation number is ', state.confirmation ?? '?', '.'), '')"
+            "$expr": "$if(state.submitted, $concat('Thanks! We will be in touch. Your confirmation number is ', state.confirmation ?? '?', '.'), '')"
           },
           "liveRegion": "polite"
         }
+      },
+      {
+        "type": "Text",
+        "id": "problem",
+        "properties": {
+          "text": {
+            "$expr": "state.error ?? ''"
+          },
+          "visible": {
+            "$expr": "state.error != null"
+          },
+          "liveRegion": "assertive"
+        }
       }
     ]
+  },
+  "vocabulary": {
+    "name": "examples",
+    "min": "1.4.0"
   }
 }

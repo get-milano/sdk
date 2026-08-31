@@ -98,23 +98,24 @@ function diffDeclarations(kind: string, owner: string, old: JsonObject, next: Js
 }
 
 /**
- * The completion result is a declared type like any other (vocabulary
- * schema spec, Completion results): adding one is additive, since no
- * document could bind `result` before; removing or retyping it breaks
- * every document that reads `result` in that action's onSuccess; an enum
- * result may gain members.
+ * A completion outcome's declared type, `result` or `failure`, is a
+ * declared type like any other (vocabulary schema spec, Completion
+ * results and Failure payloads): adding one is additive, since no
+ * document could bind its root before; removing or retyping it breaks
+ * every document that reads the root in that action's follow-ups; an
+ * enum outcome may gain members.
  */
-function diffResult(name: string, old: JsonObject, next: JsonObject, changes: Change[]): void {
-  const before = old["result"] ?? null;
-  const after = next["result"] ?? null;
+function diffOutcome(outcome: "result" | "failure", name: string, old: JsonObject, next: JsonObject, changes: Change[]): void {
+  const before = old[outcome] ?? null;
+  const after = next[outcome] ?? null;
   if (before === null && after === null) return;
   if (before === null) {
-    changes.push(["ADDITIVE", `action ${name} result added`]);
+    changes.push(["ADDITIVE", `action ${name} ${outcome} added`]);
   } else if (after === null) {
-    changes.push(["BREAKING", `action ${name} result removed`]);
+    changes.push(["BREAKING", `action ${name} ${outcome} removed`]);
   } else {
     const change = typeChange(before, after);
-    if (change !== null) describeChange(`action ${name} result`, before, after, change, changes);
+    if (change !== null) describeChange(`action ${name} ${outcome}`, before, after, change, changes);
   }
 }
 
@@ -163,11 +164,50 @@ export function diff(old: JsonObject, next: JsonObject): Change[] {
         declarations(after, "parameters"),
         changes,
       );
-      diffResult(name, action, after, changes);
+      diffOutcome("result", name, action, after, changes);
+      diffOutcome("failure", name, action, after, changes);
     }
   }
   for (const name of Object.keys(newActions)) {
     if (!(name in oldActions)) changes.push(["ADDITIVE", `action ${name} added`]);
+  }
+
+  // Host functions (vocabulary schema spec, Function declarations):
+  // adding one is additive, since no document could call it before;
+  // removing one, or changing its arity, an argument type, or its return
+  // type, breaks every document that calls it. An enum gaining members is
+  // the one additive type change, in either position.
+  const oldFunctions = declarations(old, "functions") as Record<string, JsonObject>;
+  const newFunctions = declarations(next, "functions") as Record<string, JsonObject>;
+  for (const [name, declared] of Object.entries(oldFunctions)) {
+    const after = newFunctions[name];
+    if (after === undefined) {
+      changes.push(["BREAKING", `function ${name} removed`]);
+      continue;
+    }
+    const beforeArguments = (declared["arguments"] ?? []) as unknown[];
+    const afterArguments = (after["arguments"] ?? []) as unknown[];
+    if (beforeArguments.length !== afterArguments.length) {
+      changes.push([
+        "BREAKING",
+        `function ${name} arity changed: ${beforeArguments.length} -> ${afterArguments.length}`,
+      ]);
+    } else {
+      beforeArguments.forEach((oldArgument, index) => {
+        const newArgument = afterArguments[index];
+        const change = typeChange(oldArgument, newArgument);
+        if (change !== null) {
+          describeChange(`function ${name} argument ${index}`, oldArgument, newArgument, change, changes);
+        }
+      });
+    }
+    const change = typeChange(declared["returns"], after["returns"]);
+    if (change !== null) {
+      describeChange(`function ${name} returns`, declared["returns"], after["returns"], change, changes);
+    }
+  }
+  for (const name of Object.keys(newFunctions)) {
+    if (!(name in oldFunctions)) changes.push(["ADDITIVE", `function ${name} added`]);
   }
 
   return changes;

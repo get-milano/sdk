@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { MilanoValue } from "../src/core/value.ts";
+import { MilanoBuildError } from "../src/document/errors.ts";
 import { MilanoEngine, MilanoRegistry } from "../src/engine/engine.ts";
+import { MilanoActionFailure } from "../src/runtime/handlers.ts";
 import type { MilanoOccurrence } from "../src/engine/observer.ts";
 import type { MilanoUserInteraction } from "../src/engine/interaction.ts";
 import { quickBuilder, synthesizedState } from "../src/runtime/quick-start.ts";
 import { MilanoType } from "../src/core/type.ts";
+import { zeroValueOf } from "../src/expression/evaluator.ts";
 import type { MilanoView } from "../src/runtime/view.ts";
 
 /**
@@ -162,6 +165,177 @@ describe("typed completion results", () => {
   });
 });
 
+const FAILURE_VOCABULARY = JSON.stringify({
+  milano: "2.1.0",
+  name: "failures",
+  version: "1.0.0",
+  components: {
+    Field: { properties: { value: "string" }, events: { tap: null } },
+  },
+  actions: {
+    submit: { failure: { enum: ["limit", "offline"] } },
+    lenient: { failure: "string?" },
+    plain: {},
+  },
+});
+
+function failureDocument(action: string): string {
+  return JSON.stringify({
+    version: "2.1.0",
+    state: { outcome: "string" },
+    root: {
+      type: "Field",
+      id: "f",
+      properties: { value: { $expr: "state.outcome" } },
+      on: {
+        tap: [
+          {
+            action,
+            onSuccess: [{ action: "$set", key: "outcome", value: "ok" }],
+            onFailure: [
+              {
+                action: "$set",
+                key: "outcome",
+                value:
+                  action === "plain"
+                    ? "failed"
+                    : action === "lenient"
+                      ? { $expr: "$concat('failed: ', failure ?? 'unknown')" }
+                      : { $expr: "$concat('failed: ', failure)" },
+              },
+            ],
+          },
+        ],
+      },
+    },
+    on: { appear: [{ action: "$set", key: "outcome", value: "appeared" }] },
+  });
+}
+
+async function failureHarness(
+  action: string,
+  handler: () => Promise<MilanoValue | null>,
+): Promise<Harness> {
+  const registry = new MilanoRegistry<string>();
+  registry.register("Field", "field");
+  const occurrences: MilanoOccurrence[] = [];
+  const interactions: MilanoUserInteraction[] = [];
+  const dispatched: string[] = [];
+  const engine = new MilanoEngine<string>({
+    vocabularyJson: FAILURE_VOCABULARY,
+    registry,
+    observer: { occurrence: (occurrence) => occurrences.push(occurrence) },
+    userInteractionObserver: { interaction: (interaction) => interactions.push(interaction) },
+  });
+  const view = await engine
+    .viewBuilder(failureDocument(action))
+    .label("failures")
+    .stateData((declarations) => synthesizedState(declarations))
+    .actionHandler((dispatchedAction) => {
+      dispatched.push(dispatchedAction.dispatchId);
+      return handler();
+    })
+    .build();
+  return { view, occurrences, interactions, dispatched };
+}
+
+describe("typed failure payloads", () => {
+  it("binds a MilanoActionFailure's value to the failure root inside onFailure", async () => {
+    const { view, interactions } = await failureHarness("submit", () =>
+      Promise.reject(new MilanoActionFailure(MilanoValue.string("limit"))),
+    );
+    view.emit("f", "tap");
+    await settled();
+    assert.equal(view.state["outcome"]?.stringValue, "failed: limit");
+    const completion = interactions.find((record) => record.kind === "completionFailed");
+    assert.equal(completion?.value?.stringValue, "limit");
+    assert.equal(completion?.dispatch, 0);
+    view.teardown();
+  });
+
+  it("treats a plain error as a failure with no payload: invalid against a non-optional declaration", async () => {
+    const { view, occurrences } = await failureHarness("submit", () =>
+      Promise.reject(new Error("network")),
+    );
+    view.emit("f", "tap");
+    await settled();
+    assert.equal(view.state["outcome"]?.stringValue, "");
+    assert.deepEqual(
+      occurrences.map((occurrence) => [occurrence.kind, occurrence.expected, occurrence.found]),
+      [["invalidCompletion", "enum", "null"]],
+    );
+    view.teardown();
+  });
+
+  it("lets a plain error run onFailure when the declaration is optional", async () => {
+    const { view } = await failureHarness("lenient", () => Promise.reject(new Error("network")));
+    view.emit("f", "tap");
+    await settled();
+    assert.equal(view.state["outcome"]?.stringValue, "failed: unknown");
+    view.teardown();
+  });
+
+  it("refuses a payload outside the declared enum", async () => {
+    const { view, occurrences } = await failureHarness("submit", () =>
+      Promise.reject(new MilanoActionFailure(MilanoValue.string("teapot"))),
+    );
+    view.emit("f", "tap");
+    await settled();
+    assert.equal(view.state["outcome"]?.stringValue, "");
+    assert.equal(occurrences[0]?.kind, "invalidCompletion");
+    view.teardown();
+  });
+
+  it("keeps the 2.0 rule for an action declaring no failure type", async () => {
+    const { view, occurrences } = await failureHarness("plain", () =>
+      Promise.reject(new MilanoActionFailure(MilanoValue.string("x"))),
+    );
+    view.emit("f", "tap");
+    await settled();
+    assert.equal(view.state["outcome"]?.stringValue, "");
+    assert.equal(occurrences[0]?.expected, "no payload");
+    view.teardown();
+  });
+
+  it("delivers the dispatch identity with the action", async () => {
+    const { view, dispatched } = await failureHarness("plain", async () => null);
+    view.emit("f", "tap");
+    view.emit("f", "tap");
+    await settled();
+    assert.equal(dispatched.length, 2);
+    assert.notEqual(dispatched[0], dispatched[1]);
+    assert.deepEqual(view.dispatched.map((action) => action.dispatch), [0, 1]);
+    view.teardown();
+  });
+});
+
+describe("lifecycle signals", () => {
+  it("runs the appear bindings once per acceptance and records the signals", async () => {
+    const { view, interactions } = await failureHarness("plain", async () => null);
+    view.appear();
+    view.appear();
+    assert.equal(view.state["outcome"]?.stringValue, "appeared");
+    view.disappear();
+    view.disappear();
+    view.appear();
+    assert.deepEqual(
+      interactions.map((record) => record.kind),
+      ["viewBuilt", "viewAppeared", "viewDisappeared", "viewAppeared"],
+    );
+    view.teardown();
+  });
+
+  it("ignores signals after teardown", async () => {
+    const { view, interactions } = await failureHarness("plain", async () => null);
+    view.teardown();
+    view.appear();
+    assert.deepEqual(
+      interactions.map((record) => record.kind),
+      ["viewBuilt", "viewTornDown"],
+    );
+  });
+});
+
 describe("the analytics stream", () => {
   it("carries the whole funnel without any document involvement", async () => {
     const { view, interactions } = await harness({
@@ -248,6 +422,180 @@ describe("the analytics stream", () => {
   });
 });
 
+describe("host functions", () => {
+  const vocabulary = JSON.stringify({
+    milano: "2.1.0",
+    name: "functions",
+    version: "1.0.0",
+    components: { Field: { properties: { value: "string" }, events: { tap: null } } },
+    functions: { formatMoney: { arguments: ["int", "string"], returns: "string" } },
+  });
+  const document = JSON.stringify({
+    version: "2.1.0",
+    state: { cents: "int", label: "string" },
+    root: {
+      type: "Field",
+      id: "f",
+      properties: { value: { $expr: "formatMoney(state.cents, 'EUR')" } },
+      on: { tap: [{ action: "$set", key: "label", value: { $expr: "twice(state.label)" } }] },
+    },
+  });
+
+  async function build(handler: ((call: { name: string; arguments: readonly MilanoValue[] }) => MilanoValue | null) | null) {
+    const registry = new MilanoRegistry<string>();
+    registry.register("Field", "field");
+    const occurrences: MilanoOccurrence[] = [];
+    const engine = new MilanoEngine<string>({
+      vocabularyJson: vocabulary,
+      registry,
+      observer: { occurrence: (occurrence) => occurrences.push(occurrence) },
+      functionHandler: handler,
+    });
+    const view = await engine
+      .viewBuilder(document)
+      .function("twice", { arguments: [MilanoType.string()], returns: MilanoType.string() })
+      .stateData(() => ({ cents: MilanoValue.int(1250n), label: MilanoValue.string("ab") }))
+      .build();
+    return { view, occurrences };
+  }
+
+  it("answers calls through the engine's handler, in properties and in actions", async () => {
+    const calls: string[] = [];
+    const { view, occurrences } = await build((call) => {
+      calls.push(`${call.name}(${call.arguments.map(String).join(", ")})`);
+      if (call.name === "formatMoney") return MilanoValue.string("12.50 EUR");
+      return MilanoValue.string(`${call.arguments[0]?.stringValue}${call.arguments[0]?.stringValue}`);
+    });
+    assert.equal(view.resolvedRoot.values["value"]?.stringValue, "12.50 EUR");
+    view.emit("f", "tap");
+    assert.equal(view.state["label"]?.stringValue, "abab");
+    assert.deepEqual(calls, ["formatMoney(1250, EUR)", "twice(ab)"]);
+    assert.deepEqual(occurrences, []);
+  });
+
+  it("reports an invalid result and substitutes the zero value", async () => {
+    const { view, occurrences } = await build((call) => {
+      if (call.name === "formatMoney") return MilanoValue.int(1n);
+      throw new Error("no twice today");
+    });
+    assert.equal(view.resolvedRoot.values["value"]?.stringValue, "");
+    view.emit("f", "tap");
+    assert.equal(view.state["label"]?.stringValue, "");
+    assert.deepEqual(
+      occurrences.map((occurrence) => [occurrence.kind, occurrence.node, occurrence.name, occurrence.expected, occurrence.found]),
+      [
+        ["invalidFunctionResult", "f", "formatMoney", "string", "int"],
+        ["invalidFunctionResult", null, "twice", "string", "error"],
+      ],
+    );
+  });
+
+  it("refuses to build a document calling functions on an engine without a handler", async () => {
+    await assert.rejects(build(null), (error: unknown) => {
+      assert.ok(error instanceof MilanoBuildError);
+      assert.equal(error.rule, "function-handler");
+      assert.equal(error.expected, "function handler");
+      return true;
+    });
+  });
+});
+
+describe("document replacement", () => {
+  const counter = (extra: Record<string, unknown> = {}): string =>
+    JSON.stringify({
+      version: "2.1.0",
+      state: { n: "int" },
+      root: {
+        type: "Field",
+        id: "f",
+        properties: { value: { $expr: "$str(state.n)" } },
+        on: { tap: [{ action: "$set", key: "n", value: { $expr: "state.n + 1" } }] },
+      },
+      ...extra,
+    });
+
+  it("keeps state whose declaration is unchanged and asks the provider for the rest", async () => {
+    const asked: string[][] = [];
+    const { view, interactions } = await harness({ document: counter() });
+    view.emit("f", "tap");
+    const registry = new MilanoRegistry<string>();
+    registry.register("Field", "field");
+    const engine = new MilanoEngine<string>({ vocabularyJson: VOCABULARY, registry });
+    const fresh = await engine
+      .viewBuilder(counter())
+      .stateData((declarations) => {
+        asked.push(Object.keys(declarations));
+        return synthesizedState(declarations, { extra: MilanoValue.string("!") });
+      })
+      .build();
+    fresh.emit("f", "tap");
+    fresh.emit("f", "tap");
+    await fresh.replace(
+      JSON.stringify({
+        version: "2.1.0",
+        state: { n: "int", extra: "string" },
+        metadata: { swapped: true },
+        root: { type: "Field", id: "g", properties: { value: { $expr: "$concat($str(state.n), state.extra)" } } },
+      }),
+    );
+    assert.equal(fresh.resolvedRoot.values["value"]?.stringValue, "2!");
+    assert.deepEqual(asked, [["n"], ["extra"]]);
+    assert.equal(fresh.metadata?.recordValue?.["swapped"]?.boolValue, true);
+    // The first harness view is untouched by any of this.
+    assert.equal(view.resolvedRoot.values["value"]?.stringValue, "1");
+    assert.equal(interactions.filter((interaction) => interaction.kind === "viewReplaced").length, 0);
+  });
+
+  it("leaves the view untouched when the replacement fails the gate", async () => {
+    const { view, occurrences } = await harness({ document: counter() });
+    const before = view.resolvedRoot;
+    await assert.rejects(view.replace('{"version": "2.1.0", "root": {"type": "Nope"}}'), (error: unknown) => {
+      assert.ok(error instanceof MilanoBuildError);
+      assert.equal(error.type, "UnknownComponentType");
+      return true;
+    });
+    assert.equal(view.resolvedRoot, before);
+    assert.deepEqual(occurrences, []);
+    view.emit("f", "tap");
+    assert.equal(view.resolvedRoot.values["value"]?.stringValue, "1");
+  });
+
+  it("is ignored after teardown", async () => {
+    const { view, interactions } = await harness({ document: counter() });
+    view.teardown();
+    await view.replace(counter({ metadata: { late: true } }));
+    assert.deepEqual(interactions.map((interaction) => interaction.kind), ["viewBuilt", "viewTornDown"]);
+    assert.equal(view.metadata, null);
+  });
+});
+
+describe("watch bindings", () => {
+  it("runs a key's list on every change, through the real dispatcher, never from a watch", async () => {
+    const { view, dispatched } = await harness({
+      document: JSON.stringify({
+        version: "2.1.0",
+        state: { a: "int", b: "int", c: "int" },
+        root: {
+          type: "Field",
+          id: "f",
+          properties: { value: { $expr: "$str(state.c)" } },
+          on: { tap: [{ action: "$set", key: "a", value: { $expr: "state.a + 1" } }] },
+        },
+        watch: {
+          a: [{ action: "$set", key: "b", value: { $expr: "state.a * 10" } }, { action: "plain" }],
+          b: [{ action: "$set", key: "c", value: 99 }],
+        },
+      }),
+    });
+    view.emit("f", "tap");
+    view.emit("f", "tap");
+    assert.equal(view.state["a"]?.intValue, 2n);
+    assert.equal(view.state["b"]?.intValue, 20n);
+    assert.equal(view.state["c"]?.intValue, 0n);
+    assert.deepEqual(dispatched, ["plain", "plain"]);
+  });
+});
+
 describe("the quick path", () => {
   const QUICK_VOCABULARY = JSON.stringify({
     milano: "1.0.0",
@@ -264,7 +612,7 @@ describe("the quick path", () => {
     root: {
       type: "Greeting",
       id: "hello",
-      properties: { text: { $expr: "concat('Hi, ', context.who, ' ', str(state.taps))" } },
+      properties: { text: { $expr: "$concat('Hi, ', context.who, ' ', $str(state.taps))" } },
       on: { tap: [{ action: "$set", key: "taps", value: { $expr: "state.taps + 1" } }] },
     },
   });
@@ -323,8 +671,16 @@ describe("the quick path", () => {
     assert.equal(zero["count"]?.intValue, 0n);
     assert.equal(zero["ratio"]?.doubleValue, 0);
     assert.equal(zero["label"]?.stringValue, "");
-    // The alphabetically first member is always a legal member.
-    assert.equal(zero["tone"]?.stringValue, "cool");
+    // The contract's zero for an enum is its FIRST DECLARED member, and
+    // synthesis uses the same rule: the two once disagreed, synthesis
+    // taking the alphabetically first, so a preview could differ from the
+    // engine over one declaration. `cool` here would be the old answer.
+    assert.equal(zero["tone"]?.stringValue, "warm");
+    assert.equal(
+      zero["tone"]?.stringValue,
+      zeroValueOf(MilanoType.enumeration(["warm", "cool"])).stringValue,
+      "synthesis and the contract's zero must not drift apart",
+    );
     assert.deepEqual(zero["tags"]?.arrayValue, []);
     assert.equal(zero["shape"]?.recordValue?.["id"]?.stringValue, "");
     assert.ok(zero["maybe"]?.isNull, "an optional synthesizes to null");

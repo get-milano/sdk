@@ -42,5 +42,9 @@ struct MilanoRootView: View {
 
     var body: some View {
         milanoRender(core: core, resolved: core.resolvedRoot)
+            // The lifecycle signals, from SwiftUI's own account of
+            // presentation (runtime API spec, MilanoHost).
+            .onAppear { core.appear() }
+            .onDisappear { core.disappear() }
     }
 }

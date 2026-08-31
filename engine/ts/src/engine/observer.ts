@@ -11,10 +11,12 @@ export type MilanoOccurrenceKind =
   | "invalidCompletion"
   | "duplicateCompletion"
   | "completionAfterTeardown"
+  | "completionAfterReplace"
   | "rejectedContextUpdate"
   | "rejectedMutation"
   | "divisionByZero"
-  | "saturation";
+  | "saturation"
+  | "invalidFunctionResult";
 
 export interface MilanoOccurrence {
   readonly kind: MilanoOccurrenceKind;

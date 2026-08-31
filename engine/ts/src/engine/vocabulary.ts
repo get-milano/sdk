@@ -12,9 +12,57 @@ import { parseSemver } from "../document/model.ts";
  * Per contract major, the highest minor this engine implements
  * (Foundations, Versioning). A document's patch never matters.
  */
-export const SUPPORTED_VERSIONS: Readonly<Record<number, number>> = Object.freeze({ 1: 0, 2: 0 });
+export const SUPPORTED_VERSIONS: Readonly<Record<number, number>> = Object.freeze({ 1: 0, 2: 1 });
 
-/** The supported ranges as the error detail spells them: "1.0", "2.0". */
+/**
+ * The contract version that introduced each feature a document or a
+ * vocabulary may use, by the name the `contract-feature` detail carries
+ * (document model spec, Validation). A document declaring an earlier
+ * minor of the same major may not use it.
+ */
+export const FEATURE_VERSIONS: Readonly<Record<string, readonly [number, number]>> = Object.freeze({
+  key: [2, 1],
+  on: [2, 1],
+  failure: [2, 1],
+  $abs: [2, 1],
+  $min: [2, 1],
+  $max: [2, 1],
+  $floor: [2, 1],
+  $ceil: [2, 1],
+  $round: [2, 1],
+  $substring: [2, 1],
+  $indexOf: [2, 1],
+  $replace: [2, 1],
+  $split: [2, 1],
+  $join: [2, 1],
+  // The construct, in its own key: `$if` is also a function, and that
+  // one has been in the contract since 1.0.
+  $ifConstruct: [2, 1],
+  $switchConstruct: [2, 1],
+  // A lookup has no name; `[]` is how a document spells it.
+  "[]": [2, 1],
+  watch: [2, 1],
+  functions: [2, 1],
+  $append: [2, 1],
+  $remove: [2, 1],
+  $update: [2, 1],
+});
+
+
+/** Whether a document declaring `major.minor` has the named feature. */
+export function hasFeature(name: string, major: number, minor: number): boolean {
+  const introduced = FEATURE_VERSIONS[name];
+  if (introduced === undefined) return true;
+  return major > introduced[0] || (major === introduced[0] && minor >= introduced[1]);
+}
+
+/** The `contract-feature` detail's spelling of the version a feature needs: "2.1". */
+export function featureVersion(name: string): string {
+  const introduced = FEATURE_VERSIONS[name] ?? [0, 0];
+  return `${introduced[0]}.${introduced[1]}`;
+}
+
+/** The supported ranges as the error detail spells them: "1.0", "2.1". */
 export function supportedRanges(): string[] {
   return Object.entries(SUPPORTED_VERSIONS).map(([major, minor]) => `${major}.${minor}`);
 }
@@ -38,6 +86,15 @@ export interface MilanoComponent {
   readonly strict: boolean;
 }
 
+/**
+ * A host function declaration (contract 2.1; vocabulary schema spec,
+ * Function declarations): its argument types in order, and its return type.
+ */
+export interface MilanoFunction {
+  readonly arguments: readonly MilanoType[];
+  readonly returns: MilanoType;
+}
+
 export interface MilanoAction {
   /** Parameter name to type. */
   readonly parameters: Readonly<Record<string, MilanoType>>;
@@ -46,6 +103,11 @@ export interface MilanoAction {
    * data (vocabulary schema spec, completion results).
    */
   readonly result: MilanoType | null;
+  /**
+   * The failure completion's payload type (contract 2.1); null means a
+   * failure carries no data (vocabulary schema spec, failure payloads).
+   */
+  readonly failure: MilanoType | null;
 }
 
 /**
@@ -60,6 +122,8 @@ export class MilanoVocabulary {
   readonly version: string;
   readonly components: Readonly<Record<string, MilanoComponent>>;
   readonly actions: Readonly<Record<string, MilanoAction>>;
+  /** The declared host functions (contract 2.1), by name. */
+  readonly functions: Readonly<Record<string, MilanoFunction>>;
 
   private constructor(
     contractMajor: number,
@@ -68,6 +132,7 @@ export class MilanoVocabulary {
     version: string,
     components: Readonly<Record<string, MilanoComponent>>,
     actions: Readonly<Record<string, MilanoAction>>,
+    functions: Readonly<Record<string, MilanoFunction>>,
   ) {
     this.contractMajor = contractMajor;
     this.contractMinor = contractMinor;
@@ -75,6 +140,7 @@ export class MilanoVocabulary {
     this.version = version;
     this.components = components;
     this.actions = actions;
+    this.functions = functions;
     Object.freeze(this);
   }
 
@@ -152,7 +218,30 @@ export class MilanoVocabulary {
         if (!isValidIdentifier(actionName)) {
           throw MilanoEngineError.invalidVocabulary("action-name", actionName);
         }
-        actions[actionName] = parseAction(declaration, actionName);
+        actions[actionName] = parseAction(declaration, actionName, contract);
+      }
+    }
+
+    const functions = emptyRecord<MilanoFunction>();
+    const functionsEntry = root["functions"];
+    if (functionsEntry !== undefined) {
+      // The artifact's declared version is a floor it holds itself to:
+      // host functions need contract 2.1.
+      if (!hasFeature("functions", contract[0], contract[1])) {
+        throw MilanoEngineError.invalidVocabulary(
+          "contract-feature",
+          `functions need contract ${featureVersion("functions")}`,
+        );
+      }
+      const declarations = functionsEntry.recordValue;
+      if (declarations === null) {
+        throw MilanoEngineError.invalidVocabulary("functions", "functions is not an object");
+      }
+      for (const [functionName, declaration] of sortedEntries(declarations)) {
+        if (!isValidIdentifier(functionName)) {
+          throw MilanoEngineError.invalidVocabulary("function-name", functionName);
+        }
+        functions[functionName] = parseFunction(declaration, functionName);
       }
     }
 
@@ -163,15 +252,52 @@ export class MilanoVocabulary {
       version,
       components,
       actions,
+      functions,
     );
   }
 }
 
 /**
- * Parses one custom action declaration; shared with builder declarations,
- * which use the same format.
+ * Parses one host function declaration; shared with builder declarations.
+ * Any identifier will do: the contract's own functions are called through
+ * the `$` namespace, so a vocabulary declaring `round` gets its own
+ * `round(...)` beside `$round(...)` and can never be shadowed. An empty
+ * argument list is refused (`function-arguments`: a function of no
+ * arguments would be a constant, or would read what its arguments do not
+ * carry).
  */
-export function parseAction(declaration: MilanoValue, path: string): MilanoAction {
+export function parseFunction(declaration: MilanoValue, path: string): MilanoFunction {
+  const object = declaration.recordValue;
+  if (object === null) {
+    throw MilanoEngineError.invalidVocabulary("function", `${path} is not an object`);
+  }
+  const argumentsEntry = object["arguments"]?.arrayValue;
+  if (argumentsEntry === undefined || argumentsEntry === null || argumentsEntry.length === 0) {
+    throw MilanoEngineError.invalidVocabulary("function-arguments", path);
+  }
+  const argumentTypes: MilanoType[] = [];
+  for (const descriptor of argumentsEntry) {
+    const type = MilanoType.fromDescriptor(descriptor);
+    if (type === null) throw MilanoEngineError.invalidVocabulary("function-argument", path);
+    argumentTypes.push(type);
+  }
+  const returnsEntry = object["returns"];
+  const returns = returnsEntry === undefined ? null : MilanoType.fromDescriptor(returnsEntry);
+  if (returns === null) throw MilanoEngineError.invalidVocabulary("function-returns", path);
+  return { arguments: argumentTypes, returns };
+}
+
+/**
+ * Parses one custom action declaration; shared with builder declarations,
+ * which use the same format. `contract` is the artifact's declared
+ * version, which gates the declarations a later minor introduced; builder
+ * declarations are code and always speak the engine's contract.
+ */
+export function parseAction(
+  declaration: MilanoValue,
+  path: string,
+  contract: readonly [number, number, number] | null = null,
+): MilanoAction {
   const object = declaration.recordValue;
   if (object === null) {
     throw MilanoEngineError.invalidVocabulary("action", `${path} is not an object`);
@@ -205,7 +331,22 @@ export function parseAction(declaration: MilanoValue, path: string): MilanoActio
     if (result === null) throw MilanoEngineError.invalidVocabulary("action-result", path);
   }
 
-  return { parameters, result };
+  let failure: MilanoType | null = null;
+  const failureEntry = object["failure"];
+  if (failureEntry !== undefined) {
+    // The artifact's declared version is a floor it holds itself to: a
+    // failure payload needs contract 2.1.
+    if (contract !== null && !hasFeature("failure", contract[0], contract[1])) {
+      throw MilanoEngineError.invalidVocabulary(
+        "contract-feature",
+        `${path} declares a failure payload, which needs contract ${featureVersion("failure")}`,
+      );
+    }
+    failure = MilanoType.fromDescriptor(failureEntry);
+    if (failure === null) throw MilanoEngineError.invalidVocabulary("action-failure", path);
+  }
+
+  return { parameters, result, failure };
 }
 
 function parseComponent(declaration: MilanoValue, path: string): MilanoComponent {

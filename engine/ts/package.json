@@ -1,10 +1,11 @@
 {
   "name": "@get-milano/core",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Milano Document-Driven UI: the contract engine in TypeScript. Documents in, resolved trees out, validated by a strict gate. No UI toolkit, no dependencies.",
   "license": "Apache-2.0",
   "author": "Ezequiel (kimi) Aceto <ezequiel.aceto@gmail.com> (https://kimi.blog)",
   "homepage": "https://get-milano.dev",
+  "bugs": { "url": "https://github.com/get-milano/sdk/issues" },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/get-milano/sdk.git",

@@ -10,6 +10,7 @@ export type Route =
   | { readonly kind: "pokemon" }
   | { readonly kind: "profile" }
   | { readonly kind: "catalog" }
+  | { readonly kind: "quickActions" }
   | { readonly kind: "embedded" };
 
 export function routeTitle(route: Route, demoTitle: (id: string) => string): string {
@@ -26,6 +27,8 @@ export function routeTitle(route: Route, demoTitle: (id: string) => string): str
       return "Profile";
     case "catalog":
       return "Catalog";
+    case "quickActions":
+      return "Quick actions";
     case "embedded":
       return "Embedded";
   }
@@ -49,6 +52,8 @@ export function initialRoute(screen: string | undefined): Route {
       return { kind: "profile" };
     case "catalog":
       return { kind: "catalog" };
+    case "quick-actions":
+      return { kind: "quickActions" };
     case "embedded":
       return { kind: "embedded" };
     default:

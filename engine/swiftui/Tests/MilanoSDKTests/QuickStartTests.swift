@@ -31,7 +31,7 @@ struct QuickStartTests {
 
     @Test func buildsWithSynthesizedStateAndContext() async throws {
         let builder = try MilanoQuickStart.builder(
-            document: document("concat(context.userName, ':', str(state.taps), ':', state.note ?? '-')"),
+            document: document("$concat(context.userName, ':', $str(state.taps), ':', state.note ?? '-')"),
             vocabulary: vocabulary,
             renderers: ["Greeting": StubRenderer()],
             context: ["userName": .string("Ada")],
@@ -44,7 +44,7 @@ struct QuickStartTests {
 
     @Test func suppliedStateOverridesSynthesis() async throws {
         let builder = try MilanoQuickStart.builder(
-            document: document("str(state.taps)"),
+            document: document("$str(state.taps)"),
             vocabulary: vocabulary,
             renderers: ["Greeting": StubRenderer()],
             context: ["userName": .string("Ada")],
@@ -82,7 +82,7 @@ struct QuickStartTests {
             "count": MilanoType(.int),
             "ratio": MilanoType(.double),
             "label": MilanoType(.string),
-            "tone": MilanoType(.enumeration(["warm", "cool"])),
+            "tone": .enumeration(["warm", "cool"]),
             "items": MilanoType(.array(MilanoType(.int))),
             "pair": MilanoType(.record(["a": MilanoType(.bool)])),
             "maybe": MilanoType(.string, optional: true)
@@ -92,10 +92,26 @@ struct QuickStartTests {
         #expect(values["count"] == .int(0))
         #expect(values["ratio"] == .double(0))
         #expect(values["label"] == .string(""))
-        // The alphabetically first member: deterministic, always a member.
-        #expect(values["tone"] == .string("cool"))
+        // Synthesis takes the contract's own zero, so the two cannot
+        // drift apart: they once did, synthesis taking the alphabetically
+        // first member while the contract takes the first declared, and a
+        // preview could differ from the engine over one declaration.
+        #expect(values["tone"] == declarations["tone"]?.zeroValue)
+        // The first DECLARED member, not the alphabetically first, which
+        // would be "cool". `enumeration(_:)` keeps the order a Set
+        // literal would have thrown away before an initializer saw it.
+        #expect(values["tone"] == .string("warm"))
         #expect(values["items"] == .array([]))
         #expect(values["pair"] == .record(["a": .bool(false)]))
         #expect(values["maybe"] == .null)
+    }
+
+    /// The other path to the same answer: a type parsed from a
+    /// descriptor, which is how every document's declarations arrive.
+    @Test func synthesizesTheFirstDeclaredMemberOfAParsedEnum() throws {
+        let descriptor = MilanoValue.record(["enum": .array([.string("warm"), .string("cool")])])
+        let type = try #require(MilanoType(descriptor: descriptor))
+        #expect(MilanoQuickStart.synthesizedState(for: ["tone": type])["tone"] == .string("warm"))
+        #expect(type.zeroValue == .string("warm"))
     }
 }

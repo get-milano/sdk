@@ -48,7 +48,7 @@ describe("engine-pinned statements", () => {
           root: {
             type: "Text",
             id: "t",
-            properties: { text: { $expr: "str(state.a)" } },
+            properties: { text: { $expr: "$str(state.a)" } },
             on: {
               tap: [
                 { action: "$set", key: "a", value: 1 },
@@ -74,6 +74,81 @@ describe("engine-pinned statements", () => {
       interactions.map((record) => record.kind),
       ["viewBuilt", "event", "viewTornDown", "actionDispatched"],
     );
+  });
+
+  // engine-pinned: dispatch-id-unique-across-views
+  it("mints dispatch ids no two dispatches share, across views with the same label", async () => {
+    const document = JSON.stringify({
+      version: "1.0.0",
+      root: { type: "Text", id: "t", properties: { text: "x" }, on: { tap: [{ action: "work" }] } },
+    });
+    const ids = new Set<string>();
+    let deliveries = 0;
+    for (let round = 0; round < 3; round += 1) {
+      const view = await engine()
+        .viewBuilder(document)
+        .label("shared-label")
+        .actionHandler(async (action) => {
+          ids.add(action.dispatchId);
+          deliveries += 1;
+          return null;
+        })
+        .build();
+      view.emit("t", "tap");
+      view.emit("t", "tap");
+      // Two views with one label share an identity and a dispatch number
+      // sequence; the id still tells every dispatch apart.
+      assert.deepEqual(view.dispatched.map((action) => action.dispatch), [0, 1]);
+      assert.equal(view.dispatched[0]?.viewIdentity, "shared-label");
+      view.teardown();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(deliveries, 6);
+    assert.equal(ids.size, 6);
+  });
+
+  // engine-pinned: replace-provider-failure-propagates
+  it("leaves the view untouched when the provider fails during a replacement", async () => {
+    const interactions: MilanoUserInteraction[] = [];
+    let calls = 0;
+    const view = await engine(interactions)
+      .viewBuilder(
+        JSON.stringify({
+          version: "2.1.0",
+          state: { a: "int" },
+          root: { type: "Text", id: "t", properties: { text: { $expr: "$str(state.a)" } } },
+        }),
+      )
+      .stateData(() => {
+        calls += 1;
+        if (calls > 1) throw new Error("provider down");
+        return { a: MilanoValue.int(7n) };
+      })
+      .build();
+    const before = view.resolvedRoot;
+    await assert.rejects(
+      view.replace(
+        JSON.stringify({
+          version: "2.1.0",
+          state: { a: "int", b: "string" },
+          root: { type: "Text", id: "u", properties: { text: { $expr: "state.b" } } },
+        }),
+      ),
+      /provider down/,
+    );
+    assert.equal(view.resolvedRoot, before);
+    assert.equal(view.state["a"]?.intValue, 7n);
+    assert.deepEqual(interactions.map((interaction) => interaction.kind), ["viewBuilt"]);
+    // Still serviceable: a replacement that carries everything over lands.
+    await view.replace(
+      JSON.stringify({
+        version: "2.1.0",
+        state: { a: "int" },
+        root: { type: "Text", id: "u", properties: { text: { $expr: "$concat('a', $str(state.a))" } } },
+      }),
+    );
+    assert.equal(view.resolvedRoot.values["text"]?.stringValue, "a7");
+    assert.equal(calls, 2);
   });
 
   // engine-pinned: default-limits-node-count-and-document-size

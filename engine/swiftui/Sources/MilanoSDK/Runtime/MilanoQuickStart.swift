@@ -32,34 +32,23 @@ public enum MilanoQuickStart {
         return builder
     }
 
-    /// Zero-values per declaration, overridden by supplied values: false,
-    /// 0, 0.0, the empty string; null for optionals; the alphabetically
-    /// first member for an enum, which is always a valid member; empty
-    /// arrays; records recursed. Every value satisfies its declaration, so
-    /// a provider built on this never fails the gate's data check. The
-    /// same function on every engine.
+    /// Zero-values per declaration, overridden by supplied values. The
+    /// zero is the contract's own (`MilanoType.zeroValue`), so a
+    /// synthesized value is the same value an invalid function result of
+    /// that type would produce. Enums are why that matters: this once
+    /// took the alphabetically first member while the contract takes the
+    /// first declared, so a preview could differ from the engine over the
+    /// same declaration. Every value satisfies its declaration, so a
+    /// provider built on this never fails the gate's data check. The same
+    /// function on every engine.
     public static func synthesizedState(
         for declarations: [String: MilanoType], overriding supplied: [String: MilanoValue] = [:]
     ) -> [String: MilanoValue] {
         var values: [String: MilanoValue] = [:]
         for (key, type) in declarations {
-            values[key] = supplied[key] ?? zeroValue(for: type)
+            values[key] = supplied[key] ?? type.zeroValue
         }
         return values
     }
 
-    private static func zeroValue(for type: MilanoType) -> MilanoValue {
-        if type.optional { return .null }
-        switch type.kind {
-        case .bool: return .bool(false)
-        case .int: return .int(0)
-        case .double: return .double(0)
-        case .string: return .string("")
-        // The zero-value of an enum is its alphabetically first member:
-        // deterministic, and always a valid member.
-        case .enumeration(let members): return .string(members.sorted()[0])
-        case .array: return .array([])
-        case .record(let fields): return .record(fields.mapValues(zeroValue(for:)))
-        }
-    }
 }

@@ -136,7 +136,7 @@ class BuilderContractTest {
             """{"version": "1.0.0",
                 "state": {"count": "int"},
                 "root": {"type": "Text",
-                         "properties": {"text": {"${'$'}expr": "str(state.count)"}}}}"""
+                         "properties": {"text": {"${'$'}expr": "${'$'}str(state.count)"}}}}"""
         val builder =
             engine()
                 .viewBuilder(withState)

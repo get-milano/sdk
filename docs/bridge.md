@@ -31,8 +31,12 @@ The vocabulary is a JSON artifact listing every component type and action your a
     "openUrl": { "parameters": { "url": "string" } },
     "submitContact": {
       "parameters": { "email": "string" },
-      "result": "string"
+      "result": "string",
+      "failure": { "enum": ["invalidEmail", "unavailable"] }
     }
+  },
+  "functions": {
+    "formatMoney": { "arguments": ["int", "string", "string"], "returns": "string" }
   }
 }
 ```
@@ -45,6 +49,8 @@ Rules of thumb:
 - Declare shared actions here. Documents never declare actions; a surface that needs an extra action, or the same name with a different shape, declares it on its builder (`.action(name, parameters:, result:)`).
 - Declare optional accessibility properties (a label, a decorative flag, a live-region politeness) alongside the visual ones, and map them in your renderers; see [Accessibility](accessibility) for the pattern and the sample's worked set.
 - Declare a `result` type when the handler answers with a value documents need back: a confirmation number, a created id, a server-assigned URL. Your handler returns that value on success, and the document reads it as `result` inside `onSuccess`. Actions without a `result` complete as plain signals; the handler returns `nil`/`null`.
+- Declare a `failure` type when documents should know why an action failed: usually an enum of reasons the document turns into copy. Your handler fails with a value of that type (below), and the document reads it as `failure` inside `onFailure`. Declare it optional if the handler may also fail with a plain error, since against a non-optional declaration a payload-less failure is an invalid completion. A vocabulary declaring `failure` needs `"milano": "2.1.0"`.
+- Declare a `function` for every pure computation documents need from the app: formatting money, dates, plurals, anything that is a value in and a value out. `arguments` is an ordered list of types (at least one), `returns` the value's type. Pass the locale in as an argument (from context) rather than reading it in the handler: functions must be pure over their arguments (see [Host functions](#host-functions)). A vocabulary declaring `functions` needs `"milano": "2.1.0"`. Any identifier is a legal name, a built-in's included: documents call the contract's functions with a `$` (`$round`) and yours by their bare name (`round`), so the two can never collide.
 
 ## 2. Keep the design system pure
 
@@ -271,6 +277,216 @@ npx milano bindings "$SRCROOT/Resources/vocabulary.json" \
 
 For CI honesty, add a check that the committed file matches the vocabulary: regenerate and `git diff --exit-code`. This repository does exactly that for the React Native sample, which doubles as the emitter's test: the generated file is compiled by the sample's own typecheck, so a generator that emits something uncompilable fails CI rather than reaching you.
 
+## Granting capabilities per surface
+
+The vocabulary is the app's full catalogue of actions and functions. A
+builder can narrow it, or add to it, for one surface only, which is what
+makes the declarations a capability manifest rather than a global API:
+
+```swift
+let builder = try engine.viewBuilder(document: text)
+    // This surface may dispatch nothing but these two, whatever the
+    // document asks for; anything else fails the build.
+    .allowActions(["openUrl", "dismiss"])
+    // Declared here, not in the vocabulary: an action only this screen has.
+    .action("rateApp", parameters: ["stars": MilanoType(.int)])
+    // The same name, a different shape, on this surface alone.
+    .action("share", parameters: ["url": MilanoType(.string), "campaign": MilanoType(.string)])
+    // A function this screen needs and the rest of the app does not.
+    .function("formatDistance", arguments: [MilanoType(.double)], returns: MilanoType(.string))
+```
+
+```kotlin
+val builder = engine.viewBuilder(text)
+    .allowActions(listOf("openUrl", "dismiss"))
+    .action("rateApp", parameters = mapOf("stars" to MilanoType(MilanoType.Kind.Int)))
+    .function(
+        "formatDistance",
+        listOf(MilanoType(MilanoType.Kind.Double)),
+        MilanoType(MilanoType.Kind.Text),
+    )
+```
+
+```ts
+const builder = engine
+  .viewBuilder(text)
+  .allowActions(["openUrl", "dismiss"])
+  .action("rateApp", { parameters: { stars: MilanoType.int() } })
+  .function("formatDistance", { arguments: [MilanoType.double()], returns: MilanoType.string() });
+```
+
+- **The allowlist narrows.** With one installed, a document binding any
+  action outside it fails the build with `action-capability` naming the
+  action. Built-in actions (`$set`, `$when`, the array actions) are
+  contract, not capabilities, and are always available. A builder that
+  calls nothing grants the whole vocabulary.
+- **Declarations add or override.** A name absent from the vocabulary
+  becomes available on this surface; a name already there takes the new
+  shape here only. That is how one action name means "share a product" on
+  one screen and "share a receipt" on another, each typed for its own
+  parameters, with one handler per surface interpreting it.
+- **Functions work the same way**, minus the allowlist: a function is a
+  computation, not a capability, so there is nothing to revoke. The
+  engine's single function handler answers whatever any surface declares.
+- **Why bother.** A document is untrusted input. The gate can prove an
+  action was granted and that its parameters have the declared types; the
+  allowlist is how a surface says which of the app's powers a document may
+  reach at all, so a promotional banner cannot dispatch `deleteAccount`
+  even if someone writes a document that tries.
+
+## The action funnel
+
+The handler receives a `MilanoAction`: the name, the captured parameters, the view identity, and the dispatch identity, `dispatch` (the position among the view's dispatches, from zero) and `dispatchId` (unique across every dispatch of every view in the process). Send `dispatchId` with the request the handler makes; a retry carrying the same id is recognizably the same dispatch to a backend that dedupes.
+
+Success is a normal return, whose value is the declared `result` (or `nil`/`null`). Failure is a throw. To fail with the declared `failure` payload, throw the SDK's failure type with the value; any other error is a failure with no payload:
+
+```swift
+case .submitContact(let email, _, _, _):
+    guard email.contains("@") else {
+        throw MilanoActionFailure(.string(ShopSubmitContactFailure.invalidEmail.rawValue))
+    }
+```
+
+```kotlin
+is ShopAction.SubmitContact -> {
+    if (!decoded.email.contains("@")) {
+        throw MilanoActionFailure(MilanoValue.StringValue(SubmitContactFailure.InvalidEmail.value))
+    }
+}
+```
+
+```ts
+case "submitContact":
+  if (!email.includes("@")) throw new MilanoActionFailure(MilanoValue.string("invalidEmail"));
+```
+
+The generated bindings give each enum or record failure site a nominal type, so the value is spelled from the declaration rather than typed by hand.
+
+## Lifecycle signals
+
+`MilanoHost` delivers `appear` and `disappear` to the view from the toolkit's own callbacks (`onAppear`/`onDisappear` on SwiftUI, a `DisposableEffect` on Compose, an effect on React), so a document's lifecycle bindings need nothing from the bridge. A host that awaits `build()` and places the view itself calls `view.appear()` when it comes on screen and `view.disappear()` when it leaves; both are idempotent in the sense the spec fixes (a redundant signal is ignored), so wiring them to a screen's own lifecycle callbacks is safe.
+
+## Host functions
+
+Formatting is the usual reason to want one: money, dates, plurals, units. The rules are locale matters that do not belong in a document, and Milano will not guess them, so the app computes them and documents call in. Three steps.
+
+**Declare it in the vocabulary**, with its argument types in order and what it returns:
+
+```json
+"functions": {
+  "formatMoney": { "arguments": ["int", "string", "string"], "returns": "string" }
+}
+```
+
+**Install one handler on the engine.** It answers every declared function by name, for every view that engine builds. It receives a `MilanoFunctionCall` (`name`, and `arguments` in declared order, each already of its declared type) and returns a `MilanoValue`, which the runtime validates against the declared `returns`:
+
+```swift
+let engine = try MilanoEngine(
+    vocabularyJson: vocabulary,
+    registry: MilanoBridge.registry(),
+    functionHandler: MilanoClosureFunctionHandler { call in
+        switch call.name {
+        case "formatMoney":
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .currency
+            formatter.currencyCode = call.arguments[1].stringValue ?? "EUR"
+            formatter.locale = Locale(identifier: call.arguments[2].stringValue ?? "en")
+            let amount = Decimal(call.arguments[0].intValue ?? 0) / 100
+            return .string(formatter.string(from: amount as NSDecimalNumber) ?? "")
+        default:
+            return .null
+        }
+    }
+)
+```
+
+```kotlin
+val engine = MilanoEngine(vocabulary, registry, functionHandler = MilanoFunctionHandler { call ->
+    when (call.name) {
+        "formatMoney" -> MilanoValue.StringValue(
+            NumberFormat.getCurrencyInstance(Locale.forLanguageTag(call.arguments[2].stringOrNull ?: "en"))
+                .apply { currency = Currency.getInstance(call.arguments[1].stringOrNull ?: "EUR") }
+                .format((call.arguments[0].longOrNull ?: 0L) / 100.0),
+        )
+        else -> MilanoValue.Null
+    }
+})
+```
+
+```ts
+const engine = new MilanoEngine({
+  vocabularyJson: vocabulary,
+  registry,
+  functionHandler: (call) => {
+    if (call.name === "formatMoney") {
+      const [cents, currency, locale] = call.arguments;
+      return MilanoValue.string(
+        new Intl.NumberFormat(locale.stringValue ?? "en", { style: "currency", currency: currency.stringValue ?? "EUR" })
+          .format(Number(cents.intValue ?? 0n) / 100),
+      );
+    }
+    return MilanoValue.null;
+  },
+});
+```
+
+**Call it from a document** by its bare name, wherever an expression goes:
+
+```json
+{ "$expr": "$concat('Total: ', formatMoney(state.cents, 'EUR', context.locale))" }
+```
+
+The gate checks the call against the declaration, so a wrong argument count or type fails the build, not the screen. The contract's own functions carry a `$` (`$concat` here), so your names never collide with them: a vocabulary may declare `round` beside `$round`.
+
+Three rules worth keeping in mind. The handler runs on the main thread during resolution, so it must be fast and must not block or touch the view. A thrown error or a value of the wrong type is an invalid function result, reported as `invalidFunctionResult` and replaced by the zero value of the return type, so a bug in it degrades one label rather than a screen. And a function must be pure over its arguments, which is why the locale above is passed in from context rather than read inside the handler: the engine may call it whenever a dependency changes, and a value that drifts on its own would go stale silently.
+
+A builder may add a function for its surface with `function(name, arguments:, returns:)`; the same handler answers it. A document calling a declared function on an engine created without a handler fails at build (`function-handler`). While a producer is still writing documents there is no app to ask, so `milano validate` answers every declared function with the zero value of its return type: the call is fully type-checked, and only the formatting is missing (see [Producing documents](producing#the-loop)).
+
+## Replacing a document
+
+A view is bound to one document at a time, but not for its lifetime: `view.replace(document)` (contract 2.1) runs the new document through the same gate under the same builder configuration, keeps every state key whose declaration is unchanged, asks the state data provider for the rest (once, with exactly those keys), and swaps. It throws what `build()` throws, and on a throw the view is exactly as it was: same document, same state, still serviceable. Identity, dispatch numbering, and the appeared state persist; completions of dispatches made before the swap are dropped and reported. Hot reload in development, a document refreshed from the network, and a preview editor all use it instead of tearing down and rebuilding, which would lose what the user typed:
+
+```swift
+try await view.replace(document: freshDocumentText)
+```
+
+```kotlin
+view.replace(freshDocumentText)
+```
+
+```ts
+await view.replace(freshDocumentText);
+```
+
+## Driving a view yourself
+
+`MilanoHost` builds the view, places it, delivers the lifecycle signals,
+and tears it down. A host that would rather own that (a custom container,
+a screen that decides placement, a test) awaits `build()` and takes on
+four small jobs, and gets four read-only windows in return:
+
+| Member | What it is for |
+|---|---|
+| `appear()` / `disappear()` | Tell the view it is on screen, so its lifecycle bindings run and `viewAppeared` is recorded. Nobody else will |
+| `subscribe(listener)` | Called after every re-resolution; returns a cancellation. This is how a host knows to redraw. The React binding subscribes for you, and the SwiftUI and Compose views observe internally, so you need this only when you render the tree yourself |
+| `teardown()` | The view stops participating: late completions are dropped and reported, and the context subscription is cancelled |
+| `resolvedRoot` | The current tree, a new object identity after each change, which is what a host renders |
+| `state`, `context`, `metadata` | Copies of what the view holds right now: useful for diagnostics, never a way to write. `$set` is the only writer |
+| `dispatched` | The custom actions this view has dispatched, in order, as plain data. A test seam and a debugging aid; production code reacts in the action handler, not here |
+
+```ts
+const view = await builder.build();
+const stop = view.subscribe(() => render(view.resolvedRoot));
+view.appear();
+// ...later
+view.disappear();
+stop();
+view.teardown();
+```
+
+Nothing here is required to ship: if you use `MilanoHost`, it makes these
+calls at the right moments and you can ignore the whole table.
+
 ## Growing the vocabulary
 
-Adding a component type or action is additive: extend the artifact, add the renderer, register it. Old documents ignore new types. Removing or retyping is breaking for documents that use it, so treat the vocabulary like the API it is: version it, and prefer additions. `npx milano diff old.json new.json` classifies every change and fails when the version bump does not match (additive changes need a minor bump, breaking ones a major), so publication can be gated on it in CI.
+Adding a component type, an action, a parameter, a `result`, a `failure`, or a function is additive: extend the artifact, add the renderer or the handler arm, register it. Old documents ignore new types. Removing or retyping is breaking for documents that use it, so treat the vocabulary like the API it is: version it, and prefer additions. `npx milano diff old.json new.json` classifies every change and fails when the version bump does not match (additive changes need a minor bump, breaking ones a major), so publication can be gated on it in CI.
