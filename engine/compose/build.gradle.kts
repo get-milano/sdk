@@ -78,7 +78,7 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
             // The engine renders nothing itself: only the Compose runtime,
             // no UI artifacts.
-            api("org.jetbrains.compose.runtime:runtime:1.9.0")
+            api("org.jetbrains.compose.runtime:runtime:1.12.0")
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
