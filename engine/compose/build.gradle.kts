@@ -2,7 +2,7 @@ plugins {
     kotlin("multiplatform") version "2.3.20"
     kotlin("plugin.serialization") version "2.3.20"
     kotlin("plugin.compose") version "2.3.20"
-    id("com.android.kotlin.multiplatform.library") version "9.3.1"
+    id("com.android.kotlin.multiplatform.library") version "9.3.2"
     id("maven-publish")
     // Central requires every release artifact to carry a PGP signature.
     id("signing")
