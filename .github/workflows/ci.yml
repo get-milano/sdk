@@ -18,8 +18,8 @@ jobs:
   swift:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           repository: get-milano/specs
           ref: ${{ env.SPECS_RELEASE }}
@@ -40,8 +40,8 @@ jobs:
   typescript:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           repository: get-milano/specs
           ref: ${{ env.SPECS_RELEASE }}
@@ -94,7 +94,7 @@ jobs:
     # site is rebuilt with the generated API reference dropped in.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
@@ -107,8 +107,8 @@ jobs:
   kotlin:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           repository: get-milano/specs
           ref: ${{ env.SPECS_RELEASE }}
