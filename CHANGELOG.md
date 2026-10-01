@@ -257,6 +257,19 @@ to declare and what to switch on is in [Migrating](docs/migrating.md).
   on machines where `node` works in every terminal. All three now look
   where those managers install, and `MILANO_NODE` names one explicitly.
 
+- **`replace()` no longer waits forever behind a throwing listener.** A
+  host listener that throws clears the view's work queue, as it always did
+  and still does; a replacement whose swap was queued behind it was
+  discarded without settling, so `await view.replace(...)` never returned.
+  It now rejects, with the view exactly as it was. The TypeScript and
+  Kotlin engines changed; Swift's closures cannot throw there.
+- **A typed failure thrown by the other build of the TypeScript package is
+  recognized.** The ESM and CommonJS builds each hold their own
+  `MilanoActionFailure`, so a handler loaded through one that failed a view
+  built by the other lost its payload to an `instanceof` check, which an
+  action declaring a `failure` type reported as an invalid completion. The
+  engine now checks a brand both copies carry.
+
 ### Changed
 
 - **Built-in functions are called with a `$`.** `$str`, `$int`, `$double`,

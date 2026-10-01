@@ -104,6 +104,35 @@ export function instanceIdentities(
   return identities;
 }
 
+/**
+ * The index of the element a keyed instance identity names, or -1. Stops
+ * at the first match: the keys of an accepted tree are distinct, so no
+ * later element can carry the same one, and an emission costs only the
+ * keys up to its own element.
+ */
+export function indexOfIdentity(
+  node: BuiltNode,
+  reference: string,
+  elements: readonly MilanoValue[],
+  identity: string,
+  state: Readonly<Record<string, MilanoValue>>,
+  context: Readonly<Record<string, MilanoValue>>,
+  report: Report,
+  bindings: Bindings,
+  env: EvalEnvironment = NO_FUNCTIONS,
+): number {
+  const spec = node.repeat;
+  if (spec === null || spec.key === null || spec.key.kind !== "typedExpression") return -1;
+  const key = spec.key;
+  for (let index = 0; index < elements.length; index += 1) {
+    const bound = elementBindings(spec.as, elements[index] as MilanoValue, index, bindings);
+    if (renderKey(evaluateProperty(key, reference, "key", state, context, report, bound, env)) === identity) {
+      return index;
+    }
+  }
+  return -1;
+}
+
 function evaluateProperty(
   value: Extract<DocValue, { kind: "typedExpression" }>,
   reference: string,

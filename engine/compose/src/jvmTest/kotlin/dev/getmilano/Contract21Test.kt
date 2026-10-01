@@ -1,5 +1,6 @@
 package dev.getmilano
 
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
@@ -360,6 +361,53 @@ class Contract21Test {
         view.emit("t", "tap")
         assertEquals(MilanoValue.StringValue("9"), view.resolvedRoot.values["text"])
         assertTrue(interactions.collected.none { it.kind == MilanoUserInteraction.Kind.VIEW_REPLACED })
+    }
+
+    // A throwing listener clears the work queue; a replacement whose swap
+    // was queued behind it must fail, never wait forever.
+    @Test
+    fun aReplacementDroppedByAThrowingListenerFailsInsteadOfHanging() {
+        val registry = MilanoRegistry()
+        registry.register("Text", StubRenderer)
+        val engine = MilanoEngine(replaceVocabulary, registry)
+        val held = ArrayList<() -> Unit>()
+        var holding = false
+        val dispatcher =
+            object : MilanoDispatcher {
+                override fun dispatch(work: () -> Unit) {
+                    if (holding) {
+                        held.add(work)
+                    } else {
+                        work()
+                    }
+                }
+            }
+        val view =
+            runBlocking {
+                engine
+                    .viewBuilder(countingDocument("n"))
+                    .stateDataProvider { declarations -> declarations.mapValues { MilanoValue.IntValue(0) } }
+                    .dispatcher(dispatcher)
+                    .build()
+            }
+        val failure =
+            runBlocking {
+                // The replacement's swap waits on the dispatcher; the listener
+                // releases it mid-drain, so it queues behind the emission,
+                // then throws and clears the queue.
+                holding = true
+                val replacing = async { runCatching { view.replace(countingDocument("n")) } }
+                while (held.isEmpty()) delay(1)
+                holding = false
+                view.onChange = {
+                    held.toList().also { held.clear() }.forEach { it() }
+                    throw IllegalStateException("host bug")
+                }
+                assertFailsWith<IllegalStateException> { view.emit("t", "tap") }
+                replacing.await().exceptionOrNull()
+            }
+        assertEquals("the view's work queue was cleared before this update ran", failure?.message)
+        assertEquals(mapOf("n" to MilanoValue.IntValue(1)), view.state)
     }
 
     @Test

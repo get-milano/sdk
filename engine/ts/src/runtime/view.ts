@@ -16,7 +16,7 @@ import {
   countNodes,
   elementBindings,
   indexDependencies,
-  instanceIdentities,
+  indexOfIdentity,
   refresh,
   repeatElements,
   resolve,
@@ -24,7 +24,7 @@ import {
 } from "../gate/resolver.ts";
 import type { MilanoDispatcher } from "./dispatcher.ts";
 import type { MilanoAction, MilanoActionHandler } from "./handlers.ts";
-import { MilanoActionFailure } from "./handlers.ts";
+import { isActionFailure } from "./handlers.ts";
 
 export interface DispatchRecord {
   readonly action: MilanoAction;
@@ -159,7 +159,7 @@ export class MilanoView {
    * One serialized work queue: action lists and context updates both run
    * through it, so a re-entrant post cannot interleave with a list.
    */
-  private readonly queue: (() => void)[] = [];
+  private readonly queue: { run: () => void; drop: ((error: Error) => void) | null }[] = [];
   private processing = false;
   private tornDown = false;
   /** The lifecycle state: appear is accepted only while false, disappear only while true. */
@@ -336,14 +336,19 @@ export class MilanoView {
     const plan = await this.replacer(text, byteCount, this.currentDocument.stateDeclarations);
     await new Promise<void>((settle, fail) => {
       this.dispatcher.dispatch(() => {
-        this.enqueue(() => {
-          try {
-            this.swap(plan);
-            settle();
-          } catch (error) {
-            fail(error);
-          }
-        });
+        this.enqueue(
+          () => {
+            try {
+              this.swap(plan);
+              settle();
+            } catch (error) {
+              fail(error);
+            }
+          },
+          // A throw that clears the queue ahead of the swap leaves the
+          // view as it was; the caller hears that instead of waiting.
+          fail,
+        );
       });
     });
   }
@@ -517,16 +522,9 @@ export class MilanoView {
       const keyed = repeat.repeat?.key !== null;
       let index: number;
       if (keyed) {
-        // The identities of the current elements are their keys, distinct
-        // by the invariant every accepted update keeps.
-        let current: string[];
-        try {
-          current = instanceIdentities(repeat, reference, elements, this.currentState, this.currentContext, () => {}, bindings, this.env);
-        } catch (error) {
-          if (error instanceof RepeatKeyConflict) return { missing: `key ${identity}` };
-          throw error;
-        }
-        index = current.indexOf(identity);
+        // The first element rendering the key; the keys of the current
+        // tree are distinct by the invariant every accepted update keeps.
+        index = indexOfIdentity(repeat, reference, elements, identity, this.currentState, this.currentContext, () => {}, bindings, this.env);
         if (index < 0) return { missing: `key ${identity}` };
       } else {
         index = /^\d+$/.test(identity) ? Number(identity) : -1;
@@ -805,21 +803,28 @@ export class MilanoView {
     for (const listener of [...this.listeners]) listener();
   }
 
-  private enqueue(work: () => void): void {
-    this.queue.push(work);
+  /**
+   * Queues a unit of work. `drop` is told when the unit is discarded
+   * unrun because a unit ahead of it threw, so whoever awaits it can stop.
+   */
+  private enqueue(run: () => void, drop: ((error: Error) => void) | null = null): void {
+    this.queue.push({ run, drop });
     if (this.processing) return;
     this.processing = true;
     try {
       while (this.queue.length > 0) {
-        (this.queue.shift() as () => void)();
+        (this.queue.shift() as { run: () => void }).run();
       }
     } finally {
       // A host listener or renderer that throws unwinds through here. The
       // queue is cleared and the flag released: the throw reaches the
       // caller, and the view stays usable instead of silently dying with
       // work stuck behind a flag that was never reset.
-      this.queue.length = 0;
+      const dropped = this.queue.splice(0);
       this.processing = false;
+      for (const unit of dropped) {
+        unit.drop?.(new Error("the view's work queue was cleared before this update ran"));
+      }
     }
   }
 
@@ -910,7 +915,7 @@ export class MilanoView {
               } catch (error) {
                 // A MilanoActionFailure carries the failure payload; any
                 // other error is a failure with none.
-                payload = error instanceof MilanoActionFailure ? error.value : null;
+                payload = isActionFailure(error) ? error.value : null;
                 success = false;
               }
               this.dispatcher.dispatch(() => this.complete(index, success, payload));

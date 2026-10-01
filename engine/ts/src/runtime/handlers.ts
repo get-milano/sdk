@@ -20,6 +20,8 @@ export interface MilanoAction {
   readonly dispatchId: string;
 }
 
+const FAILURE_BRAND = Symbol.for("milano.actionFailure");
+
 /**
  * The failure a handler throws (or rejects with) to fail a dispatch with a
  * payload: the value is validated against the action's declared `failure`
@@ -28,6 +30,8 @@ export interface MilanoAction {
  */
 export class MilanoActionFailure extends Error {
   readonly value: MilanoValue | null;
+  /** The brand `isActionFailure` reads: the ESM and CJS builds each hold a copy of this class. */
+  readonly [FAILURE_BRAND] = true;
 
   constructor(value: MilanoValue | null = null, message = "action failed") {
     super(message);
@@ -82,3 +86,12 @@ export type MilanoStateDataProvider = (
 ) =>
   | Promise<Readonly<Record<string, MilanoValue>>>
   | Readonly<Record<string, MilanoValue>>;
+
+/**
+ * True for a `MilanoActionFailure` from either build of the package: a
+ * handler loaded through one build may fail a view built by the other, so
+ * the check is a brand, never `instanceof`.
+ */
+export function isActionFailure(error: unknown): error is MilanoActionFailure {
+  return typeof error === "object" && error !== null && FAILURE_BRAND in error;
+}

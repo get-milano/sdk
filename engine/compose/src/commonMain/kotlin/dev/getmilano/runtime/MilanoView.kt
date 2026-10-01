@@ -176,7 +176,7 @@ class MilanoView internal constructor(
      * through it, so an update can never land mid-action-list even when a
      * re-entrant post arrives on the dispatcher thread.
      */
-    private val queue = ArrayDeque<() -> Unit>()
+    private val queue = ArrayDeque<QueuedWork>()
     private var processing = false
     private var tornDown = false
 
@@ -381,7 +381,9 @@ class MilanoView internal constructor(
         val plan = replacer(text, byteCount, document.stateDeclarations)
         val settled = CompletableDeferred<Unit>()
         dispatcher.dispatch {
-            enqueue {
+            // A throw that clears the queue ahead of the swap leaves the
+            // view as it was; the caller hears that instead of waiting.
+            enqueue(drop = { error -> settled.completeExceptionally(error) }) {
                 try {
                     swap(plan)
                     settled.complete(Unit)
@@ -787,21 +789,35 @@ class MilanoView internal constructor(
         }
     }
 
-    private fun enqueue(work: () -> Unit) {
-        queue.addLast(work)
+    /** A unit of queued work; `drop` hears of it being discarded unrun. */
+    private class QueuedWork(
+        val run: () -> Unit,
+        val drop: ((Throwable) -> Unit)?,
+    )
+
+    private fun enqueue(
+        drop: ((Throwable) -> Unit)? = null,
+        work: () -> Unit,
+    ) {
+        queue.addLast(QueuedWork(work, drop))
         if (processing) return
         processing = true
         try {
             while (queue.isNotEmpty()) {
-                queue.removeFirst()()
+                queue.removeFirst().run()
             }
         } finally {
             // A host listener or renderer that throws unwinds through here.
             // The queue is cleared and the flag released: the throw still
             // reaches the caller, and the view stays usable instead of
             // silently dying with work stuck behind a flag never reset.
+            // Whoever awaits a discarded unit is told, so none waits forever.
+            val dropped = queue.toList()
             queue.clear()
             processing = false
+            for (unit in dropped) {
+                unit.drop?.invoke(IllegalStateException("the view's work queue was cleared before this update ran"))
+            }
         }
     }
 
