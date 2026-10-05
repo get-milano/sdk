@@ -113,7 +113,7 @@ jobs:
           repository: get-milano/specs
           ref: ${{ env.SPECS_RELEASE }}
           path: .specs
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
