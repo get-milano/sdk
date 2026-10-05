@@ -199,7 +199,7 @@ jobs:
           cp "$(find engine/compose/build/libs -name "*jvm-$VERSION.jar" | head -1)" \
              "release-artifacts/engine-compose-jvm-$VERSION.jar"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: kotlin-artifacts
           path: release-artifacts/
