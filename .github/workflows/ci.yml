@@ -46,7 +46,7 @@ jobs:
           repository: get-milano/specs
           ref: ${{ env.SPECS_RELEASE }}
           path: .specs
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
       - run: npm ci
@@ -142,7 +142,7 @@ jobs:
       # The samples' Gradle tasks run the Milano CLI (bindings, schema,
       # validate) from the workspace build, so the CLI and the engine it
       # validates with are built first; the React binding is not needed.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
       - name: Build the CLI the samples' build steps run
