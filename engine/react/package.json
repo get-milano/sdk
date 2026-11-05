@@ -1,6 +1,6 @@
 {
   "name": "@get-milano/react",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Milano Document-Driven UI for React: the host component, the renderer registry types, and node materialization. Renderer-agnostic, so React Native and the web share it.",
   "license": "Apache-2.0",
   "author": "Ezequiel (kimi) Aceto <ezequiel.aceto@gmail.com> (https://kimi.blog)",
@@ -39,16 +39,16 @@
     "test": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=95 --test-coverage-branches=82 \"test/**/*.test.ts\""
   },
   "dependencies": {
-    "@get-milano/core": "^2.1.0"
+    "@get-milano/core": "^2.2.0"
   },
   "peerDependencies": {
     "react": ">=18"
   },
   "devDependencies": {
-    "@types/react": "^19.0.0",
-    "@types/react-test-renderer": "^19.0.0",
-    "react": "19.2.3",
-    "react-test-renderer": "19.2.3"
+    "@types/react": "^19.3.0",
+    "@types/react-test-renderer": "^19.3.1",
+    "react": "19.3.0",
+    "react-test-renderer": "19.3.0"
   },
   "keywords": [
     "milano",

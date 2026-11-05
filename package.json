@@ -15,12 +15,12 @@
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
+    "@types/node": "^26.6.6",
     "typedoc": "^0.28.20",
-    "typescript": "^5.7.2"
+    "typescript": "^6.0.3"
   },
   "overrides": {
-    "react": "19.2.3",
-    "react-native": "0.85.3"
+    "react": "19.3.0",
+    "react-native": "0.88.1"
   }
 }

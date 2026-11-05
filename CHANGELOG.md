@@ -9,6 +9,45 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [semantic versioning](https://semver.org): within a
 major, documents, vocabularies, and integrations keep working.
 
+## 2.2.0
+
+Contract 2.1 on every engine, unchanged from 2.1.0: the same documents,
+vocabularies, and APIs build and mean the same thing. Two engine fixes
+and a refresh of every toolchain and dependency; nothing to migrate.
+
+### Fixed
+
+- **`replace()` no longer waits forever behind a throwing listener.** A
+  host listener that throws clears the view's work queue, as it always did
+  and still does; a replacement whose swap was queued behind it was
+  discarded without settling, so `await view.replace(...)` never returned.
+  It now rejects, with the view exactly as it was. The TypeScript and
+  Kotlin engines changed; Swift's closures cannot throw there.
+- **A typed failure thrown by the other build of the TypeScript package is
+  recognized.** The ESM and CommonJS builds each hold their own
+  `MilanoActionFailure`, so a handler loaded through one that failed a view
+  built by the other lost its payload to an `instanceof` check, which an
+  action declaring a `failure` type reported as an invalid completion. The
+  engine now checks a brand both copies carry.
+
+### Changed
+
+- **Toolchains and dependencies refreshed, nothing exported changed.**
+  The Compose engine builds with Kotlin 2.4.21, AGP 9.5.0, Gradle 9.8.2,
+  the Compose runtime 1.12.2, kotlinx-serialization 1.12.0,
+  kotlinx-coroutines 1.11.0, Dokka 2.2.0, and Kover 0.9.11; source
+  consumption still needs Gradle 9.6 or newer. The TypeScript packages
+  are built with TypeScript 6.0 and type-checked against `@types/node`
+  26; the CommonJS build keeps `node10` resolution under
+  `ignoreDeprecations`, which TypeScript 7 will not accept, so that
+  build moves before the toolchain does. The React binding is tested
+  against React 19.3.0, the React Native sample runs on Expo SDK 58 and
+  React Native 0.88.1 with its native projects regenerated, the Android
+  sample on activity-compose 1.13.0 and Material 3 1.4.0, the desktop
+  sample on Compose Multiplatform 1.12.2. The docs site builds with
+  github-pages 233, and the workflows run the current major of every
+  GitHub action they use.
+
 ## 2.1.0
 
 Contract 2.1 on every engine, a superset of 2.0: every 2.0 document and
@@ -256,19 +295,6 @@ to declare and what to switch on is in [Migrating](docs/migrating.md).
   ones with "A problem occurred starting process 'command 'node''", both
   on machines where `node` works in every terminal. All three now look
   where those managers install, and `MILANO_NODE` names one explicitly.
-
-- **`replace()` no longer waits forever behind a throwing listener.** A
-  host listener that throws clears the view's work queue, as it always did
-  and still does; a replacement whose swap was queued behind it was
-  discarded without settling, so `await view.replace(...)` never returned.
-  It now rejects, with the view exactly as it was. The TypeScript and
-  Kotlin engines changed; Swift's closures cannot throw there.
-- **A typed failure thrown by the other build of the TypeScript package is
-  recognized.** The ESM and CommonJS builds each hold their own
-  `MilanoActionFailure`, so a handler loaded through one that failed a view
-  built by the other lost its payload to an `instanceof` check, which an
-  action declaring a `failure` type reported as an invalid completion. The
-  engine now checks a brand both copies carry.
 
 ### Changed
 

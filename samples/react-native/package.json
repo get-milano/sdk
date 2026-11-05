@@ -1,6 +1,6 @@
 {
   "name": "milano-sample-react-native",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "description": "The Milano sample app for React Native: the same documents the SwiftUI and Compose samples render, through the same contract.",
   "license": "Apache-2.0",
@@ -16,20 +16,20 @@
     "render": "esbuild scripts/render-documents.tsx --bundle --platform=node --format=esm --outfile=.render/render.mjs --log-level=warning --alias:react-native=./scripts/stubs/react-native.js --alias:expo-linear-gradient=./scripts/stubs/expo-linear-gradient.js --alias:react-native-safe-area-context=./scripts/stubs/react-native-safe-area-context.js --external:react --external:react-test-renderer --external:@get-milano/* && node .render/render.mjs"
   },
   "dependencies": {
-    "@get-milano/core": "^2.1.0",
-    "@get-milano/react": "^2.1.0",
-    "expo": "~56.0.20",
-    "expo-linear-gradient": "~56.0.4",
-    "expo-status-bar": "~56.0.4",
-    "react": "19.2.3",
-    "react-native": "^0.85.3",
-    "react-native-safe-area-context": "~5.9.0"
+    "@get-milano/core": "^2.2.0",
+    "@get-milano/react": "^2.2.0",
+    "expo": "~58.0.23",
+    "expo-linear-gradient": "~58.0.3",
+    "expo-status-bar": "~58.0.4",
+    "react": "19.3.0",
+    "react-native": "^0.88.1",
+    "react-native-safe-area-context": "~5.11.1"
   },
   "devDependencies": {
-    "@types/react": "^19.2.0",
-    "@types/react-test-renderer": "^19.1.0",
+    "@types/react": "^19.3.0",
+    "@types/react-test-renderer": "^19.3.1",
     "esbuild": "^0.28.2",
-    "react-test-renderer": "19.2.3",
-    "typescript": "^5.7.2"
+    "react-test-renderer": "19.3.0",
+    "typescript": "^6.0.3"
   }
 }

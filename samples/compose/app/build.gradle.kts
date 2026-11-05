@@ -1,8 +1,8 @@
 plugins {
     // AGP 9 compiles Kotlin itself, so there is no kotlin("android") plugin
     // here: applying it is an error since AGP 9.0.
-    id("com.android.application") version "9.3.1"
-    kotlin("plugin.compose") version "2.3.20"
+    id("com.android.application") version "9.5.0"
+    kotlin("plugin.compose") version "2.4.21"
 }
 
 android {
@@ -14,7 +14,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "2.1.0"
+        versionName = "2.2.0"
     }
 
     buildFeatures {
@@ -184,10 +184,10 @@ tasks.named("preBuild") {
 
 dependencies {
     // Substituted from source by the composite build in settings.gradle.kts.
-    implementation("dev.get-milano:engine-compose:2.1.0")
+    implementation("dev.get-milano:engine-compose:2.2.0")
 
-    implementation("androidx.activity:activity-compose:1.9.3")
-    implementation("androidx.compose.material3:material3:1.3.1")
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.compose.material3:material3:1.4.0")
     // The eye pair the card detail's reveal control draws. material3
     // brings the core icon set along; these two are in the extended one,
     // as they are for the Compose Desktop sample.
