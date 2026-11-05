@@ -1,9 +1,9 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 plugins {
-    kotlin("jvm") version "2.3.20"
-    kotlin("plugin.compose") version "2.3.20"
-    id("org.jetbrains.compose") version "1.12.0"
+    kotlin("jvm") version "2.4.21"
+    kotlin("plugin.compose") version "2.4.21"
+    id("org.jetbrains.compose") version "1.12.2"
 }
 
 kotlin {
@@ -170,7 +170,7 @@ tasks.named("compileKotlin") {
 
 dependencies {
     // Substituted from source by the composite build in settings.gradle.kts.
-    implementation("dev.get-milano:engine-compose:2.1.0")
+    implementation("dev.get-milano:engine-compose:2.2.0")
 
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
@@ -179,7 +179,7 @@ dependencies {
     implementation(compose.materialIconsExtended)
     // The Pokemon screen parses PokeAPI's answer; the engine's own JSON
     // reader is internal to it.
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
 }
 
 compose.desktop {
@@ -188,7 +188,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "MilanoSample"
-            packageVersion = "2.1.0"
+            packageVersion = "2.2.0"
             description = "Milano SDK demos"
             vendor = "get-milano.dev"
         }

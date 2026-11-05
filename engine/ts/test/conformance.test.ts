@@ -287,7 +287,7 @@ async function runVector(
       // macrotask later the queue holds it, and the pump lands it. The
       // outcome is captured at once, so an early rejection is never
       // unhandled while the pump runs.
-      const pending = view.replace(text).then(
+      const pending: Promise<unknown> = view.replace(text).then(
         () => null,
         (error: unknown) => (error === null ? new Error("null rejection") : error),
       );

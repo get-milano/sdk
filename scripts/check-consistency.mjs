@@ -214,7 +214,7 @@ check("the React Native sample has identifiers of its own", () => {
   const identifiers = {
     "app.json (iOS)": declared,
     "app.json (Android)": expo?.android?.package,
-    "ios/Milano.xcodeproj": /PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);/
+    "ios/Milano.xcodeproj": /PRODUCT_BUNDLE_IDENTIFIER = "?([^";]+)"?;/
       .exec(read("samples/react-native/ios/Milano.xcodeproj/project.pbxproj"))?.[1],
     "android applicationId": /applicationId '([^']+)'/
       .exec(read("samples/react-native/android/app/build.gradle"))?.[1],
